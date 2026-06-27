@@ -1,0 +1,804 @@
+import { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
+  Users, UserCheck, GraduationCap, BarChart3, X, Phone, Calendar,
+  BookOpen, ChevronUp, ChevronDown, ArrowUpDown
+} from 'lucide-react'
+import { useTheme } from '../context/ThemeContext'
+import { students } from '../data/mockData'
+
+const avatarGradients = {
+  A: 'from-rose-500 to-pink-600',
+  B: 'from-orange-500 to-amber-600',
+  C: 'from-amber-500 to-yellow-600',
+  D: 'from-emerald-500 to-green-600',
+  E: 'from-teal-500 to-emerald-600',
+  F: 'from-cyan-500 to-teal-600',
+  G: 'from-sky-500 to-cyan-600',
+  H: 'from-blue-500 to-sky-600',
+  I: 'from-indigo-500 to-blue-600',
+  J: 'from-violet-500 to-indigo-600',
+  K: 'from-purple-500 to-violet-600',
+  L: 'from-fuchsia-500 to-purple-600',
+  M: 'from-pink-500 to-fuchsia-600',
+  N: 'from-rose-500 to-red-600',
+  O: 'from-emerald-500 to-teal-600',
+  P: 'from-primary-500 to-violet-600',
+  Q: 'from-sky-500 to-blue-600',
+  R: 'from-accent-500 to-orange-600',
+  S: 'from-emerald-500 to-cyan-600',
+  T: 'from-violet-500 to-purple-600',
+  U: 'from-rose-500 to-pink-600',
+  V: 'from-sky-500 to-indigo-600',
+  W: 'from-amber-500 to-orange-600',
+  X: 'from-teal-500 to-green-600',
+  Y: 'from-indigo-500 to-violet-600',
+  Z: 'from-fuchsia-500 to-pink-600',
+}
+
+function getAvatarGradient(name) {
+  const letter = name.charAt(0).toUpperCase()
+  return avatarGradients[letter] || 'from-primary-500 to-violet-600'
+}
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.06 }
+  }
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
+}
+
+function StudentProfileModal({ student, onClose, theme }) {
+  if (!student) return null
+
+  const isDark = theme === 'dark'
+  const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+  const feeRemaining = student.feeTotal - student.feePaid
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        {/* Backdrop */}
+        <motion.div
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+        />
+
+        {/* Modal */}
+        <motion.div
+          className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 ${
+            isDark
+              ? 'bg-dark-900 border-dark-700/60'
+              : 'bg-white border-dark-200/60 shadow-xl'
+          }`}
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+        >
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className={`absolute top-4 right-4 p-2 rounded-xl transition-colors ${
+              isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'
+            }`}
+          >
+            <X size={20} />
+          </button>
+
+          {/* Header */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xl shadow-lg`}>
+              {student.avatar}
+            </div>
+            <div>
+              <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                {student.name}
+              </h2>
+              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                {student.course}
+              </p>
+              <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                student.status === 'active'
+                  ? 'bg-emerald-500/15 text-emerald-500'
+                  : 'bg-primary-500/15 text-primary-500'
+              }`}>
+                {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+              </span>
+            </div>
+          </div>
+
+          {/* Contact Info */}
+          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              Contact Information
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex items-center gap-2">
+                <Mail size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
+                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.email}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Phone size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
+                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.phone}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <BookOpen size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
+                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.batch}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
+                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                  Enrolled: {new Date(student.enrollDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Fee Breakdown */}
+          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              Fee Breakdown
+            </h3>
+            <div className="grid grid-cols-3 gap-4 mb-3">
+              <div>
+                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Total Fee</p>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                  {student.feeTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </p>
+              </div>
+              <div>
+                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Paid</p>
+                <p className="text-lg font-bold text-emerald-500">
+                  {student.feePaid.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </p>
+              </div>
+              <div>
+                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Remaining</p>
+                <p className={`text-lg font-bold ${feeRemaining > 0 ? 'text-accent-500' : 'text-emerald-500'}`}>
+                  {feeRemaining.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+            <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                initial={{ width: 0 }}
+                animate={{ width: `${feePercent}%` }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+              />
+            </div>
+            <p className={`text-xs mt-1.5 text-right ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              {feePercent}% paid
+            </p>
+          </div>
+
+          {/* Attendance */}
+          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              Attendance
+            </h3>
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                  <motion.div
+                    className={`h-full rounded-full ${
+                      student.attendance >= 90
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                        : student.attendance >= 75
+                        ? 'bg-gradient-to-r from-sky-500 to-sky-400'
+                        : 'bg-gradient-to-r from-accent-500 to-accent-400'
+                    }`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${student.attendance}%` }}
+                    transition={{ duration: 0.8, ease: 'easeOut', delay: 0.2 }}
+                  />
+                </div>
+              </div>
+              <span className={`text-lg font-bold min-w-[48px] text-right ${
+                student.attendance >= 90
+                  ? 'text-emerald-500'
+                  : student.attendance >= 75
+                  ? 'text-sky-500'
+                  : 'text-accent-500'
+              }`}>
+                {student.attendance}%
+              </span>
+            </div>
+          </div>
+
+          {/* Course Progress */}
+          <div className={`rounded-xl p-4 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              Course Progress
+            </h3>
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-r from-primary-500 to-violet-500"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${student.status === 'completed' ? 100 : Math.round(student.attendance * 0.7)}%` }}
+                    transition={{ duration: 0.8, ease: 'easeOut', delay: 0.4 }}
+                  />
+                </div>
+              </div>
+              <span className={`text-lg font-bold min-w-[48px] text-right text-primary-500`}>
+                {student.status === 'completed' ? 100 : Math.round(student.attendance * 0.7)}%
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+function Students() {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [viewMode, setViewMode] = useState('grid')
+  const [selectedStudent, setSelectedStudent] = useState(null)
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
+
+  // Filtered students
+  const filteredStudents = useMemo(() => {
+    let result = students.filter(s => {
+      const q = searchQuery.toLowerCase()
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.course.toLowerCase().includes(q) ||
+        s.batch.toLowerCase().includes(q)
+      )
+    })
+
+    if (sortConfig.key) {
+      result = [...result].sort((a, b) => {
+        let aVal = a[sortConfig.key]
+        let bVal = b[sortConfig.key]
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase()
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase()
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
+        return 0
+      })
+    }
+
+    return result
+  }, [searchQuery, sortConfig])
+
+  // Stats
+  const stats = useMemo(() => {
+    const total = students.length
+    const active = students.filter(s => s.status === 'active').length
+    const completed = students.filter(s => s.status === 'completed').length
+    const avgAttendance = Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / total)
+    return { total, active, completed, avgAttendance }
+  }, [])
+
+  const handleSort = (key) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const SortIcon = ({ column }) => {
+    if (sortConfig.key !== column) {
+      return <ArrowUpDown size={14} className="opacity-40" />
+    }
+    return sortConfig.direction === 'asc'
+      ? <ChevronUp size={14} className="text-primary-500" />
+      : <ChevronDown size={14} className="text-primary-500" />
+  }
+
+  const cardClass = isDark
+    ? 'bg-dark-900 border border-dark-700/60'
+    : 'bg-white border border-dark-200/60 shadow-sm'
+
+  const statCards = [
+    { label: 'Total Students', value: stats.total, icon: Users, color: 'text-primary-500', bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50' },
+    { label: 'Active Students', value: stats.active, icon: UserCheck, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
+    { label: 'Completed', value: stats.completed, icon: GraduationCap, color: 'text-violet-500', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
+    { label: 'Avg Attendance', value: `${stats.avgAttendance}%`, icon: BarChart3, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+      >
+        <div>
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
+            Students
+          </h1>
+          <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+            Manage enrolled students and track their progress
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+            isDark
+              ? 'border-dark-700 text-dark-300 hover:bg-dark-800'
+              : 'border-dark-200 text-dark-600 hover:bg-dark-50'
+          }`}>
+            <Download size={16} className="inline mr-2 -mt-0.5" />
+            Export
+          </button>
+          <button className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
+            <Plus size={16} className="inline mr-2 -mt-0.5" />
+            Add Student
+          </button>
+        </div>
+      </motion.div>
+
+      {/* Search Bar */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.05 }}
+        className={`relative`}
+      >
+        <Search size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+        <input
+          type="text"
+          placeholder="Search students by name, email, course, or batch..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 ${
+            isDark
+              ? 'bg-dark-900 border-dark-700/60 text-white placeholder:text-dark-500'
+              : 'bg-white border-dark-200/60 text-dark-900 placeholder:text-dark-400'
+          }`}
+        />
+      </motion.div>
+
+      {/* Stats Row */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        {statCards.map((stat) => (
+          <motion.div
+            key={stat.label}
+            variants={itemVariants}
+            className={`rounded-2xl p-5 ${cardClass}`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                  {stat.label}
+                </p>
+                <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                  {stat.value}
+                </p>
+              </div>
+              <div className={`p-3 rounded-xl ${stat.bg}`}>
+                <stat.icon size={22} className={stat.color} />
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* View Toggle */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="flex items-center justify-between"
+      >
+        <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+          Showing {filteredStudents.length} of {students.length} students
+        </p>
+        <div className={`flex rounded-xl border overflow-hidden ${
+          isDark ? 'border-dark-700/60' : 'border-dark-200/60'
+        }`}>
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
+              viewMode === 'grid'
+                ? 'bg-primary-600 text-white'
+                : isDark
+                ? 'bg-dark-900 text-dark-400 hover:text-dark-200'
+                : 'bg-white text-dark-500 hover:text-dark-700'
+            }`}
+          >
+            <LayoutGrid size={16} />
+            Grid
+          </button>
+          <button
+            onClick={() => setViewMode('table')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
+              viewMode === 'table'
+                ? 'bg-primary-600 text-white'
+                : isDark
+                ? 'bg-dark-900 text-dark-400 hover:text-dark-200'
+                : 'bg-white text-dark-500 hover:text-dark-700'
+            }`}
+          >
+            <List size={16} />
+            Table
+          </button>
+        </div>
+      </motion.div>
+
+      {/* Grid View */}
+      {viewMode === 'grid' && (
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"
+        >
+          {filteredStudents.map((student) => {
+            const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+            return (
+              <motion.div
+                key={student.id}
+                variants={itemVariants}
+                whileHover={{ scale: 1.02, y: -2 }}
+                transition={{ duration: 0.2 }}
+                className={`rounded-2xl p-6 ${cardClass} hover:shadow-lg transition-shadow cursor-default`}
+              >
+                {/* Student Header */}
+                <div className="flex items-start gap-4 mb-4">
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0`}>
+                    {student.avatar}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`font-semibold truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                      {student.name}
+                    </h3>
+                    <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                      {student.email}
+                    </p>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
+                    student.status === 'active'
+                      ? 'bg-emerald-500/15 text-emerald-500'
+                      : 'bg-primary-500/15 text-primary-500'
+                  }`}>
+                    {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                  </span>
+                </div>
+
+                {/* Course & Batch */}
+                <div className="flex items-center gap-2 mb-4">
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                    isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'
+                  }`}>
+                    {student.course}
+                  </span>
+                </div>
+                <p className={`text-xs mb-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  {student.batch}
+                </p>
+
+                {/* Fee Progress */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                      Fee Progress
+                    </span>
+                    <span className={`text-xs font-semibold ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                      {student.feePaid.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                      {' / '}
+                      {student.feeTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${feePercent}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
+                    />
+                  </div>
+                  <p className={`text-xs mt-1 text-right ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                    {feePercent}%
+                  </p>
+                </div>
+
+                {/* Attendance */}
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                      Attendance
+                    </span>
+                    <span className={`text-xs font-semibold ${
+                      student.attendance >= 90
+                        ? 'text-emerald-500'
+                        : student.attendance >= 75
+                        ? 'text-sky-500'
+                        : 'text-accent-500'
+                    }`}>
+                      {student.attendance}%
+                    </span>
+                  </div>
+                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                    <motion.div
+                      className={`h-full rounded-full ${
+                        student.attendance >= 90
+                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                          : student.attendance >= 75
+                          ? 'bg-gradient-to-r from-sky-500 to-sky-400'
+                          : 'bg-gradient-to-r from-accent-500 to-accent-400'
+                      }`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${student.attendance}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut', delay: 0.4 }}
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className={`flex items-center gap-2 pt-4 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                  <button
+                    onClick={() => setSelectedStudent(student)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      isDark
+                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
+                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
+                    }`}
+                  >
+                    <Eye size={14} />
+                    View
+                  </button>
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      isDark
+                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
+                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
+                    }`}
+                  >
+                    <Mail size={14} />
+                    Message
+                  </button>
+                  <button
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      isDark
+                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
+                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
+                    }`}
+                  >
+                    <Receipt size={14} />
+                    Fees
+                  </button>
+                </div>
+              </motion.div>
+            )
+          })}
+        </motion.div>
+      )}
+
+      {/* Table View */}
+      {viewMode === 'table' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className={`rounded-2xl overflow-hidden ${cardClass}`}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className={isDark ? 'bg-dark-800/60' : 'bg-dark-50'}>
+                  {[
+                    { key: 'name', label: 'Name' },
+                    { key: 'phone', label: 'Contact' },
+                    { key: 'course', label: 'Course' },
+                    { key: 'batch', label: 'Batch' },
+                    { key: 'feePaid', label: 'Fee Status' },
+                    { key: 'attendance', label: 'Attendance' },
+                    { key: 'status', label: 'Status' },
+                    { key: null, label: 'Actions' },
+                  ].map((col) => (
+                    <th
+                      key={col.label}
+                      onClick={() => col.key && handleSort(col.key)}
+                      className={`px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${
+                        isDark ? 'text-dark-400' : 'text-dark-500'
+                      } ${col.key ? 'cursor-pointer hover:text-primary-500 select-none' : ''}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {col.label}
+                        {col.key && <SortIcon column={col.key} />}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDark ? 'divide-dark-700/40' : 'divide-dark-200/60'}`}>
+                {filteredStudents.map((student, index) => {
+                  const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+                  return (
+                    <motion.tr
+                      key={student.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, delay: index * 0.04 }}
+                      className={`transition-colors ${
+                        isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'
+                      }`}
+                    >
+                      {/* Name with Avatar */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xs flex-shrink-0`}>
+                            {student.avatar}
+                          </div>
+                          <div>
+                            <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                              {student.name}
+                            </p>
+                            <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              {student.email}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Contact */}
+                      <td className={`px-5 py-4 text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                        {student.phone}
+                      </td>
+
+                      {/* Course */}
+                      <td className="px-5 py-4">
+                        <span className={`px-2 py-1 rounded-md text-xs font-medium ${
+                          isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'
+                        }`}>
+                          {student.course}
+                        </span>
+                      </td>
+
+                      {/* Batch */}
+                      <td className={`px-5 py-4 text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                        {student.batch}
+                      </td>
+
+                      {/* Fee Status */}
+                      <td className="px-5 py-4">
+                        <div className="w-28">
+                          <div className={`h-1.5 rounded-full overflow-hidden mb-1 ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                              style={{ width: `${feePercent}%` }}
+                            />
+                          </div>
+                          <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                            {feePercent}% paid
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* Attendance */}
+                      <td className="px-5 py-4">
+                        <span className={`text-sm font-semibold ${
+                          student.attendance >= 90
+                            ? 'text-emerald-500'
+                            : student.attendance >= 75
+                            ? 'text-sky-500'
+                            : 'text-accent-500'
+                        }`}>
+                          {student.attendance}%
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-5 py-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                          student.status === 'active'
+                            ? 'bg-emerald-500/15 text-emerald-500'
+                            : 'bg-primary-500/15 text-primary-500'
+                        }`}>
+                          {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSelectedStudent(student)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              isDark
+                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
+                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
+                            }`}
+                            title="View Profile"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            className={`p-2 rounded-lg transition-colors ${
+                              isDark
+                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
+                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
+                            }`}
+                            title="Send Message"
+                          >
+                            <Mail size={16} />
+                          </button>
+                          <button
+                            className={`p-2 rounded-lg transition-colors ${
+                              isDark
+                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
+                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
+                            }`}
+                            title="Fee Details"
+                          >
+                            <Receipt size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredStudents.length === 0 && (
+            <div className="py-12 text-center">
+              <Users size={40} className={`mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                No students found matching your search.
+              </p>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Empty state for grid */}
+      {viewMode === 'grid' && filteredStudents.length === 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className={`rounded-2xl p-12 text-center ${cardClass}`}
+        >
+          <Users size={40} className={`mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+          <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+            No students found matching your search.
+          </p>
+        </motion.div>
+      )}
+
+      {/* Student Profile Modal */}
+      {selectedStudent && (
+        <StudentProfileModal
+          student={selectedStudent}
+          onClose={() => setSelectedStudent(null)}
+          theme={theme}
+        />
+      )}
+    </div>
+  )
+}
+
+export default Students
