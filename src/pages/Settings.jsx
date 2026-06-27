@@ -304,14 +304,7 @@ export default function Settings() {
         </motion.div>
 
         {/* Sub-tab Content */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={configTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
+        <div key={configTab}>
             {configTab === 'api-config' && (
               <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
                 <h3 className={`text-base font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>API Configuration</h3>
@@ -672,8 +665,7 @@ export default function Settings() {
                 </div>
               </motion.div>
             )}
-          </motion.div>
-        </AnimatePresence>
+          </div>
       </motion.div>
     )
   }
@@ -705,7 +697,7 @@ export default function Settings() {
           </nav>
         </div>
 
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="flex-1 space-y-6" key={activeTab + (configuring || '')}>
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="flex-1 space-y-6" key={activeTab}>
           {activeTab === 'profile' && (
             <>
               <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>

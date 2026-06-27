@@ -60,7 +60,11 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       animate={collapsed ? 'collapsed' : 'expanded'}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       className={`h-screen flex flex-col border-r backdrop-blur-xl
-        ${isDark ? 'bg-dark-900/95 border-dark-700/60' : 'bg-white/95 border-dark-200/60'}`}
+        ${isDark ? 'border-dark-700/60' : 'border-primary-200/60'}`}
+      style={isDark
+        ? { background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)' }
+        : { background: 'linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%)' }
+      }
     >
       {/* Logo Area */}
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'px-5'} h-16 shrink-0 border-b

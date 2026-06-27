@@ -18,17 +18,12 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen bg-dark-950 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-500/10 rounded-full blur-3xl" style={{ animation: 'float 6s ease-in-out infinite' }} />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-accent-500/10 rounded-full blur-3xl" style={{ animation: 'float 6s ease-in-out infinite 2s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary-600/5 rounded-full blur-3xl" style={{ animation: 'float 8s ease-in-out infinite 1s' }} />
-      </div>
-
-      <div className="absolute inset-0" style={{
-        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.05) 1px, transparent 0)',
-        backgroundSize: '40px 40px'
-      }} />
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=1920&q=80)' }}
+      />
+      <div className="absolute inset-0 bg-dark-950/75 backdrop-blur-[2px]" />
 
       <motion.div
         initial={{ opacity: 0, y: 30, scale: 0.95 }}
