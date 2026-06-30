@@ -8,7 +8,7 @@ import {
   Activity, ArrowLeft, Bell, Key, CreditCard, Award, Receipt
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-import { leads as initialLeads, packages, followUps as initialFollowUps } from '../data/mockData'
+import { useData } from '../context/DataContext'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 const statusConfig = {
@@ -567,7 +567,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onStatusChange, followUpsData, setFollowUpsData, cardClass, inputClass, activeTab, setActiveTab, showNotification }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onStatusChange, onEnroll, followUpsData, setFollowUpsData, updateFollowUp, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
     { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
@@ -877,9 +877,18 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                               }`}>{fu.status}</span>
                             </div>
                             <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{fu.notes}</p>
-                            <div className={`flex items-center gap-3 mt-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{fu.date}</span>
-                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fu.time}</span>
+                            <div className={`flex items-center justify-between mt-2`}>
+                              <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{fu.date}</span>
+                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fu.time}</span>
+                              </div>
+                              {fu.status === 'pending' && (
+                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                  onClick={() => { updateFollowUp(fu.id, { status: 'completed' }); showNotification(`Follow-up marked as completed`) }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />Mark Complete
+                                </motion.button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -918,9 +927,18 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${m.status === 'completed' ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600' : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'}`}>{m.status}</span>
                           </div>
                           <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.notes}</p>
-                          <div className={`flex items-center gap-3 mt-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{m.date}</span>
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{m.time}</span>
+                          <div className={`flex items-center justify-between mt-2`}>
+                            <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{m.date}</span>
+                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{m.time}</span>
+                            </div>
+                            {m.status === 'pending' && (
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                onClick={() => { updateFollowUp(m.id, { status: 'completed' }); showNotification(`Meeting marked as completed`) }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+                                <CheckCircle2 className="w-3.5 h-3.5" />Mark Complete
+                              </motion.button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -959,12 +977,24 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                   </div>
                   <div className="flex items-center gap-3">
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => {
+                        window.open(`mailto:${lead.email}?subject=${encodeURIComponent(`Package Details: ${matchingPackage.name}`)}&body=${encodeURIComponent(`Hi ${lead.name},\n\nHere are the details for the ${matchingPackage.name} course:\n\nDuration: ${matchingPackage.duration}\nModules: ${matchingPackage.modules}\nPrice: ${formatINR(matchingPackage.price)}\n\nFeatures:\n${matchingPackage.features.map(f => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`)}`)
+                        showNotification(`Package details sent to ${lead.email}`)
+                      }}
                       className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                       Send Package Details
                     </motion.button>
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => {
+                        if (lead.status === 'enrolled') {
+                          showNotification('Lead is already enrolled', 'error')
+                        } else {
+                          onEnroll(lead)
+                          setActiveTab('feebill')
+                        }
+                      }}
                       className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
-                      Assign Package
+                      {lead.status === 'enrolled' ? 'Already Enrolled' : 'Assign Package & Enroll'}
                     </motion.button>
                   </div>
                 </div>
@@ -1013,10 +1043,19 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                     ))}
                   </div>
                   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    className="w-full py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
+                    onClick={() => {
+                      if (lead.status !== 'enrolled') {
+                        showNotification('Please enroll the student first before generating a fee bill', 'error')
+                      } else {
+                        showNotification(`Fee bill generated for ${lead.name} — ${formatINR(Math.round(matchingPackage.price * 1.18))}`)
+                      }
+                    }}
+                    className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400' : 'bg-dark-600 cursor-not-allowed opacity-60'}`}>
                     Generate Fee Bill
                   </motion.button>
-                  <p className={`text-xs text-center mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Fee bill can be generated once the student is enrolled</p>
+                  <p className={`text-xs text-center mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                    {lead.status === 'enrolled' ? 'Student is enrolled — fee bill ready to generate' : 'Fee bill can be generated once the student is enrolled'}
+                  </p>
                 </>
               ) : (
                 <div className="text-center py-6">
@@ -1092,9 +1131,8 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const { leads: leadsData, setLeads: setLeadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, enrollLead, packages } = useData()
 
-  const [leadsData, setLeadsData] = useState(initialLeads)
-  const [followUpsData, setFollowUpsData] = useState(initialFollowUps)
   const [selectedLead, setSelectedLead] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -1110,6 +1148,43 @@ function Leads() {
   const [statusDropdownId, setStatusDropdownId] = useState(null)
 
   const showNotification = useCallback((message, type = 'success') => setNotification({ message, type }), [])
+  const importFileRef = useRef(null)
+
+  const handleImportLeads = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target.result
+      const lines = text.trim().split('\n')
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+      let imported = 0
+      lines.slice(1).forEach((line) => {
+        const cols = line.split(',').map(c => c.trim())
+        if (cols.length < 3) return
+        const nameIdx = headers.indexOf('name')
+        const emailIdx = headers.indexOf('email')
+        const phoneIdx = headers.indexOf('phone')
+        const courseIdx = headers.indexOf('course')
+        const sourceIdx = headers.indexOf('source')
+        const name = cols[nameIdx >= 0 ? nameIdx : 0] || ''
+        const email = cols[emailIdx >= 0 ? emailIdx : 1] || ''
+        const phone = cols[phoneIdx >= 0 ? phoneIdx : 2] || ''
+        const course = cols[courseIdx >= 0 ? courseIdx : 3] || 'Full Stack Development'
+        const source = cols[sourceIdx >= 0 ? sourceIdx : 4] || 'Website'
+        if (!name) return
+        const nameParts = name.trim().split(' ')
+        const avatar = nameParts.length >= 2
+          ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+          : name.trim().slice(0, 2).toUpperCase()
+        addLead({ id: Date.now() + imported, name, email, phone, course, source, avatar, status: 'new', priority: 'medium', date: new Date().toISOString().slice(0, 10), notes: '' })
+        imported++
+      })
+      showNotification(imported > 0 ? `${imported} lead(s) imported successfully` : 'No valid leads found in file', imported > 0 ? 'success' : 'error')
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   const handleSort = (field) => {
     if (sortField === field) setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -1149,18 +1224,18 @@ function Leads() {
     return counts
   }, [leadsData])
 
-  const handleAddLead = (newLead) => { setLeadsData((prev) => [newLead, ...prev]); setShowAddModal(false); showNotification(`${newLead.name} added as a new lead`) }
+  const handleAddLead = (newLead) => { addLead(newLead); setShowAddModal(false); showNotification(`${newLead.name} added as a new lead`) }
 
   const handleEditSave = (updatedLead) => {
-    const avatar = updatedLead.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-    setLeadsData((prev) => prev.map((l) => (l.id === updatedLead.id ? { ...l, ...updatedLead, avatar } : l)))
+    updateLead(updatedLead)
     setEditingLead(null)
+    const avatar = updatedLead.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     setSelectedLead((prev) => (prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead, avatar } : prev))
     showNotification(`${updatedLead.name}'s information updated`)
   }
 
   const handleStatusChange = (leadId, newStatus) => {
-    setLeadsData((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)))
+    updateLeadStatus(leadId, newStatus)
     setStatusDropdownId(null)
     setSelectedLead((prev) => (prev && prev.id === leadId ? { ...prev, status: newStatus } : prev))
     showNotification(`Status updated to ${statusConfig[newStatus]?.label}`)
@@ -1168,7 +1243,7 @@ function Leads() {
 
   const handleDeleteLead = (leadId) => {
     const lead = leadsData.find((l) => l.id === leadId)
-    setLeadsData((prev) => prev.filter((l) => l.id !== leadId))
+    deleteLead(leadId)
     setShowDeleteConfirm(null)
     setSelectedLead(null)
     setActiveProfileTab('overview')
@@ -1177,13 +1252,20 @@ function Leads() {
 
   const handleTransferSubmit = (lead, form) => {
     const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    setFollowUpsData((prev) => [{ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority }, ...prev])
+    addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
     if (lead.status === 'new') {
-      setLeadsData((prev) => prev.map((l) => (l.id === lead.id ? { ...l, status: 'contacted' } : l)))
+      updateLeadStatus(lead.id, 'contacted')
       setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'contacted' } : prev))
     }
     setShowTransferModal(null)
     showNotification(`Follow-up scheduled for ${lead.name}`)
+  }
+
+  const handleEnrollLead = (lead) => {
+    const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+    enrollLead(lead, pkg)
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'enrolled' } : prev))
+    showNotification(`${lead.name} has been enrolled in ${lead.course}`)
   }
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
@@ -1216,13 +1298,16 @@ function Leads() {
             onTransfer={(lead) => setShowTransferModal(lead)}
             onDelete={(lead) => setShowDeleteConfirm(lead)}
             onStatusChange={handleStatusChange}
+            onEnroll={handleEnrollLead}
             followUpsData={followUpsData}
             setFollowUpsData={setFollowUpsData}
+            updateFollowUp={updateFollowUp}
             cardClass={cardClass}
             inputClass={inputClass}
             activeTab={activeProfileTab}
             setActiveTab={setActiveProfileTab}
             showNotification={showNotification}
+            packages={packages}
           />
         ) : (
           <motion.div key="list" className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit={{ opacity: 0, x: -40 }}>
@@ -1238,10 +1323,20 @@ function Leads() {
                   <Plus className="w-4 h-4" />Add New Lead
                 </motion.button>
                 <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={() => importFileRef.current?.click()}
                   className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                   <Upload className="w-4 h-4" />Import Leads
                 </motion.button>
+                <input ref={importFileRef} type="file" accept=".csv" className="hidden" onChange={handleImportLeads} />
                 <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    const csv = 'Name,Email,Phone,Course,Source,Status,Priority,Date\n' +
+                      leadsData.map(l => `${l.name},${l.email},${l.phone},${l.course},${l.source},${l.status},${l.priority},${l.date}`).join('\n')
+                    const blob = new Blob([csv], { type: 'text/csv' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a'); a.href = url; a.download = 'leads-export.csv'; a.click(); URL.revokeObjectURL(url)
+                    showNotification('Leads exported successfully')
+                  }}
                   className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                   <Download className="w-4 h-4" />Export
                 </motion.button>

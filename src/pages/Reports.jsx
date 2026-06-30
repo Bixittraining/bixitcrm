@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -11,7 +11,8 @@ import {
   ArrowUpRight, ArrowDownRight, Sparkles,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-import { monthlyRevenueData, leadSourceData, dashboardStats } from '../data/mockData'
+import { useData } from '../context/DataContext'
+import { monthlyRevenueData, leadSourceData } from '../data/mockData'
 
 // --- Mock data for charts ---
 
@@ -132,9 +133,30 @@ function GlassCard({ children, className = '', theme }) {
 
 // --- Main component ---
 
+function downloadCSV(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function Reports() {
   const { theme } = useTheme()
-  const [dateRange] = useState('Last 30 Days')
+  const { students, leads, invoices } = useData()
+  const [dateRange, setDateRange] = useState('Last 30 Days')
+  const [showDateMenu, setShowDateMenu] = useState(false)
+  const [notification, setNotification] = useState(null)
+  const dateMenuRef = useRef(null)
+
+  const showToast = (msg) => setNotification({ message: msg, type: 'success' })
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (dateMenuRef.current && !dateMenuRef.current.contains(e.target)) setShowDateMenu(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const isDark = theme === 'dark'
   const axisColor = isDark ? '#94a3b8' : '#64748b'
@@ -142,11 +164,17 @@ export default function Reports() {
 
   const totalLeadSources = leadSourceData.reduce((sum, d) => sum + d.value, 0)
 
+  const liveRevenue = invoices.reduce((sum, inv) => sum + (inv.paid || 0), 0)
+  const liveActiveStudents = students.filter(s => s.status === 'active').length
+  const liveEnrolled = leads.filter(l => l.status === 'enrolled').length
+  const liveConversion = leads.length > 0 ? Math.round((liveEnrolled / leads.length) * 100 * 10) / 10 : 0
+  const livePending = invoices.reduce((sum, inv) => sum + (inv.balance || 0), 0)
+
   const kpiCards = [
     {
       title: 'Revenue Growth',
       value: '+15.2%',
-      sub: `Rs. ${dashboardStats.totalRevenue.toLocaleString('en-IN')}`,
+      sub: `Rs. ${liveRevenue.toLocaleString('en-IN')} collected`,
       icon: TrendingUp,
       color: 'text-emerald-500',
       bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
@@ -155,8 +183,8 @@ export default function Reports() {
     },
     {
       title: 'Student Enrollment',
-      value: '+8.3%',
-      sub: `${dashboardStats.activeStudents} active students`,
+      value: `${liveActiveStudents} Active`,
+      sub: `${students.length} total students`,
       icon: Users,
       color: 'text-primary-500',
       bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
@@ -165,8 +193,8 @@ export default function Reports() {
     },
     {
       title: 'Lead Conversion',
-      value: `${dashboardStats.conversionRate}%`,
-      sub: `${dashboardStats.totalLeads} total leads`,
+      value: `${liveConversion}%`,
+      sub: `${leads.length} total leads`,
       icon: Target,
       color: 'text-accent-500',
       bg: isDark ? 'bg-accent-500/10' : 'bg-accent-50',
@@ -175,8 +203,8 @@ export default function Reports() {
     },
     {
       title: 'Fee Collection Rate',
-      value: '87%',
-      sub: `Rs. ${dashboardStats.pendingFees.toLocaleString('en-IN')} pending`,
+      value: liveRevenue + livePending > 0 ? `${Math.round((liveRevenue / (liveRevenue + livePending)) * 100)}%` : '0%',
+      sub: `Rs. ${livePending.toLocaleString('en-IN')} pending`,
       icon: Wallet,
       color: 'text-rose-500',
       bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50',
@@ -192,6 +220,12 @@ export default function Reports() {
       icon: UserCheck,
       color: 'text-primary-500',
       bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
+      onGenerate: () => {
+        const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Attendance\n' +
+          students.map(s => `"${s.name}","${s.email}","${s.phone}","${s.course}","${s.batch}","${s.enrollDate}","${s.status}",${s.feePaid},${s.feeTotal},${s.attendance}%`).join('\n')
+        downloadCSV('student-report.csv', csv)
+        showToast('Student Report downloaded')
+      },
     },
     {
       title: 'Financial Report',
@@ -199,6 +233,12 @@ export default function Reports() {
       icon: DollarSign,
       color: 'text-emerald-500',
       bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
+      onGenerate: () => {
+        const csv = 'Invoice ID,Student,Course,Amount,Paid,Balance,Date,Due Date,Status,Payment Mode\n' +
+          invoices.map(inv => `"${inv.id}","${inv.student}","${inv.course}",${inv.amount},${inv.paid},${inv.balance},"${inv.date}","${inv.dueDate}","${inv.status}","${inv.paymentMode}"`).join('\n')
+        downloadCSV('financial-report.csv', csv)
+        showToast('Financial Report downloaded')
+      },
     },
     {
       title: 'Lead Funnel Report',
@@ -206,6 +246,12 @@ export default function Reports() {
       icon: Filter,
       color: 'text-accent-500',
       bg: isDark ? 'bg-accent-500/10' : 'bg-accent-50',
+      onGenerate: () => {
+        const csv = 'Name,Email,Phone,Course,Source,Status,Priority,Date,Notes\n' +
+          leads.map(l => `"${l.name}","${l.email}","${l.phone}","${l.course}","${l.source}","${l.status}","${l.priority}","${l.date}","${l.notes}"`).join('\n')
+        downloadCSV('lead-funnel-report.csv', csv)
+        showToast('Lead Funnel Report downloaded')
+      },
     },
     {
       title: 'Attendance Report',
@@ -213,6 +259,12 @@ export default function Reports() {
       icon: CalendarCheck,
       color: 'text-violet-500',
       bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50',
+      onGenerate: () => {
+        const csv = 'Name,Course,Batch,Attendance %,Status\n' +
+          students.map(s => `"${s.name}","${s.course}","${s.batch}",${s.attendance}%,"${s.attendance >= 75 ? 'Good' : 'Low'}"`).join('\n')
+        downloadCSV('attendance-report.csv', csv)
+        showToast('Attendance Report downloaded')
+      },
     },
   ]
 
@@ -243,19 +295,36 @@ export default function Reports() {
 
         <div className="flex items-center gap-3">
           {/* Date range selector */}
-          <button
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
-              isDark
-                ? 'bg-dark-800 text-dark-200 border border-dark-700 hover:bg-dark-700'
-                : 'bg-white text-dark-700 border border-dark-200 hover:bg-dark-50'
-            }`}
-          >
-            {dateRange}
-            <ChevronDown className="w-4 h-4 opacity-50" />
-          </button>
+          <div className="relative" ref={dateMenuRef}>
+            <button
+              onClick={() => setShowDateMenu(!showDateMenu)}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
+                isDark
+                  ? 'bg-dark-800 text-dark-200 border border-dark-700 hover:bg-dark-700'
+                  : 'bg-white text-dark-700 border border-dark-200 hover:bg-dark-50'
+              }`}
+            >
+              {dateRange}
+              <ChevronDown className="w-4 h-4 opacity-50" />
+            </button>
+            {showDateMenu && (
+              <div className={`absolute right-0 mt-1 w-44 rounded-xl border shadow-xl py-1 z-30 ${isDark ? 'bg-dark-900 border-dark-700' : 'bg-white border-dark-200'}`}>
+                {['Last 7 Days', 'Last 30 Days', 'Last 3 Months', 'Last 6 Months', 'This Year'].map(range => (
+                  <button key={range} onClick={() => { setDateRange(range); setShowDateMenu(false) }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${dateRange === range ? 'text-primary-500 font-medium' : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'}`}>
+                    {range}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-          {/* Export button */}
           <button
+            onClick={() => {
+              const csv = 'Month,Revenue,Students\n' + monthlyRevenueData.map(d => `${d.month},${d.revenue},${d.students}`).join('\n')
+              downloadCSV('bix-academy-report.csv', csv)
+              showToast('Report downloaded')
+            }}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors border ${
               isDark
                 ? 'border-primary-500/40 text-primary-400 hover:bg-primary-500/10'
@@ -579,6 +648,7 @@ export default function Reports() {
                   {report.description}
                 </p>
                 <button
+                  onClick={report.onGenerate}
                   className={`mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium transition-all w-full justify-center ${
                     isDark
                       ? 'bg-dark-800 text-dark-200 border border-dark-700 hover:bg-dark-700 hover:text-dark-50'
@@ -593,6 +663,16 @@ export default function Reports() {
           ))}
         </div>
       </motion.div>
+
+      {notification && (
+        <div className="fixed top-6 right-6 z-[100]">
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}
+            ref={el => { if (el) setTimeout(() => setNotification(null), 3000) }}>
+            <Sparkles className="w-5 h-5" />
+            <span className="text-sm font-medium">{notification.message}</span>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }

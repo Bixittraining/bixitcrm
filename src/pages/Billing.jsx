@@ -18,7 +18,7 @@ import {
   Hash,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-import { invoices } from '../data/mockData'
+import { useData } from '../context/DataContext'
 
 const formatINR = (num) => {
   return new Intl.NumberFormat('en-IN', {
@@ -64,12 +64,15 @@ const overlayVariants = {
 export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-
+  const { students, invoices: invoicesData, setInvoices: setInvoicesData } = useData()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
-  const [modalMode, setModalMode] = useState(null) // 'view' | 'payment'
+  const [modalMode, setModalMode] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [showCreateBill, setShowCreateBill] = useState(false)
+  const [createForm, setCreateForm] = useState({ student: '', course: '', amount: '', dueDate: '' })
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
     paymentMode: 'UPI',
@@ -77,16 +80,54 @@ export default function Billing() {
     reference: '',
   })
 
+  const showToast = (msg, type = 'success') => { setToast({ message: msg, type }); setTimeout(() => setToast(null), 3000) }
+
+  const handleConfirmPayment = () => {
+    const amt = Number(paymentForm.amount)
+    if (!amt || amt <= 0 || amt > selectedInvoice.balance) { showToast('Enter a valid payment amount', 'error'); return }
+    setInvoicesData(prev => prev.map(inv => {
+      if (inv.id !== selectedInvoice.id) return inv
+      const newPaid = inv.paid + amt
+      const newBalance = inv.amount - newPaid
+      return { ...inv, paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial' }
+    }))
+    showToast(`Payment of ${formatINR(amt)} recorded for ${selectedInvoice.student}`)
+    closeModal()
+  }
+
+  const handleCreateBill = (e) => {
+    e.preventDefault()
+    const id = `INV-${new Date().getFullYear()}-${String(invoicesData.length + 1).padStart(3, '0')}`
+    const newInv = { id, student: createForm.student, course: createForm.course, amount: Number(createForm.amount), paid: 0, balance: Number(createForm.amount), date: new Date().toISOString().split('T')[0], dueDate: createForm.dueDate, status: 'partial', paymentMode: 'UPI' }
+    setInvoicesData(prev => [newInv, ...prev])
+    setShowCreateBill(false)
+    setCreateForm({ student: '', course: '', amount: '', dueDate: '' })
+    showToast(`Fee bill ${id} created for ${createForm.student}`)
+  }
+
+  const handleDownloadReport = () => {
+    const csv = 'Invoice ID,Student,Course,Amount,Paid,Balance,Due Date,Status\n' + invoicesData.map(i => `${i.id},${i.student},${i.course},${i.amount},${i.paid},${i.balance},${i.dueDate},${i.status}`).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'billing-report.csv'; a.click(); URL.revokeObjectURL(url)
+    showToast('Billing report downloaded')
+  }
+
+  const handleDownloadInvoice = (inv) => {
+    const txt = `INVOICE: ${inv.id}\nStudent: ${inv.student}\nCourse: ${inv.course}\nTotal: ${formatINR(inv.amount)}\nPaid: ${formatINR(inv.paid)}\nBalance: ${formatINR(inv.balance)}\nDue: ${inv.dueDate}\nStatus: ${inv.status}`
+    const blob = new Blob([txt], { type: 'text/plain' }); const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `${inv.id}.txt`; a.click(); URL.revokeObjectURL(url)
+  }
+
   // Financial calculations
-  const totalRevenue = useMemo(() => invoices.reduce((sum, inv) => sum + inv.paid, 0), [])
-  const pendingFees = useMemo(() => invoices.reduce((sum, inv) => sum + inv.balance, 0), [])
-  const paidCount = useMemo(() => invoices.filter((inv) => inv.status === 'paid').length, [])
-  const overdueInvoices = useMemo(() => invoices.filter((inv) => inv.status === 'overdue'), [])
+  const totalRevenue = useMemo(() => invoicesData.reduce((sum, inv) => sum + inv.paid, 0), [invoicesData])
+  const pendingFees = useMemo(() => invoicesData.reduce((sum, inv) => sum + inv.balance, 0), [invoicesData])
+  const paidCount = useMemo(() => invoicesData.filter((inv) => inv.status === 'paid').length, [invoicesData])
+  const overdueInvoices = useMemo(() => invoicesData.filter((inv) => inv.status === 'overdue'), [invoicesData])
   const overdueTotal = useMemo(() => overdueInvoices.reduce((sum, inv) => sum + inv.balance, 0), [overdueInvoices])
 
   // Sorting and filtering
   const filteredInvoices = useMemo(() => {
-    let result = [...invoices]
+    let result = [...invoicesData]
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -110,7 +151,7 @@ export default function Billing() {
     })
 
     return result
-  }, [searchQuery, sortField, sortDirection])
+  }, [invoicesData, searchQuery, sortField, sortDirection])
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -210,7 +251,7 @@ export default function Billing() {
     {
       title: 'Paid Invoices',
       value: paidCount,
-      subtitle: `of ${invoices.length} total invoices`,
+      subtitle: `of ${invoicesData.length} total invoices`,
       icon: CheckCircle2,
       color: 'text-sky-500',
       bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50',
@@ -256,6 +297,7 @@ export default function Billing() {
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
+            onClick={() => setShowCreateBill(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white text-sm font-semibold shadow-lg shadow-primary-600/25 hover:shadow-primary-600/40 transition-shadow"
           >
             <Plus size={16} />
@@ -264,6 +306,7 @@ export default function Billing() {
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
+            onClick={() => showToast('Select an invoice from the table and click the payment icon to record a payment', 'error')}
             className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
               isDark
                 ? 'border-dark-600 text-dark-300 hover:bg-dark-800 hover:text-white'
@@ -276,6 +319,7 @@ export default function Billing() {
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
+            onClick={handleDownloadReport}
             className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
               isDark
                 ? 'border-dark-600 text-dark-300 hover:bg-dark-800 hover:text-white'
@@ -445,6 +489,7 @@ export default function Billing() {
                           isDark ? 'hover:bg-dark-700 text-dark-400 hover:text-violet-400' : 'hover:bg-dark-100 text-dark-400 hover:text-violet-600'
                         }`}
                         title="Download Invoice"
+                        onClick={() => handleDownloadInvoice(invoice)}
                       >
                         <Download size={15} />
                       </motion.button>
@@ -712,6 +757,7 @@ export default function Billing() {
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
+                    onClick={handleConfirmPayment}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/25 hover:shadow-emerald-600/40 transition-shadow"
                   >
                     <CreditCard size={16} />
@@ -722,6 +768,7 @@ export default function Billing() {
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
+                    onClick={() => handleDownloadInvoice(selectedInvoice)}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white text-sm font-semibold shadow-lg shadow-primary-600/25 hover:shadow-primary-600/40 transition-shadow"
                   >
                     <Download size={16} />
@@ -729,6 +776,64 @@ export default function Billing() {
                   </motion.button>
                 )}
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div initial={{ opacity: 0, x: 80 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 80 }}
+            className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${
+              toast.type === 'success' ? isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              : isDark ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
+            }`}>
+            <CheckCircle2 className="w-5 h-5" />
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Create Fee Bill Modal */}
+      <AnimatePresence>
+        {showCreateBill && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowCreateBill(false)}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              onClick={e => e.stopPropagation()}
+              className={`w-full max-w-lg rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className={`text-lg font-bold ${textPrimary}`}>Create Fee Bill</h2>
+                <button onClick={() => setShowCreateBill(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></button>
+              </div>
+              <form onSubmit={handleCreateBill} className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Student</label>
+                  <select required value={createForm.student} onChange={e => { const s = students.find(st => st.name === e.target.value); setCreateForm(p => ({ ...p, student: e.target.value, course: s?.course || '' })) }}
+                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
+                    <option value="">Select student</option>
+                    {students.map(s => <option key={s.id} value={s.name}>{s.name} — {s.course}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount (₹)</label>
+                    <input type="number" required value={createForm.amount} onChange={e => setCreateForm(p => ({ ...p, amount: e.target.value }))}
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Due Date</label>
+                    <input type="date" required value={createForm.dueDate} onChange={e => setCreateForm(p => ({ ...p, dueDate: e.target.value }))}
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setShowCreateBill(false)} className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300' : 'border-dark-200 text-dark-600'}`}>Cancel</button>
+                  <button type="submit" className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500">Create Bill</button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

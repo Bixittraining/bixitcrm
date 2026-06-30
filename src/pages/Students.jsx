@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
   Users, UserCheck, GraduationCap, BarChart3, X, Phone, Calendar,
-  BookOpen, ChevronUp, ChevronDown, ArrowUpDown
+  BookOpen, ChevronUp, ChevronDown, ArrowUpDown, MessageCircle,
+  CheckCircle2, AlertCircle, Trash2
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-import { students } from '../data/mockData'
+import { useData } from '../context/DataContext'
 
 const avatarGradients = {
   A: 'from-rose-500 to-pink-600',
@@ -55,7 +56,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete }) {
   if (!student) return null
 
   const isDark = theme === 'dark'
@@ -121,6 +122,26 @@ function StudentProfileModal({ student, onClose, theme }) {
                 {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
               </span>
             </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex items-center gap-2 mb-5">
+            <button onClick={() => { onCall?.(student) }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-colors">
+              <Phone size={14} /> Call
+            </button>
+            <button onClick={() => { onWhatsApp?.(student) }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-colors">
+              <MessageCircle size={14} /> WhatsApp
+            </button>
+            <button onClick={() => { onMessage?.(student) }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+              <Mail size={14} /> Email
+            </button>
+            <button onClick={() => { onDelete?.(student.id); onClose() }}
+              className={`ml-auto p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors`}>
+              <Trash2 size={16} />
+            </button>
           </div>
 
           {/* Contact Info */}
@@ -252,11 +273,53 @@ function StudentProfileModal({ student, onClose, theme }) {
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const { students, setStudents } = useData()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState('grid')
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
+  const [notification, setNotification] = useState(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
+
+  const showToast = (message, type = 'success') => setNotification({ message, type })
+
+  const handleAddStudent = (e) => {
+    e.preventDefault()
+    const nameParts = addForm.name.trim().split(' ')
+    const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : addForm.name.trim().slice(0, 2).toUpperCase()
+    const newStudent = {
+      id: Date.now(), name: addForm.name, email: addForm.email, phone: addForm.phone,
+      course: addForm.course, batch: addForm.batch || `Batch ${new Date().getFullYear()}-A`,
+      enrollDate: new Date().toISOString().slice(0, 10), status: 'active',
+      feePaid: 0, feeTotal: Number(addForm.feeTotal) || 0, avatar, attendance: 0,
+    }
+    setStudents((prev) => [newStudent, ...prev])
+    setShowAddModal(false)
+    setAddForm({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
+    showToast(`${newStudent.name} added as a student`)
+  }
+
+  const handleDeleteStudent = (id) => {
+    const student = students.find(s => s.id === id)
+    setStudents((prev) => prev.filter((s) => s.id !== id))
+    setSelectedStudent(null)
+    showToast(student ? `${student.name} removed` : 'Student removed')
+  }
+
+  const handleMessageStudent = (student) => {
+    window.open(`mailto:${student.email}?subject=${encodeURIComponent(`BIX Academy - ${student.course}`)}`)
+    showToast(`Opening email for ${student.name}`)
+  }
+
+  const handleCallStudent = (student) => {
+    window.open(`tel:${student.phone}`)
+  }
+
+  const handleWhatsApp = (student) => {
+    window.open(`https://wa.me/${student.phone.replace(/\s+/g, '').replace('+', '')}`)
+  }
 
   // Filtered students
   const filteredStudents = useMemo(() => {
@@ -283,7 +346,7 @@ function Students() {
     }
 
     return result
-  }, [searchQuery, sortConfig])
+  }, [students, searchQuery, sortConfig])
 
   // Stats
   const stats = useMemo(() => {
@@ -292,7 +355,7 @@ function Students() {
     const completed = students.filter(s => s.status === 'completed').length
     const avgAttendance = Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / total)
     return { total, active, completed, avgAttendance }
-  }, [])
+  }, [students])
 
   const handleSort = (key) => {
     setSortConfig(prev => ({
@@ -339,7 +402,16 @@ function Students() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+          <button
+            onClick={() => {
+              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Attendance\n' +
+                students.map(s => `${s.name},${s.email},${s.phone},${s.course},${s.batch},${s.enrollDate},${s.status},${s.feePaid},${s.feeTotal},${s.attendance}%`).join('\n')
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a'); a.href = url; a.download = 'students-export.csv'; a.click(); URL.revokeObjectURL(url)
+              showToast('Students exported successfully')
+            }}
+            className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
             isDark
               ? 'border-dark-700 text-dark-300 hover:bg-dark-800'
               : 'border-dark-200 text-dark-600 hover:bg-dark-50'
@@ -347,7 +419,7 @@ function Students() {
             <Download size={16} className="inline mr-2 -mt-0.5" />
             Export
           </button>
-          <button className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
+          <button onClick={() => setShowAddModal(true)} className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
             <Plus size={16} className="inline mr-2 -mt-0.5" />
             Add Student
           </button>
@@ -570,6 +642,7 @@ function Students() {
                     View
                   </button>
                   <button
+                    onClick={() => handleMessageStudent(student)}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isDark
                         ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
@@ -580,6 +653,7 @@ function Students() {
                     Message
                   </button>
                   <button
+                    onClick={() => { setSelectedStudent(student) }}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isDark
                         ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
@@ -736,6 +810,7 @@ function Students() {
                             <Eye size={16} />
                           </button>
                           <button
+                            onClick={() => handleMessageStudent(student)}
                             className={`p-2 rounded-lg transition-colors ${
                               isDark
                                 ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
@@ -746,14 +821,15 @@ function Students() {
                             <Mail size={16} />
                           </button>
                           <button
+                            onClick={() => handleCallStudent(student)}
                             className={`p-2 rounded-lg transition-colors ${
                               isDark
                                 ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
                                 : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
                             }`}
-                            title="Fee Details"
+                            title="Call Student"
                           >
-                            <Receipt size={16} />
+                            <Phone size={16} />
                           </button>
                         </div>
                       </td>
@@ -795,8 +871,96 @@ function Students() {
           student={selectedStudent}
           onClose={() => setSelectedStudent(null)}
           theme={theme}
+          onMessage={handleMessageStudent}
+          onCall={handleCallStudent}
+          onWhatsApp={handleWhatsApp}
+          onDelete={handleDeleteStudent}
         />
       )}
+
+      {/* Toast Notification */}
+      <div className="fixed top-6 right-6 z-[100]">
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, x: 80, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 80, scale: 0.9 }}
+              onAnimationComplete={() => setTimeout(() => setNotification(null), 3000)}
+              className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${
+                notification.type === 'success'
+                  ? isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : isDark ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}
+            >
+              {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+              <span className="text-sm font-medium">{notification.message}</span>
+              <button onClick={() => setNotification(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Add Student Modal */}
+      <AnimatePresence>
+        {showAddModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowAddModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-lg rounded-2xl overflow-hidden ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}
+            >
+              <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Add New Student</h2>
+                <button onClick={() => setShowAddModal(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></button>
+              </div>
+              <form onSubmit={handleAddStudent} className="p-6 space-y-4">
+                <div>
+                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Full Name</label>
+                  <input type="text" required value={addForm.name} onChange={(e) => setAddForm(p => ({ ...p, name: e.target.value }))} placeholder="Enter full name"
+                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
+                    <input type="email" required value={addForm.email} onChange={(e) => setAddForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
+                    <input type="tel" required value={addForm.phone} onChange={(e) => setAddForm(p => ({ ...p, phone: e.target.value }))} placeholder="+91 98765 43210"
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
+                    <select required value={addForm.course} onChange={(e) => setAddForm(p => ({ ...p, course: e.target.value }))}
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
+                      <option value="">Select course</option>
+                      {['Full Stack Development','Data Science & AI','UI/UX Design','Digital Marketing','Cloud Computing','Cybersecurity','Mobile App Development','DevOps Engineering','Python Programming'].map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Total Fee (₹)</label>
+                    <input type="number" required value={addForm.feeTotal} onChange={(e) => setAddForm(p => ({ ...p, feeTotal: e.target.value }))} placeholder="75000"
+                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setShowAddModal(false)}
+                    className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                  <button type="submit"
+                    className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">Add Student</button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

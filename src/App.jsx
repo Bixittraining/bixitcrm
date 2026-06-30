@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './context/ThemeContext'
+import { DataProvider } from './context/DataContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -27,9 +28,10 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <DataProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout />}>
+          <Route path="/" element={<Layout onLogout={() => setIsLoggedIn(false)} />}>
             <Route index element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="follow-ups" element={<FollowUps />} />
@@ -44,6 +46,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </DataProvider>
     </ThemeProvider>
   )
 }

@@ -9,8 +9,10 @@ import {
   UserPlus, CreditCard, Phone, BookOpen, CalendarPlus, Plus, ChevronRight
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useNavigate } from 'react-router-dom'
+import { useData } from '../context/DataContext'
 import {
-  dashboardStats, monthlyRevenueData, leadSourceData, recentActivities, leads
+  monthlyRevenueData, leadSourceData, recentActivities
 } from '../data/mockData'
 
 // ---------- helpers ----------
@@ -181,6 +183,8 @@ function CustomPieLegend({ payload, theme }) {
 // ========== MAIN COMPONENT ==========
 export default function Dashboard() {
   const { theme } = useTheme()
+  const navigate = useNavigate()
+  const { leads, students, invoices } = useData()
 
   const currentDate = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -191,12 +195,17 @@ export default function Dashboard() {
     count: leads.filter(l => l.status === s.key).length,
   }))
 
+  const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.paid || 0), 0)
+  const activeStudents = students.filter(s => s.status === 'active').length
+  const enrolledLeads = leads.filter(l => l.status === 'enrolled').length
+  const conversionRate = leads.length > 0 ? Math.round((enrolledLeads / leads.length) * 100 * 10) / 10 : 0
+
   // ---------- stat card configs ----------
   const statCards = [
-    { icon: Users, label: 'Total Leads', value: dashboardStats.totalLeads, valueKey: 'leads', change: '+12.5%', positive: true, color: 'primary' },
-    { icon: GraduationCap, label: 'Active Students', value: dashboardStats.activeStudents, valueKey: 'students', change: '+8.3%', positive: true, color: 'emerald' },
-    { icon: IndianRupee, label: 'Revenue', value: dashboardStats.totalRevenue, valueKey: 'revenue', change: '+15.2%', positive: true, color: 'accent' },
-    { icon: TrendingUp, label: 'Conversion Rate', value: dashboardStats.conversionRate, valueKey: 'conversion', change: '+2.1%', positive: true, color: 'violet' },
+    { icon: Users, label: 'Total Leads', value: leads.length, valueKey: 'leads', change: '+12.5%', positive: true, color: 'primary' },
+    { icon: GraduationCap, label: 'Active Students', value: activeStudents, valueKey: 'students', change: '+8.3%', positive: true, color: 'emerald' },
+    { icon: IndianRupee, label: 'Revenue', value: totalRevenue, valueKey: 'revenue', change: '+15.2%', positive: true, color: 'accent' },
+    { icon: TrendingUp, label: 'Conversion Rate', value: conversionRate, valueKey: 'conversion', change: '+2.1%', positive: true, color: 'violet' },
   ]
 
   // card wrapper class
@@ -475,7 +484,7 @@ export default function Dashboard() {
               Quick Actions
             </p>
             <div className="flex gap-2">
-              <button className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              <button onClick={() => navigate('/leads')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 theme === 'dark'
                   ? 'bg-primary-600 hover:bg-primary-500 text-white'
                   : 'bg-primary-600 hover:bg-primary-700 text-white'
@@ -483,7 +492,7 @@ export default function Dashboard() {
                 <Plus className="w-4 h-4" />
                 Add Lead
               </button>
-              <button className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              <button onClick={() => navigate('/follow-ups')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 theme === 'dark'
                   ? 'bg-dark-800 hover:bg-dark-700 text-dark-200 border border-dark-700'
                   : 'bg-dark-50 hover:bg-dark-100 text-dark-700 border border-dark-200'

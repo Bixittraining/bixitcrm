@@ -4,7 +4,7 @@ import Sidebar from './Sidebar'
 import Header from './Header'
 import { useTheme } from '../../context/ThemeContext'
 
-export default function Layout() {
+export default function Layout({ onLogout }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
@@ -21,7 +21,7 @@ export default function Layout() {
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header onMenuToggle={() => setMobileOpen(!mobileOpen)} />
+        <Header onMenuToggle={() => setMobileOpen(!mobileOpen)} onLogout={onLogout} />
         <main className={`flex-1 overflow-y-auto p-4 lg:p-6 ${isDark ? 'bg-dark-950' : 'bg-dark-50'}`}>
           <div className="max-w-7xl mx-auto">
             <Outlet />
