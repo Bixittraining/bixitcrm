@@ -11,6 +11,7 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
+import { useUser } from '../context/UserContext'
 import {
   monthlyRevenueData, leadSourceData, recentActivities
 } from '../data/mockData'
@@ -183,6 +184,7 @@ function CustomPieLegend({ payload, theme }) {
 // ========== MAIN COMPONENT ==========
 export default function Dashboard() {
   const { theme } = useTheme()
+  const { profile } = useUser()
   const navigate = useNavigate()
   const { leads, students, invoices } = useData()
 
@@ -227,7 +229,7 @@ export default function Dashboard() {
             <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight ${
               theme === 'dark' ? 'text-dark-50' : 'text-dark-900'
             }`}>
-              Welcome back, <span className="text-primary-500">Yogesh</span>
+              Welcome back, <span className="text-primary-500">{profile.name.split(' ')[0]}</span>
             </h1>
             <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-dark-400' : 'text-dark-500'}`}>
               Here is what is happening at BIX Academy today. Keep up the great work!

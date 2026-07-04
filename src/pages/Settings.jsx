@@ -8,6 +8,7 @@ import {
   Zap, ToggleLeft, ToggleRight, ArrowLeftRight, Search
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useUser } from '../context/UserContext'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -103,7 +104,22 @@ const mockWebhooksList = [
 
 export default function Settings() {
   const { theme, toggleTheme } = useTheme()
+  const { profile, setProfile, initials } = useUser()
   const [activeTab, setActiveTab] = useState('profile')
+
+  const [draftProfile, setDraftProfile] = useState(profile)
+  const [profileSaved, setProfileSaved] = useState(false)
+
+  const handleProfileChange = (field) => (e) => {
+    setDraftProfile((prev) => ({ ...prev, [field]: e.target.value }))
+    setProfileSaved(false)
+  }
+
+  const handleSaveProfile = () => {
+    setProfile(draftProfile)
+    setProfileSaved(true)
+    setTimeout(() => setProfileSaved(false), 2500)
+  }
 
   // Integration states
   const [integrations, setIntegrations] = useState({
@@ -705,40 +721,50 @@ export default function Settings() {
                 <div className="flex items-start gap-6 mb-6">
                   <div className="relative group">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center text-white text-2xl font-bold">
-                      YS
+                      {initials}
                     </div>
                     <div className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
                       <Camera size={20} className="text-white" />
                     </div>
                   </div>
                   <div>
-                    <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Yogesh</h3>
-                    <p className={`text-sm ${textSecondary}`}>Administrator</p>
-                    <p className={`text-sm ${textSecondary}`}>socialmmin@gmail.com</p>
+                    <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{draftProfile.name}</h3>
+                    <p className={`text-sm ${textSecondary}`}>{draftProfile.role}</p>
+                    <p className={`text-sm ${textSecondary}`}>{draftProfile.email}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Full Name</label>
-                    <input type="text" defaultValue="Yogesh" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="text" value={draftProfile.name} onChange={handleProfileChange('name')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Email</label>
-                    <input type="email" defaultValue="socialmmin@gmail.com" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="email" value={draftProfile.email} onChange={handleProfileChange('email')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone</label>
-                    <input type="tel" defaultValue="+91 98765 43210" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="tel" value={draftProfile.phone} onChange={handleProfileChange('phone')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Role</label>
-                    <input type="text" defaultValue="Administrator" disabled className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} opacity-60 cursor-not-allowed`} />
+                    <input type="text" value={draftProfile.role} onChange={handleProfileChange('role')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                 </div>
               </motion.div>
               <motion.div variants={itemVariants} className="flex justify-end">
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/25">
-                  <Save size={16} /> Save Changes
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSaveProfile}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium shadow-lg transition-colors ${
+                    profileSaved
+                      ? 'bg-emerald-500 shadow-emerald-500/25 text-white'
+                      : 'bg-gradient-to-r from-primary-600 to-primary-500 shadow-primary-500/25 text-white'
+                  }`}
+                >
+                  {profileSaved ? <Check size={16} /> : <Save size={16} />}
+                  {profileSaved ? 'Saved' : 'Save Changes'}
                 </motion.button>
               </motion.div>
             </>

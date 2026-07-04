@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './context/ThemeContext'
+import { UserProvider } from './context/UserContext'
 import { DataProvider } from './context/DataContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
@@ -28,6 +29,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <UserProvider>
       <DataProvider>
       <BrowserRouter>
         <Routes>
@@ -47,6 +49,7 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       </DataProvider>
+      </UserProvider>
     </ThemeProvider>
   )
 }

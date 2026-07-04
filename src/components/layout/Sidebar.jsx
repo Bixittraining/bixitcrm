@@ -18,6 +18,7 @@ import {
   Moon,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
+import { useUser } from '../../context/UserContext'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -51,6 +52,7 @@ const itemVariants = {
 
 export default function Sidebar({ collapsed, setCollapsed }) {
   const { theme, toggleTheme } = useTheme()
+  const { profile, initials } = useUser()
   const isDark = theme === 'dark'
 
   return (
@@ -237,7 +239,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           ${isDark ? 'bg-dark-800/50' : 'bg-dark-100/60'}`}>
           {/* Avatar */}
           <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-md shadow-primary-600/20">
-            <span className="text-xs font-bold text-white leading-none select-none">YS</span>
+            <span className="text-xs font-bold text-white leading-none select-none">{initials}</span>
           </div>
 
           <AnimatePresence mode="wait">
@@ -251,10 +253,10 @@ export default function Sidebar({ collapsed, setCollapsed }) {
                 className="flex-1 overflow-hidden min-w-0"
               >
                 <p className={`text-sm font-semibold truncate ${isDark ? 'text-dark-100' : 'text-dark-900'}`}>
-                  Yogesh
+                  {profile.name}
                 </p>
                 <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                  Administrator
+                  {profile.role}
                 </p>
               </motion.div>
             )}

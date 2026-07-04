@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useData } from '../../context/DataContext'
+import { useUser } from '../../context/UserContext'
 import { useNavigate } from 'react-router-dom'
 
 function useClickOutside(ref, handler) {
@@ -30,6 +31,7 @@ const msgTypeColor = {
 
 function Header({ onMenuToggle, onLogout }) {
   const { theme, toggleTheme } = useTheme()
+  const { profile, initials } = useUser()
   const { leads, followUps, students, invoices, communications } = useData()
   const navigate = useNavigate()
   const isDark = theme === 'dark'
@@ -326,9 +328,9 @@ function Header({ onMenuToggle, onLogout }) {
               onClick={() => { setUserDropdownOpen(p => !p); setShowNotifications(false); setShowMessages(false) }}
               className={`flex items-center gap-2 p-1.5 pr-3 rounded-xl transition-colors cursor-pointer ${isDark ? 'hover:bg-dark-800' : 'hover:bg-dark-100'}`}>
               <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 text-white text-sm font-bold shadow-lg shadow-primary-500/25">
-                YS
+                {initials}
               </div>
-              <span className={`hidden sm:block text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Yogesh</span>
+              <span className={`hidden sm:block text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>{profile.name}</span>
               <motion.div animate={{ rotate: userDropdownOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
                 <ChevronDown size={14} className={`hidden sm:block ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
               </motion.div>
@@ -340,8 +342,8 @@ function Header({ onMenuToggle, onLogout }) {
                   transition={{ duration: 0.15 }}
                   className={`absolute right-0 mt-2 w-56 rounded-xl shadow-xl border overflow-hidden z-50 ${isDark ? 'bg-dark-800 border-dark-700 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/40'}`}>
                   <div className={`px-4 py-3 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'}`}>
-                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Yogesh S</p>
-                    <p className={`text-xs mt-0.5 ${textSecondary}`}>Administrator</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{profile.name}</p>
+                    <p className={`text-xs mt-0.5 ${textSecondary}`}>{profile.role}</p>
                   </div>
                   <div className="p-1.5">
                     {[
