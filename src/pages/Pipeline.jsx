@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 const PIPELINE_STAGES = [
   { key: 'new', label: 'Inquiry', color: 'sky' },
@@ -149,7 +150,7 @@ function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onAddLead }) {
           {stageLeads.length}
         </span>
       </div>
-      <motion.div className="flex flex-col gap-3 px-3 pb-3 overflow-y-auto max-h-[calc(100vh-340px)] scrollbar-thin" variants={containerVariants} initial="hidden" animate="visible">
+      <motion.div className="flex flex-col gap-3 px-3 pb-3 overflow-y-auto max-h-[calc(100vh-340px)] kanban-scrollbar" variants={containerVariants} initial="hidden" animate="visible">
         <AnimatePresence mode="popLayout">
           {stageLeads.map(lead => (
             <LeadCard key={lead.id} lead={lead} stageColor={stage.color} isDark={isDark} onMoveNext={onMoveNext} />
@@ -177,15 +178,15 @@ function AddLeadModal({ isDark, defaultStage, onClose, onSave }) {
   const labelCls = `block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`
 
   return (
-    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit" onClick={onClose}>
       <motion.div
-        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+        variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
         onClick={e => e.stopPropagation()}
         className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${isDark ? 'bg-dark-900 border-dark-700/60' : 'bg-white border-dark-200/60'}`}
       >
         <div className={`flex items-center justify-between p-5 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
           <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Add New Lead</h2>
-          <button onClick={onClose} className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></button>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose} className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></motion.button>
         </div>
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -245,15 +246,15 @@ function AddLeadModal({ isDark, defaultStage, onClose, onSave }) {
 
 function SettingsModal({ isDark, onClose }) {
   return (
-    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit" onClick={onClose}>
       <motion.div
-        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+        variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
         onClick={e => e.stopPropagation()}
         className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${isDark ? 'bg-dark-900 border-dark-700/60' : 'bg-white border-dark-200/60'}`}
       >
         <div className={`flex items-center justify-between p-5 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
           <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Pipeline Settings</h2>
-          <button onClick={onClose} className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></button>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose} className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></motion.button>
         </div>
         <div className="p-5 space-y-3">
           <p className={`text-sm font-medium mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>Pipeline Stages</p>

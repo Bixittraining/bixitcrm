@@ -18,6 +18,7 @@ import {
   Hash,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { useData } from '../context/DataContext'
 
 const formatINR = (num) => {
@@ -47,18 +48,6 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-}
-
-const modalVariants = {
-  hidden: { opacity: 0, scale: 0.9, y: 20 },
-  visible: { opacity: 1, scale: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
-  exit: { opacity: 0, scale: 0.9, y: 20, transition: { duration: 0.2 } },
-}
-
-const overlayVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1 },
-  exit: { opacity: 0 },
 }
 
 export default function Billing() {
@@ -526,7 +515,7 @@ export default function Billing() {
       <AnimatePresence>
         {selectedInvoice && (
           <motion.div
-            variants={overlayVariants}
+            variants={modalOverlayVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
@@ -535,12 +524,15 @@ export default function Billing() {
             {/* Backdrop */}
             <motion.div
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={closeModal}
             />
 
             {/* Modal Content */}
             <motion.div
-              variants={modalVariants}
+              variants={modalCardVariants}
               initial="hidden"
               animate="visible"
               exit="exit"
@@ -799,14 +791,14 @@ export default function Billing() {
       {/* Create Fee Bill Modal */}
       <AnimatePresence>
         {showCreateBill && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowCreateBill(false)}>
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+            <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-lg rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
               <div className="flex items-center justify-between mb-6">
                 <h2 className={`text-lg font-bold ${textPrimary}`}>Create Fee Bill</h2>
-                <button onClick={() => setShowCreateBill(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></button>
+                <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setShowCreateBill(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></motion.button>
               </div>
               <form onSubmit={handleCreateBill} className="space-y-4">
                 <div>

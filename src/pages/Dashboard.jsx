@@ -11,7 +11,7 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
-import { useUser } from '../context/UserContext'
+import { useAuth } from '../context/AuthContext'
 import {
   monthlyRevenueData, leadSourceData, recentActivities
 } from '../data/mockData'
@@ -184,7 +184,7 @@ function CustomPieLegend({ payload, theme }) {
 // ========== MAIN COMPONENT ==========
 export default function Dashboard() {
   const { theme } = useTheme()
-  const { profile } = useUser()
+  const { profile } = useAuth()
   const navigate = useNavigate()
   const { leads, students, invoices } = useData()
 
@@ -374,9 +374,9 @@ export default function Dashboard() {
         {/* Recent Activity */}
         <motion.div
           variants={cardVariants}
-          className={`lg:col-span-3 rounded-2xl p-6 ${glass}`}
+          className={`lg:col-span-3 rounded-2xl p-6 ${glass} flex flex-col`}
         >
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center justify-between mb-5 shrink-0">
             <div>
               <h2 className={`text-lg font-semibold ${theme === 'dark' ? 'text-dark-50' : 'text-dark-900'}`}>
                 Recent Activity
@@ -386,7 +386,7 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
-          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
             {recentActivities.map((activity, index) => {
               const IconComp = activityIconMap[activity.icon] || BookOpen
               const borderColor = activityBorderColor[activity.type] || activityBorderColor.course
@@ -486,7 +486,7 @@ export default function Dashboard() {
               Quick Actions
             </p>
             <div className="flex gap-2">
-              <button onClick={() => navigate('/leads')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              <button onClick={() => navigate('/leads', { state: { openAddLeadModal: true } })} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 theme === 'dark'
                   ? 'bg-primary-600 hover:bg-primary-500 text-white'
                   : 'bg-primary-600 hover:bg-primary-700 text-white'

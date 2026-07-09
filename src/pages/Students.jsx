@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 const avatarGradients = {
   A: 'from-rose-500 to-pink-600',
@@ -64,43 +65,45 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
   const feeRemaining = student.feeTotal - student.feePaid
 
   return (
-    <AnimatePresence>
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      variants={modalOverlayVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+    >
+      {/* Backdrop */}
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-      >
-        {/* Backdrop */}
-        <motion.div
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-        />
+        onClick={onClose}
+      />
 
-        {/* Modal */}
-        <motion.div
-          className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 ${
-            isDark
-              ? 'bg-dark-900 border-dark-700/60'
-              : 'bg-white border-dark-200/60 shadow-xl'
-          }`}
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        >
+      {/* Modal */}
+      <motion.div
+        className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 ${
+          isDark
+            ? 'bg-dark-900 border-dark-700/60'
+            : 'bg-white border-dark-200/60 shadow-xl'
+        }`}
+        variants={modalCardVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
           {/* Close Button */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.1, rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
             onClick={onClose}
             className={`absolute top-4 right-4 p-2 rounded-xl transition-colors ${
               isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'
             }`}
           >
             <X size={20} />
-          </button>
+          </motion.button>
 
           {/* Header */}
           <div className="flex items-center gap-4 mb-6">
@@ -266,7 +269,6 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
   )
 }
 
@@ -679,7 +681,17 @@ function Students() {
           className={`rounded-2xl overflow-hidden ${cardClass}`}
         >
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full table-fixed min-w-[1230px]">
+              <colgroup>
+                <col className="w-[225px]" />
+                <col className="w-[150px]" />
+                <col className="w-[200px]" />
+                <col className="w-[120px]" />
+                <col className="w-[185px]" />
+                <col className="w-[85px]" />
+                <col className="w-[120px]" />
+                <col className="w-[145px]" />
+              </colgroup>
               <thead>
                 <tr className={isDark ? 'bg-dark-800/60' : 'bg-dark-50'}>
                   {[
@@ -722,15 +734,15 @@ function Students() {
                     >
                       {/* Name with Avatar */}
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xs flex-shrink-0`}>
                             {student.avatar}
                           </div>
-                          <div>
-                            <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                          <div className="min-w-0">
+                            <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
                               {student.name}
                             </p>
-                            <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                            <p className={`text-xs truncate ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
                               {student.email}
                             </p>
                           </div>
@@ -738,13 +750,13 @@ function Students() {
                       </td>
 
                       {/* Contact */}
-                      <td className={`px-5 py-4 text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
                         {student.phone}
                       </td>
 
                       {/* Course */}
                       <td className="px-5 py-4">
-                        <span className={`px-2 py-1 rounded-md text-xs font-medium ${
+                        <span className={`inline-block max-w-full truncate align-middle px-2 py-1 rounded-md text-xs font-medium ${
                           isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'
                         }`}>
                           {student.course}
@@ -752,13 +764,13 @@ function Students() {
                       </td>
 
                       {/* Batch */}
-                      <td className={`px-5 py-4 text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
                         {student.batch}
                       </td>
 
                       {/* Fee Status */}
                       <td className="px-5 py-4">
-                        <div className="w-28">
+                        <div className="w-full max-w-[140px]">
                           <div className={`h-1.5 rounded-full overflow-hidden mb-1 ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
                             <div
                               className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
@@ -786,7 +798,7 @@ function Students() {
 
                       {/* Status */}
                       <td className="px-5 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                        <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${
                           student.status === 'active'
                             ? 'bg-emerald-500/15 text-emerald-500'
                             : 'bg-primary-500/15 text-primary-500'
@@ -797,7 +809,7 @@ function Students() {
 
                       {/* Actions */}
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 whitespace-nowrap">
                           <button
                             onClick={() => setSelectedStudent(student)}
                             className={`p-2 rounded-lg transition-colors ${
@@ -866,17 +878,19 @@ function Students() {
       )}
 
       {/* Student Profile Modal */}
-      {selectedStudent && (
-        <StudentProfileModal
-          student={selectedStudent}
-          onClose={() => setSelectedStudent(null)}
-          theme={theme}
-          onMessage={handleMessageStudent}
-          onCall={handleCallStudent}
-          onWhatsApp={handleWhatsApp}
-          onDelete={handleDeleteStudent}
-        />
-      )}
+      <AnimatePresence>
+        {selectedStudent && (
+          <StudentProfileModal
+            student={selectedStudent}
+            onClose={() => setSelectedStudent(null)}
+            theme={theme}
+            onMessage={handleMessageStudent}
+            onCall={handleCallStudent}
+            onWhatsApp={handleWhatsApp}
+            onDelete={handleDeleteStudent}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Toast Notification */}
       <div className="fixed top-6 right-6 z-[100]">
@@ -904,18 +918,18 @@ function Students() {
       {/* Add Student Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowAddModal(false)}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
               onClick={(e) => e.stopPropagation()}
               className={`w-full max-w-lg rounded-2xl overflow-hidden ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}
             >
               <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
                 <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Add New Student</h2>
-                <button onClick={() => setShowAddModal(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></button>
+                <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setShowAddModal(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></motion.button>
               </div>
               <form onSubmit={handleAddStudent} className="p-6 space-y-4">
                 <div>

@@ -23,6 +23,7 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { useData } from '../context/DataContext'
 
 const typeConfig = {
@@ -791,14 +792,15 @@ export default function FollowUps() {
       <AnimatePresence>
         {showTransferConfirm && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
             className="fixed inset-0 z-[70] flex items-center justify-center p-4"
           >
-            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowTransferConfirm(null)} />
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowTransferConfirm(null)} />
             <motion.div
-              initial={{ opacity: 0, scale: 0.85, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              variants={modalCardVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
               className={`relative w-full max-w-sm rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
             >
               <div className="flex flex-col items-center text-center">
@@ -829,17 +831,18 @@ export default function FollowUps() {
       <AnimatePresence>
         {showModal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            variants={modalOverlayVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowModal(false)}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              variants={modalCardVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
               onClick={(e) => e.stopPropagation()}
               className={`w-full max-w-lg rounded-2xl overflow-hidden ${
                 isDark
@@ -860,7 +863,9 @@ export default function FollowUps() {
                 >
                   Schedule Follow-up
                 </h2>
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.1, rotate: 90 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setShowModal(false)}
                   className={`p-2 rounded-lg transition-colors ${
                     isDark
@@ -869,7 +874,7 @@ export default function FollowUps() {
                   }`}
                 >
                   <X className="w-5 h-5" />
-                </button>
+                </motion.button>
               </div>
 
               {/* Modal Body */}

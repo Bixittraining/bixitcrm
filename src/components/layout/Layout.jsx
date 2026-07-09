@@ -12,12 +12,12 @@ export default function Layout({ onLogout }) {
 
   return (
     <div className={`flex h-screen overflow-hidden ${isDark ? 'bg-dark-950' : 'bg-dark-50'}`}>
-      <div className={`fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity ${mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setMobileOpen(false)}
-      />
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />
+      )}
 
       <div className={`fixed z-50 lg:static lg:z-auto transition-transform duration-300 h-full ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+        <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} onLogout={onLogout} onNavigate={() => setMobileOpen(false)} />
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

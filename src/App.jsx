@@ -1,7 +1,6 @@
-import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './context/ThemeContext'
-import { UserProvider } from './context/UserContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { DataProvider } from './context/DataContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
@@ -16,24 +15,26 @@ import Reports from './pages/Reports'
 import Communications from './pages/Communications'
 import Settings from './pages/Settings'
 
-export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+function FullScreenSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-dark-950">
+      <div className="w-10 h-10 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
+    </div>
+  )
+}
 
-  if (!isLoggedIn) {
-    return (
-      <ThemeProvider>
-        <Login onLogin={() => setIsLoggedIn(true)} />
-      </ThemeProvider>
-    )
-  }
+function AppRoutes() {
+  const { session, profile, isAdmin, loading, signOut } = useAuth()
+
+  if (loading) return <FullScreenSpinner />
+  if (!session) return <Login />
+  if (!profile) return <FullScreenSpinner />
 
   return (
-    <ThemeProvider>
-      <UserProvider>
-      <DataProvider>
+    <DataProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout onLogout={() => setIsLoggedIn(false)} />}>
+          <Route path="/" element={<Layout onLogout={signOut} />}>
             <Route index element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="follow-ups" element={<FollowUps />} />
@@ -43,13 +44,21 @@ export default function App() {
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="reports" element={<Reports />} />
             <Route path="communications" element={<Communications />} />
-            <Route path="settings" element={<Settings />} />
+            <Route path="settings" element={isAdmin ? <Settings /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>
-      </DataProvider>
-      </UserProvider>
+    </DataProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </ThemeProvider>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, Mail, Phone, Send, Search, Plus, Bell, Users, Clock, CheckCircle, X, Smartphone } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { communications as initialComms } from '../data/mockData'
 
 const containerVariants = {
@@ -249,24 +250,26 @@ export default function Communications() {
       <AnimatePresence>
         {showCompose && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            variants={modalOverlayVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowCompose(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              variants={modalCardVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-lg ${cardBg} border rounded-2xl shadow-2xl overflow-hidden`}
             >
               <div className={`flex items-center justify-between p-5 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
                 <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Compose Message</h2>
-                <button onClick={() => setShowCompose(false)} className={`p-1.5 rounded-lg cursor-pointer ${hoverBg}`}>
+                <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setShowCompose(false)} className={`p-1.5 rounded-lg cursor-pointer ${hoverBg}`}>
                   <X size={18} className={textSecondary} />
-                </button>
+                </motion.button>
               </div>
               <div className="p-5 space-y-4">
                 <div>

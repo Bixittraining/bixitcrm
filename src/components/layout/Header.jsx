@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useData } from '../../context/DataContext'
-import { useUser } from '../../context/UserContext'
+import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 
 function useClickOutside(ref, handler) {
@@ -31,7 +31,7 @@ const msgTypeColor = {
 
 function Header({ onMenuToggle, onLogout }) {
   const { theme, toggleTheme } = useTheme()
-  const { profile, initials } = useUser()
+  const { profile, initials, isAdmin } = useAuth()
   const { leads, followUps, students, invoices, communications } = useData()
   const navigate = useNavigate()
   const isDark = theme === 'dark'
@@ -135,8 +135,8 @@ function Header({ onMenuToggle, onLogout }) {
   const textSecondary = isDark ? 'text-dark-400' : 'text-dark-500'
 
   return (
-    <header className={`sticky top-0 z-40 w-full transition-colors duration-300 ${
-      isDark ? 'bg-dark-900/90 backdrop-blur-xl border-b border-dark-700/60' : 'bg-white/90 backdrop-blur-xl border-b border-dark-200/60'
+    <header className={`sticky top-0 z-40 w-full transition-colors duration-300 backdrop-blur-sm sm:backdrop-blur-xl ${
+      isDark ? 'bg-dark-900/90 border-b border-dark-700/60' : 'bg-white/90 border-b border-dark-200/60'
     }`}>
       <div className="flex items-center justify-between h-16 px-4 lg:px-6">
 
@@ -346,10 +346,13 @@ function Header({ onMenuToggle, onLogout }) {
                     <p className={`text-xs mt-0.5 ${textSecondary}`}>{profile.role}</p>
                   </div>
                   <div className="p-1.5">
-                    {[
-                      { icon: User, label: 'My Profile', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
-                      { icon: Settings, label: 'Settings', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
-                    ].map(({ icon: Icon, label, action }) => (
+                    {(isAdmin
+                      ? [
+                          { icon: User, label: 'My Profile', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
+                          { icon: Settings, label: 'Settings', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
+                        ]
+                      : []
+                    ).map(({ icon: Icon, label, action }) => (
                       <motion.button key={label} whileHover={{ x: 2 }} onClick={action}
                         className={`flex items-center gap-3 w-full px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer ${isDark ? 'text-dark-300 hover:text-white hover:bg-dark-700' : 'text-dark-600 hover:text-dark-900 hover:bg-dark-50'}`}>
                         <Icon size={16} />{label}

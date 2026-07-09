@@ -109,6 +109,32 @@
   .dark ::-webkit-scrollbar-thumb {
     background: var(--color-dark-600);
   }
+
+  /* Kanban column scroll areas (Pipeline.jsx) — thin, muted grey thumb */
+  .kanban-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .kanban-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .kanban-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-dark-300);
+    border-radius: 9999px;
+  }
+
+  .dark .kanban-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-dark-600);
+  }
+
+  .kanban-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-dark-400);
+  }
+
+  .dark .kanban-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-dark-500);
+  }
 }
 
 @keyframes float {

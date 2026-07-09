@@ -1,14 +1,16 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Upload, Download, Eye, Pencil, Phone, UserPlus, Users, UserCheck,
-  MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, X, ArrowRightLeft,
+  MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, ArrowRightLeft,
   RefreshCw, Trash2, Mail, Calendar, Clock, MapPin, Star, Send, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
   Activity, ArrowLeft, Bell, Key, CreditCard, Award, Receipt
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 const statusConfig = {
@@ -21,6 +23,7 @@ const statusConfig = {
 }
 
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
+const LEADS_PER_PAGE = 10
 const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'Walk-in']
 const statusOptions = ['All', 'New', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
 
@@ -61,16 +64,6 @@ const itemVariants = {
 const rowVariants = {
   hidden: { opacity: 0, x: -10 },
   visible: { opacity: 1, x: 0, transition: { duration: 0.3 } },
-}
-const modalOverlayVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1 },
-  exit: { opacity: 0 },
-}
-const modalCardVariants = {
-  hidden: { opacity: 0, scale: 0.85, y: 30 },
-  visible: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
-  exit: { opacity: 0, scale: 0.9, y: 20, transition: { duration: 0.2 } },
 }
 const toastVariants = {
   hidden: { opacity: 0, x: 80, scale: 0.9 },
@@ -1132,6 +1125,8 @@ function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const { leads: leadsData, setLeads: setLeadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, enrollLead, packages } = useData()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [selectedLead, setSelectedLead] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -1146,6 +1141,21 @@ function Leads() {
   const [activeProfileTab, setActiveProfileTab] = useState('overview')
   const [notification, setNotification] = useState(null)
   const [statusDropdownId, setStatusDropdownId] = useState(null)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  // Scroll to top whenever this page is landed on (e.g. navigating from Dashboard)
+  useEffect(() => {
+    document.querySelector('main')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    window.scrollTo(0, 0)
+  }, [])
+
+  // Auto-open the Add Lead modal when navigated here with that intent (e.g. Dashboard's "Add Lead" quick action)
+  useEffect(() => {
+    if (location.state?.openAddLeadModal) {
+      setShowAddModal(true)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate])
 
   const showNotification = useCallback((message, type = 'success') => setNotification({ message, type }), [])
   const importFileRef = useRef(null)
@@ -1217,6 +1227,31 @@ function Leads() {
     })
     return result
   }, [leadsData, searchQuery, statusFilter, sourceFilter, sortField, sortDirection])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, statusFilter, sourceFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE))
+
+  useEffect(() => {
+    setCurrentPage((p) => Math.min(p, totalPages))
+  }, [totalPages])
+
+  const paginatedLeads = useMemo(() => {
+    const start = (currentPage - 1) * LEADS_PER_PAGE
+    return filteredLeads.slice(start, start + LEADS_PER_PAGE)
+  }, [filteredLeads, currentPage])
+
+  const pageNumbers = useMemo(() => {
+    const maxButtons = 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    const end = Math.min(totalPages, start + maxButtons - 1)
+    start = Math.max(1, end - maxButtons + 1)
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages])
 
   const statusCounts = useMemo(() => {
     const counts = {}
@@ -1402,7 +1437,7 @@ function Leads() {
                   </thead>
                   <AnimatePresence mode="popLayout">
                     <tbody className={`divide-y ${isDark ? 'divide-dark-800' : 'divide-dark-100'}`}>
-                      {filteredLeads.map((lead, i) => {
+                      {paginatedLeads.map((lead, i) => {
                         const avatarColors = isDark ? avatarColorsDark : avatarColorsLight
                         const sColor = getStatusColor(lead.status)
                         return (
@@ -1469,6 +1504,56 @@ function Leads() {
                   </div>
                 )}
               </div>
+
+              {filteredLeads.length > 0 && (
+                <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3.5 border-t ${isDark ? 'border-dark-800' : 'border-dark-100'}`}>
+                  <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                    Showing {(currentPage - 1) * LEADS_PER_PAGE + 1}-{Math.min(currentPage * LEADS_PER_PAGE, filteredLeads.length)} of {filteredLeads.length} leads
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <motion.button
+                      whileHover={currentPage === 1 ? {} : { scale: 1.05 }}
+                      whileTap={currentPage === 1 ? {} : { scale: 0.95 }}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                      <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                    </motion.button>
+
+                    {pageNumbers[0] > 1 && (
+                      <span className={`px-1.5 text-xs ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>&hellip;</span>
+                    )}
+
+                    {pageNumbers.map((page) => (
+                      <motion.button
+                        key={page}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                          page === currentPage
+                            ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
+                            : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'
+                        }`}>
+                        {page}
+                      </motion.button>
+                    ))}
+
+                    {pageNumbers[pageNumbers.length - 1] < totalPages && (
+                      <span className={`px-1.5 text-xs ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>&hellip;</span>
+                    )}
+
+                    <motion.button
+                      whileHover={currentPage === totalPages ? {} : { scale: 1.05 }}
+                      whileTap={currentPage === totalPages ? {} : { scale: 0.95 }}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </motion.button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

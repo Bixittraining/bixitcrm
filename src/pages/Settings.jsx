@@ -1,14 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Settings as SettingsIcon, User, Bell, Shield, Palette, Globe, Database, Mail,
   Sun, Moon, Save, Camera, Building2, Phone, MapPin, Plug, Key, Eye, EyeOff,
   Copy, Check, X, Loader2, RefreshCw, Plus, Trash2, Download, Filter,
   ArrowRight, ExternalLink, ChevronLeft, AlertTriangle, Activity, Clock,
-  Zap, ToggleLeft, ToggleRight, ArrowLeftRight, Search
+  Zap, ToggleLeft, ToggleRight, ArrowLeftRight, Search, Users, UserPlus, ShieldCheck
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-import { useUser } from '../context/UserContext'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -22,6 +23,7 @@ const itemVariants = {
 
 const tabs = [
   { key: 'profile', label: 'Profile', icon: User },
+  { key: 'team', label: 'Team', icon: Users },
   { key: 'academy', label: 'Academy', icon: Building2 },
   { key: 'integrations', label: 'Integrations', icon: Plug },
   { key: 'webhooks', label: 'Webhooks', icon: Globe },
@@ -103,22 +105,93 @@ const mockWebhooksList = [
 ]
 
 export default function Settings() {
-  const { theme, toggleTheme } = useTheme()
-  const { profile, setProfile, initials } = useUser()
+  const { theme, toggleTheme, accentColor, setAccentColor } = useTheme()
+  const { profile, initials, isAdmin, updateProfile, uploadAvatar, addTeamMember } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
-  const [draftProfile, setDraftProfile] = useState(profile)
+  const [draftProfile, setDraftProfile] = useState({ name: profile.name, email: profile.email, phone: profile.phone || '' })
   const [profileSaved, setProfileSaved] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState('')
+
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+  const avatarInputRef = useRef(null)
 
   const handleProfileChange = (field) => (e) => {
     setDraftProfile((prev) => ({ ...prev, [field]: e.target.value }))
     setProfileSaved(false)
   }
 
-  const handleSaveProfile = () => {
-    setProfile(draftProfile)
+  const handleAvatarSelect = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setAvatarError('')
+    setAvatarUploading(true)
+    const { error } = await uploadAvatar(file)
+    setAvatarUploading(false)
+    if (error) {
+      setAvatarError(error.message || 'Failed to upload image')
+      setTimeout(() => setAvatarError(''), 4000)
+    }
+  }
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true)
+    setProfileError('')
+    const { error } = await updateProfile({ name: draftProfile.name, phone: draftProfile.phone })
+    setProfileSaving(false)
+    if (error) {
+      setProfileError(error.message || 'Failed to save profile')
+      return
+    }
     setProfileSaved(true)
     setTimeout(() => setProfileSaved(false), 2500)
+  }
+
+  // Team management state (admin only)
+  const [teamMembers, setTeamMembers] = useState([])
+  const [teamLoading, setTeamLoading] = useState(true)
+  const [teamForm, setTeamForm] = useState({ name: '', email: '', phone: '', password: '', role: 'sales' })
+  const [teamSubmitting, setTeamSubmitting] = useState(false)
+  const [teamError, setTeamError] = useState('')
+  const [teamSuccess, setTeamSuccess] = useState('')
+
+  const loadTeamMembers = async () => {
+    setTeamLoading(true)
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
+    if (!error) setTeamMembers(data || [])
+    setTeamLoading(false)
+  }
+
+  useEffect(() => {
+    if (isAdmin) loadTeamMembers()
+  }, [isAdmin])
+
+  const handleTeamFormChange = (field) => (e) => {
+    setTeamForm((prev) => ({ ...prev, [field]: e.target.value }))
+    setTeamError('')
+  }
+
+  const handleAddTeamMember = async (e) => {
+    e.preventDefault()
+    setTeamError('')
+    setTeamSuccess('')
+    if (!teamForm.name || !teamForm.email || !teamForm.password) {
+      setTeamError('Name, email and password are required')
+      return
+    }
+    setTeamSubmitting(true)
+    const { error } = await addTeamMember(teamForm)
+    setTeamSubmitting(false)
+    if (error) {
+      setTeamError(error.message)
+      return
+    }
+    setTeamSuccess(`${teamForm.name} added successfully`)
+    setTeamForm({ name: '', email: '', phone: '', password: '', role: 'sales' })
+    loadTeamMembers()
   }
 
   // Integration states
@@ -719,18 +792,43 @@ export default function Settings() {
               <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
                 <h2 className={`text-lg font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Personal Information</h2>
                 <div className="flex items-start gap-6 mb-6">
-                  <div className="relative group">
-                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center text-white text-2xl font-bold">
-                      {initials}
+                  <div>
+                    <div className="relative group w-20 h-20">
+                      {profile.avatar_url ? (
+                        <img src={profile.avatar_url} alt={profile.name} className="w-20 h-20 rounded-2xl object-cover" />
+                      ) : (
+                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center text-white text-2xl font-bold">
+                          {initials}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => avatarInputRef.current?.click()}
+                        disabled={avatarUploading}
+                        className={`absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center transition-opacity ${
+                          avatarUploading ? 'opacity-100 cursor-wait' : 'opacity-0 group-hover:opacity-100 cursor-pointer'
+                        }`}
+                      >
+                        {avatarUploading ? (
+                          <Loader2 size={20} className="text-white animate-spin" />
+                        ) : (
+                          <Camera size={20} className="text-white" />
+                        )}
+                      </button>
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarSelect}
+                        className="hidden"
+                      />
                     </div>
-                    <div className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                      <Camera size={20} className="text-white" />
-                    </div>
+                    {avatarError && <p className="mt-1.5 text-xs text-rose-500 max-w-[120px]">{avatarError}</p>}
                   </div>
                   <div>
                     <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{draftProfile.name}</h3>
-                    <p className={`text-sm ${textSecondary}`}>{draftProfile.role}</p>
-                    <p className={`text-sm ${textSecondary}`}>{draftProfile.email}</p>
+                    <p className={`text-sm ${textSecondary}`}>{profile.role}</p>
+                    <p className={`text-sm ${textSecondary}`}>{profile.email}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -740,7 +838,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Email</label>
-                    <input type="email" value={draftProfile.email} onChange={handleProfileChange('email')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="email" value={draftProfile.email} disabled title="Contact an administrator to change your email" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} opacity-60 cursor-not-allowed`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone</label>
@@ -748,24 +846,142 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Role</label>
-                    <input type="text" value={draftProfile.role} onChange={handleProfileChange('role')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="text" value={profile.role} disabled title="Only an administrator can change roles" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} opacity-60 cursor-not-allowed`} />
                   </div>
                 </div>
               </motion.div>
-              <motion.div variants={itemVariants} className="flex justify-end">
+              <motion.div variants={itemVariants} className="flex items-center justify-end gap-3">
+                {profileError && <span className="text-sm text-rose-500">{profileError}</span>}
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleSaveProfile}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium shadow-lg transition-colors ${
+                  disabled={profileSaving}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium shadow-lg transition-colors disabled:opacity-60 ${
                     profileSaved
                       ? 'bg-emerald-500 shadow-emerald-500/25 text-white'
                       : 'bg-gradient-to-r from-primary-600 to-primary-500 shadow-primary-500/25 text-white'
                   }`}
                 >
-                  {profileSaved ? <Check size={16} /> : <Save size={16} />}
-                  {profileSaved ? 'Saved' : 'Save Changes'}
+                  {profileSaving ? <Loader2 size={16} className="animate-spin" /> : profileSaved ? <Check size={16} /> : <Save size={16} />}
+                  {profileSaving ? 'Saving...' : profileSaved ? 'Saved' : 'Save Changes'}
                 </motion.button>
+              </motion.div>
+            </>
+          )}
+
+          {activeTab === 'team' && (
+            <>
+              <motion.div variants={itemVariants}>
+                <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Team</h2>
+                <p className={`text-sm mb-6 ${textSecondary}`}>Add sales team members and manage who can access the CRM</p>
+              </motion.div>
+
+              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4`}>
+                <h3 className={`text-base font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                  <UserPlus size={18} /> Add Team Member
+                </h3>
+                <form onSubmit={handleAddTeamMember} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Full Name</label>
+                    <input type="text" value={teamForm.name} onChange={handleTeamFormChange('name')} placeholder="e.g. Priya Kumar" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Email</label>
+                    <input type="email" value={teamForm.email} onChange={handleTeamFormChange('email')} placeholder="priya@bixacademy.com" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone</label>
+                    <input type="tel" value={teamForm.phone} onChange={handleTeamFormChange('phone')} placeholder="+91 98765 43210" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  </div>
+                  <div>
+                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Temporary Password</label>
+                    <input type="text" value={teamForm.password} onChange={handleTeamFormChange('password')} placeholder="Min. 8 characters" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 font-mono`} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Role</label>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setTeamForm((prev) => ({ ...prev, role: 'sales' }))}
+                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                          teamForm.role === 'sales'
+                            ? 'border-primary-500 bg-primary-500/10 text-primary-500'
+                            : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
+                        }`}
+                      >
+                        <Users size={14} /> Sales Person
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTeamForm((prev) => ({ ...prev, role: 'admin' }))}
+                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                          teamForm.role === 'admin'
+                            ? 'border-primary-500 bg-primary-500/10 text-primary-500'
+                            : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
+                        }`}
+                      >
+                        <ShieldCheck size={14} /> Administrator
+                      </button>
+                    </div>
+                  </div>
+
+                  {teamError && (
+                    <div className="md:col-span-2 flex items-center gap-2 text-sm text-rose-500">
+                      <AlertTriangle size={14} /> {teamError}
+                    </div>
+                  )}
+                  {teamSuccess && (
+                    <div className="md:col-span-2 flex items-center gap-2 text-sm text-emerald-500">
+                      <Check size={14} /> {teamSuccess}
+                    </div>
+                  )}
+
+                  <div className="md:col-span-2 flex justify-end">
+                    <motion.button
+                      type="submit"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      disabled={teamSubmitting}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/25 disabled:opacity-60"
+                    >
+                      {teamSubmitting ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+                      {teamSubmitting ? 'Adding...' : 'Add Team Member'}
+                    </motion.button>
+                  </div>
+                </form>
+              </motion.div>
+
+              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
+                <h3 className={`text-base font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Current Team ({teamMembers.length})</h3>
+                {teamLoading ? (
+                  <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
+                    <Loader2 size={16} className="animate-spin" /> Loading team members...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {teamMembers.map((member) => (
+                      <div key={member.id} className={`flex items-center justify-between px-4 py-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center text-white text-xs font-bold">
+                            {member.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{member.name}</p>
+                            <p className={`text-xs truncate ${textSecondary}`}>{member.email}</p>
+                          </div>
+                        </div>
+                        <span className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium ${
+                          member.role === 'admin'
+                            ? 'bg-primary-500/10 text-primary-500'
+                            : 'bg-emerald-500/10 text-emerald-500'
+                        }`}>
+                          {member.role === 'admin' ? 'Administrator' : 'Sales Person'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </motion.div>
             </>
           )}
@@ -1223,15 +1439,23 @@ export default function Settings() {
                   <p className={`font-medium text-sm mb-3 ${isDark ? 'text-white' : 'text-dark-900'}`}>Accent Color</p>
                   <div className="flex gap-3">
                     {[
-                      { name: 'Indigo', color: 'bg-primary-500', active: true },
-                      { name: 'Emerald', color: 'bg-emerald-500', active: false },
-                      { name: 'Rose', color: 'bg-rose-500', active: false },
-                      { name: 'Amber', color: 'bg-accent-500', active: false },
-                      { name: 'Sky', color: 'bg-sky-500', active: false },
+                      { name: 'Indigo', color: 'bg-primary-500' },
+                      { name: 'Emerald', color: 'bg-emerald-500' },
+                      { name: 'Rose', color: 'bg-rose-500' },
+                      { name: 'Amber', color: 'bg-accent-500' },
+                      { name: 'Sky', color: 'bg-sky-500' },
                     ].map(c => (
-                      <button
+                      <motion.button
                         key={c.name}
-                        className={`w-10 h-10 rounded-xl ${c.color} transition-all ${c.active ? 'ring-2 ring-offset-2 ring-primary-500' : 'hover:scale-110'}`}
+                        type="button"
+                        whileHover={{ scale: accentColor === c.name ? 1 : 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setAccentColor(c.name)}
+                        className={`w-10 h-10 rounded-xl ${c.color} transition-all ${
+                          accentColor === c.name
+                            ? `ring-2 ring-offset-2 ring-primary-500 ${isDark ? 'ring-offset-dark-900' : 'ring-offset-white'}`
+                            : ''
+                        }`}
                         title={c.name}
                       />
                     ))}

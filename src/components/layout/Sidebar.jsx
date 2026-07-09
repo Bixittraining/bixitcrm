@@ -18,7 +18,7 @@ import {
   Moon,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
-import { useUser } from '../../context/UserContext'
+import { useAuth } from '../../context/AuthContext'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -50,10 +50,11 @@ const itemVariants = {
   visible: { opacity: 1, x: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } },
 }
 
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate }) {
   const { theme, toggleTheme } = useTheme()
-  const { profile, initials } = useUser()
+  const { profile, initials, isAdmin } = useAuth()
   const isDark = theme === 'dark'
+  const visibleNavItems = navItems.filter((item) => item.to !== '/settings' || isAdmin)
 
   return (
     <motion.aside
@@ -61,7 +62,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       variants={sidebarVariants}
       animate={collapsed ? 'collapsed' : 'expanded'}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className={`h-screen flex flex-col border-r backdrop-blur-xl
+      className={`h-screen flex flex-col border-r backdrop-blur-sm sm:backdrop-blur-xl
         ${isDark ? 'border-dark-700/60' : 'border-primary-200/60'}`}
       style={isDark
         ? { background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)' }
@@ -71,7 +72,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       {/* Logo Area */}
       <div className={`flex items-center ${collapsed ? 'justify-center' : 'px-5'} h-16 shrink-0 border-b
         ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-        <NavLink to="/" className="flex items-center gap-2 overflow-hidden">
+        <NavLink to="/" onClick={onNavigate} className="flex items-center gap-2 overflow-hidden">
           <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-primary-500 to-accent-500 bg-clip-text text-transparent select-none">
             BIX
           </span>
@@ -98,20 +99,21 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-3">
+      <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-4 px-3">
         <motion.ul
           className="flex flex-col gap-1"
           variants={listVariants}
           initial="hidden"
           animate="visible"
         >
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             return (
               <motion.li key={item.to} variants={itemVariants}>
                 <NavLink
                   to={item.to}
                   end={item.to === '/'}
+                  onClick={onNavigate}
                   className={({ isActive }) =>
                     `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
                     ${collapsed ? 'justify-center' : ''}
@@ -272,6 +274,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
                 transition={{ duration: 0.15 }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
+                onClick={onLogout}
                 className={`shrink-0 p-1.5 rounded-lg transition-colors duration-150
                   ${isDark
                     ? 'text-dark-500 hover:text-rose-400 hover:bg-dark-700/60'

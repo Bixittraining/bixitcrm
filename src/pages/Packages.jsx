@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 const categories = ['All', 'Development', 'Data & AI', 'Design', 'Marketing', 'Infrastructure', 'Security']
 
@@ -144,9 +145,10 @@ function PackageDetailModal({ pkg, theme, onClose }) {
   return (
     <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      variants={modalOverlayVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
     >
       {/* Backdrop */}
       <motion.div
@@ -159,24 +161,28 @@ function PackageDetailModal({ pkg, theme, onClose }) {
 
       {/* Modal Content */}
       <motion.div
-        className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl ${
+        className={`relative w-full max-w-2xl max-h-[90vh] rounded-2xl overflow-hidden ${
           isDark
             ? 'bg-dark-900 border border-dark-700/60'
             : 'bg-white border border-dark-200/60 shadow-xl'
         }`}
-        initial={{ scale: 0.9, opacity: 0, y: 30 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 30 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+        variants={modalCardVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
       >
+        {/* Scrollable inner wrapper — keeps content/scrollbar clipped to the outer rounded corners */}
+        <div className="max-h-[90vh] overflow-y-auto">
         {/* Gradient Header */}
         <div className={`relative h-32 bg-gradient-to-r ${gradient} rounded-t-2xl`}>
-          <button
+          <motion.button
+            whileHover={{ scale: 1.1, rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
             onClick={onClose}
             className="absolute top-4 right-4 p-2 rounded-xl bg-black/20 hover:bg-black/40 text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
-          </button>
+          </motion.button>
           <div className="absolute bottom-4 left-6 right-6">
             <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${badgeColor}`}>
               {pkg.category}
@@ -379,6 +385,7 @@ function PackageDetailModal({ pkg, theme, onClose }) {
             )}
           </AnimatePresence>
         </div>
+        </div>
       </motion.div>
     </motion.div>
   )
@@ -545,15 +552,15 @@ function CreatePackageModal({ isDark, onClose, onSave }) {
   }`
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       onClick={onClose}>
-      <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
         onClick={e => e.stopPropagation()}
         className={`relative w-full max-w-lg rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
         <div className="flex items-center justify-between mb-6">
           <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Create Package</h2>
-          <button onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></button>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></motion.button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -619,10 +626,10 @@ function ComparePackagesModal({ isDark, onClose, packages }) {
   const allFeatures = [...new Set(selected.flatMap(p => p.features || []))]
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       onClick={onClose}>
-      <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
         onClick={e => e.stopPropagation()}
         className={`relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
         <div className="flex items-center justify-between mb-6">
@@ -630,7 +637,7 @@ function ComparePackagesModal({ isDark, onClose, packages }) {
             <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Compare Packages</h2>
             <p className={`text-sm mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Select up to 3 packages to compare side by side</p>
           </div>
-          <button onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></button>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></motion.button>
         </div>
 
         {/* Package Selector */}

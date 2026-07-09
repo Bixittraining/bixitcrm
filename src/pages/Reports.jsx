@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -12,9 +12,8 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
-import { monthlyRevenueData, leadSourceData } from '../data/mockData'
 
-// --- Mock data for charts ---
+// --- Mock data for charts (not yet wired to real data) ---
 
 const courseEnrollmentData = [
   { course: 'Python', students: 60 },
@@ -40,6 +39,72 @@ const monthlyLeadVsEnrollment = [
 const sparklineData = [
   { v: 40 }, { v: 55 }, { v: 48 }, { v: 62 }, { v: 58 }, { v: 72 }, { v: 68 }, { v: 80 },
 ]
+
+// --- Date range helpers ---
+
+const RANGE_DAYS = {
+  'Last 7 Days': 7,
+  'Last 30 Days': 30,
+  'Last 3 Months': 90,
+  'Last 6 Months': 180,
+}
+
+function getRangeDayCount(rangeLabel) {
+  if (rangeLabel === 'This Year') {
+    const now = new Date()
+    const start = new Date(now.getFullYear(), 0, 1)
+    return Math.floor((now - start) / 86400000) + 1
+  }
+  return RANGE_DAYS[rangeLabel] || 30
+}
+
+function getDateBounds(rangeLabel) {
+  const days = getRangeDayCount(rangeLabel)
+  const end = new Date()
+  end.setHours(23, 59, 59, 999)
+  const start = new Date(end)
+  start.setDate(start.getDate() - days + 1)
+  start.setHours(0, 0, 0, 0)
+  return { start, end, days }
+}
+
+function getPreviousDateBounds(start, days) {
+  const prevEnd = new Date(start)
+  prevEnd.setDate(prevEnd.getDate() - 1)
+  prevEnd.setHours(23, 59, 59, 999)
+  const prevStart = new Date(prevEnd)
+  prevStart.setDate(prevStart.getDate() - days + 1)
+  prevStart.setHours(0, 0, 0, 0)
+  return { start: prevStart, end: prevEnd }
+}
+
+function isInRange(dateStr, start, end) {
+  if (!dateStr) return false
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return false
+  return d >= start && d <= end
+}
+
+function getLastNMonthBuckets(n) {
+  const now = new Date()
+  const buckets = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    buckets.push({ key: `${d.getFullYear()}-${d.getMonth()}`, month: d.toLocaleString('en-IN', { month: 'short' }) })
+  }
+  return buckets
+}
+
+const LEAD_SOURCE_COLORS = {
+  Website: '#6366f1',
+  'Google Ads': '#f59e0b',
+  Referral: '#10b981',
+  Instagram: '#ec4899',
+  LinkedIn: '#0ea5e9',
+  Facebook: '#3b82f6',
+  'Walk-in': '#8b5cf6',
+}
+const FALLBACK_SOURCE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#0ea5e9', '#8b5cf6', '#ec4899', '#14b8a6']
 
 // --- Animation variants ---
 
@@ -162,29 +227,69 @@ export default function Reports() {
   const axisColor = isDark ? '#94a3b8' : '#64748b'
   const gridColor = isDark ? '#334155' : '#e2e8f0'
 
-  const totalLeadSources = leadSourceData.reduce((sum, d) => sum + d.value, 0)
+  // ── Date range window + previous equivalent window ──────
+  const { start: rangeStart, end: rangeEnd, days: rangeDays } = useMemo(
+    () => getDateBounds(dateRange),
+    [dateRange]
+  )
+  const { start: prevRangeStart, end: prevRangeEnd } = useMemo(
+    () => getPreviousDateBounds(rangeStart, rangeDays),
+    [rangeStart, rangeDays]
+  )
 
-  const liveRevenue = invoices.reduce((sum, inv) => sum + (inv.paid || 0), 0)
-  const liveActiveStudents = students.filter(s => s.status === 'active').length
-  const liveEnrolled = leads.filter(l => l.status === 'enrolled').length
-  const liveConversion = leads.length > 0 ? Math.round((liveEnrolled / leads.length) * 100 * 10) / 10 : 0
-  const livePending = invoices.reduce((sum, inv) => sum + (inv.balance || 0), 0)
+  const invoicesInRange = useMemo(
+    () => invoices.filter((inv) => isInRange(inv.date, rangeStart, rangeEnd)),
+    [invoices, rangeStart, rangeEnd]
+  )
+  const invoicesInPrevRange = useMemo(
+    () => invoices.filter((inv) => isInRange(inv.date, prevRangeStart, prevRangeEnd)),
+    [invoices, prevRangeStart, prevRangeEnd]
+  )
+  const leadsInRange = useMemo(
+    () => leads.filter((l) => isInRange(l.date, rangeStart, rangeEnd)),
+    [leads, rangeStart, rangeEnd]
+  )
+  const studentsEnrolledInRange = useMemo(
+    () => students.filter((s) => isInRange(s.enrollDate, rangeStart, rangeEnd)),
+    [students, rangeStart, rangeEnd]
+  )
+
+  // ── KPI 1: Revenue Growth ────────────────────────────────
+  const revenueInRange = invoicesInRange.reduce((sum, inv) => sum + (inv.paid || 0), 0)
+  const revenueInPrevRange = invoicesInPrevRange.reduce((sum, inv) => sum + (inv.paid || 0), 0)
+  const revenueGrowthPct = revenueInPrevRange > 0
+    ? Math.round(((revenueInRange - revenueInPrevRange) / revenueInPrevRange) * 100 * 10) / 10
+    : (revenueInRange > 0 ? 100 : 0)
+
+  // ── KPI 2: Student Enrollment ─────────────────────────────
+  const activeEnrolledInRange = studentsEnrolledInRange.filter((s) => s.status === 'active').length
+
+  // ── KPI 3: Lead Conversion ────────────────────────────────
+  const enrolledLeadsInRange = leadsInRange.filter((l) => l.status === 'enrolled').length
+  const conversionPct = leadsInRange.length > 0
+    ? Math.round((enrolledLeadsInRange / leadsInRange.length) * 100 * 10) / 10
+    : 0
+
+  // ── KPI 4: Fee Collection Rate ────────────────────────────
+  const amountInRange = invoicesInRange.reduce((sum, inv) => sum + (inv.amount || 0), 0)
+  const pendingInRange = amountInRange - revenueInRange
+  const collectionRatePct = amountInRange > 0 ? Math.round((revenueInRange / amountInRange) * 100) : 0
 
   const kpiCards = [
     {
       title: 'Revenue Growth',
-      value: '+15.2%',
-      sub: `Rs. ${liveRevenue.toLocaleString('en-IN')} collected`,
+      value: `${revenueGrowthPct >= 0 ? '+' : ''}${revenueGrowthPct}%`,
+      sub: `Rs. ${revenueInRange.toLocaleString('en-IN')} collected`,
       icon: TrendingUp,
       color: 'text-emerald-500',
       bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
       sparkColor: '#10b981',
-      trend: 'up',
+      trend: revenueGrowthPct >= 0 ? 'up' : 'down',
     },
     {
       title: 'Student Enrollment',
-      value: `${liveActiveStudents} Active`,
-      sub: `${students.length} total students`,
+      value: `${activeEnrolledInRange} Active`,
+      sub: `${studentsEnrolledInRange.length} enrolled in period`,
       icon: Users,
       color: 'text-primary-500',
       bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
@@ -193,8 +298,8 @@ export default function Reports() {
     },
     {
       title: 'Lead Conversion',
-      value: `${liveConversion}%`,
-      sub: `${leads.length} total leads`,
+      value: `${conversionPct}%`,
+      sub: `${leadsInRange.length} leads in period`,
       icon: Target,
       color: 'text-accent-500',
       bg: isDark ? 'bg-accent-500/10' : 'bg-accent-50',
@@ -203,15 +308,52 @@ export default function Reports() {
     },
     {
       title: 'Fee Collection Rate',
-      value: liveRevenue + livePending > 0 ? `${Math.round((liveRevenue / (liveRevenue + livePending)) * 100)}%` : '0%',
-      sub: `Rs. ${livePending.toLocaleString('en-IN')} pending`,
+      value: `${collectionRatePct}%`,
+      sub: `Rs. ${pendingInRange.toLocaleString('en-IN')} pending`,
       icon: Wallet,
       color: 'text-rose-500',
       bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50',
       sparkColor: '#f43f5e',
-      trend: 'down',
+      trend: 'up',
     },
   ]
+
+  // ── Revenue Trend (last 6 calendar months, real invoice data) ──
+  const revenueTrendData = useMemo(() => {
+    const buckets = getLastNMonthBuckets(6)
+    const map = new Map(buckets.map((b) => [b.key, { month: b.month, revenue: 0, students: 0 }]))
+    invoices.forEach((inv) => {
+      if (!inv.date) return
+      const d = new Date(inv.date)
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      if (map.has(key)) map.get(key).revenue += inv.paid || 0
+    })
+    students.forEach((s) => {
+      if (!s.enrollDate) return
+      const d = new Date(s.enrollDate)
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      if (map.has(key)) map.get(key).students += 1
+    })
+    return buckets.map((b) => map.get(b.key))
+  }, [invoices, students])
+  const hasRevenueTrendData = revenueTrendData.some((d) => d.revenue > 0)
+
+  // ── Lead Sources Distribution (real leads, filtered by range) ──
+  const leadSourceChartData = useMemo(() => {
+    const counts = {}
+    leadsInRange.forEach((l) => {
+      const src = l.source || 'Other'
+      counts[src] = (counts[src] || 0) + 1
+    })
+    const total = leadsInRange.length
+    return Object.entries(counts)
+      .map(([name, count], i) => ({
+        name,
+        value: total > 0 ? Math.round((count / total) * 100) : 0,
+        color: LEAD_SOURCE_COLORS[name] || FALLBACK_SOURCE_COLORS[i % FALLBACK_SOURCE_COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value)
+  }, [leadsInRange])
 
   const quickReports = [
     {
@@ -321,7 +463,7 @@ export default function Reports() {
 
           <button
             onClick={() => {
-              const csv = 'Month,Revenue,Students\n' + monthlyRevenueData.map(d => `${d.month},${d.revenue},${d.students}`).join('\n')
+              const csv = 'Month,Revenue,Students\n' + revenueTrendData.map(d => `${d.month},${d.revenue},${d.students}`).join('\n')
               downloadCSV('bix-academy-report.csv', csv)
               showToast('Report downloaded')
             }}
@@ -392,40 +534,46 @@ export default function Reports() {
               </div>
             </div>
             <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={monthlyRevenueData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
-                  <defs>
-                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: axisColor, fontSize: 12 }}
-                    axisLine={{ stroke: gridColor }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: axisColor, fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                  />
-                  <Tooltip content={<CustomTooltip theme={theme} />} />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    name="Revenue"
-                    stroke="#6366f1"
-                    strokeWidth={2.5}
-                    fill="url(#revenueGradient)"
-                    dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: isDark ? '#0f172a' : '#ffffff' }}
-                    activeDot={{ r: 6 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {hasRevenueTrendData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={revenueTrendData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                    <defs>
+                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fill: axisColor, fontSize: 12 }}
+                      axisLine={{ stroke: gridColor }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: axisColor, fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                    />
+                    <Tooltip content={<CustomTooltip theme={theme} />} />
+                    <Area
+                      type="monotone"
+                      dataKey="revenue"
+                      name="Revenue"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      fill="url(#revenueGradient)"
+                      dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: isDark ? '#0f172a' : '#ffffff' }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className={`h-full flex items-center justify-center text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  No revenue data yet
+                </div>
+              )}
             </div>
           </GlassCard>
         </motion.div>
@@ -447,47 +595,55 @@ export default function Reports() {
               </div>
             </div>
             <div className="h-72 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={leadSourceData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={3}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {leadSourceData.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<CustomTooltip theme={theme} />} />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                    iconSize={8}
-                    formatter={(value) => (
-                      <span className={`text-xs ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                        {value}
-                      </span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Center text */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ marginBottom: 36 }}>
-                <div className="text-center">
-                  <p className={`text-2xl font-bold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
-                    {totalLeadSources}%
-                  </p>
-                  <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                    Total
-                  </p>
+              {leadSourceChartData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={leadSourceChartData}
+                        cx="50%"
+                        cy="45%"
+                        innerRadius={65}
+                        outerRadius={95}
+                        paddingAngle={3}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {leadSourceChartData.map((entry, index) => (
+                          <Cell key={index} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip theme={theme} />} />
+                      <Legend
+                        verticalAlign="bottom"
+                        height={36}
+                        iconType="circle"
+                        iconSize={8}
+                        formatter={(value) => (
+                          <span className={`text-xs ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                            {value}
+                          </span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Center text */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ marginBottom: 36 }}>
+                    <div className="text-center">
+                      <p className={`text-2xl font-bold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
+                        {leadsInRange.length}
+                      </p>
+                      <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                        Leads
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className={`h-full flex items-center justify-center text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  No leads in this period
                 </div>
-              </div>
+              )}
             </div>
           </GlassCard>
         </motion.div>
