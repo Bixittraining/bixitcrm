@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
@@ -64,7 +65,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
   const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
   const feeRemaining = student.feeTotal - student.feePaid
 
-  return (
+  return createPortal(
     <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       variants={modalOverlayVariants}
@@ -268,7 +269,8 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             </div>
           </div>
         </motion.div>
-      </motion.div>
+      </motion.div>,
+    document.body
   )
 }
 

@@ -13,33 +13,6 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 
-// --- Mock data for charts (not yet wired to real data) ---
-
-const courseEnrollmentData = [
-  { course: 'Python', students: 60 },
-  { course: 'Digital Mktg', students: 52 },
-  { course: 'Full Stack', students: 45 },
-  { course: 'Data Science', students: 38 },
-  { course: 'Mobile Dev', students: 30 },
-  { course: 'UI/UX', students: 28 },
-  { course: 'Cloud', students: 22 },
-  { course: 'Cyber', students: 18 },
-  { course: 'DevOps', students: 15 },
-]
-
-const monthlyLeadVsEnrollment = [
-  { month: 'Jan', leads: 42, enrollments: 18 },
-  { month: 'Feb', leads: 55, enrollments: 24 },
-  { month: 'Mar', leads: 48, enrollments: 20 },
-  { month: 'Apr', leads: 70, enrollments: 32 },
-  { month: 'May', leads: 62, enrollments: 28 },
-  { month: 'Jun', leads: 38, enrollments: 15 },
-]
-
-const sparklineData = [
-  { v: 40 }, { v: 55 }, { v: 48 }, { v: 62 }, { v: 58 }, { v: 72 }, { v: 68 }, { v: 80 },
-]
-
 // --- Date range helpers ---
 
 const RANGE_DAYS = {
@@ -103,8 +76,11 @@ const LEAD_SOURCE_COLORS = {
   LinkedIn: '#0ea5e9',
   Facebook: '#3b82f6',
   'Walk-in': '#8b5cf6',
+  Other: '#64748b',
 }
-const FALLBACK_SOURCE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#0ea5e9', '#8b5cf6', '#ec4899', '#14b8a6']
+// Any lead.source value outside this known set (e.g. stray data from a CSV import)
+// gets bucketed under "Other" instead of polluting the chart with raw junk values.
+const KNOWN_LEAD_SOURCES = new Set(['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'Walk-in'])
 
 // --- Animation variants ---
 
@@ -275,6 +251,95 @@ export default function Reports() {
   const pendingInRange = amountInRange - revenueInRange
   const collectionRatePct = amountInRange > 0 ? Math.round((revenueInRange / amountInRange) * 100) : 0
 
+  // ── Shared monthly bucketing (last 6 calendar months) — backs Revenue Trend,
+  // Monthly Lead vs Enrollment, and every KPI sparkline, all from real data ──
+  const monthlyMetrics = useMemo(() => {
+    const buckets = getLastNMonthBuckets(6)
+    const map = new Map(buckets.map((b) => [
+      b.key,
+      { month: b.month, revenue: 0, amount: 0, newStudents: 0, leadsCount: 0, enrolledCount: 0 },
+    ]))
+    invoices.forEach((inv) => {
+      if (!inv.date) return
+      const key = `${new Date(inv.date).getFullYear()}-${new Date(inv.date).getMonth()}`
+      const bucket = map.get(key)
+      if (!bucket) return
+      bucket.revenue += inv.paid || 0
+      bucket.amount += inv.amount || 0
+    })
+    students.forEach((s) => {
+      if (!s.enrollDate) return
+      const key = `${new Date(s.enrollDate).getFullYear()}-${new Date(s.enrollDate).getMonth()}`
+      const bucket = map.get(key)
+      if (bucket) bucket.newStudents += 1
+    })
+    leads.forEach((l) => {
+      if (!l.date) return
+      const key = `${new Date(l.date).getFullYear()}-${new Date(l.date).getMonth()}`
+      const bucket = map.get(key)
+      if (!bucket) return
+      bucket.leadsCount += 1
+      if (l.status === 'enrolled') bucket.enrolledCount += 1
+    })
+    return buckets.map((b) => map.get(b.key))
+  }, [invoices, students, leads])
+
+  // ── Revenue Trend chart ──
+  const revenueTrendData = useMemo(
+    () => monthlyMetrics.map((m) => ({ month: m.month, revenue: m.revenue, students: m.newStudents })),
+    [monthlyMetrics]
+  )
+  const hasRevenueTrendData = revenueTrendData.some((d) => d.revenue > 0)
+
+  // ── Monthly Lead vs Enrollment chart ──
+  const monthlyLeadVsEnrollmentData = useMemo(
+    () => monthlyMetrics.map((m) => ({ month: m.month, leads: m.leadsCount, enrollments: m.newStudents })),
+    [monthlyMetrics]
+  )
+
+  // ── Per-KPI sparklines, derived from the same real monthly data ──
+  const revenueSparkline = useMemo(() => monthlyMetrics.map((m) => ({ v: m.revenue })), [monthlyMetrics])
+  const enrollmentSparkline = useMemo(() => monthlyMetrics.map((m) => ({ v: m.newStudents })), [monthlyMetrics])
+  const conversionSparkline = useMemo(
+    () => monthlyMetrics.map((m) => ({ v: m.leadsCount > 0 ? Math.round((m.enrolledCount / m.leadsCount) * 100) : 0 })),
+    [monthlyMetrics]
+  )
+  const collectionSparkline = useMemo(
+    () => monthlyMetrics.map((m) => ({ v: m.amount > 0 ? Math.round((m.revenue / m.amount) * 100) : 0 })),
+    [monthlyMetrics]
+  )
+
+  // ── Course-wise Enrollment (students enrolled per course, filtered by the selected range) ──
+  const courseEnrollmentData = useMemo(() => {
+    const counts = {}
+    studentsEnrolledInRange.forEach((s) => {
+      const course = s.course || 'Unknown'
+      counts[course] = (counts[course] || 0) + 1
+    })
+    return Object.entries(counts)
+      .map(([course, count]) => ({ course, students: count }))
+      .sort((a, b) => b.students - a.students)
+  }, [studentsEnrolledInRange])
+  const hasCourseEnrollmentData = courseEnrollmentData.length > 0
+
+  // ── Lead Sources Distribution (real leads, filtered by range; unknown/dirty
+  // source values collapse into "Other" instead of fragmenting the chart) ──
+  const leadSourceChartData = useMemo(() => {
+    const counts = {}
+    leadsInRange.forEach((l) => {
+      const src = KNOWN_LEAD_SOURCES.has(l.source) ? l.source : 'Other'
+      counts[src] = (counts[src] || 0) + 1
+    })
+    const total = leadsInRange.length
+    return Object.entries(counts)
+      .map(([name, count]) => ({
+        name,
+        value: total > 0 ? Math.round((count / total) * 100) : 0,
+        color: LEAD_SOURCE_COLORS[name],
+      }))
+      .sort((a, b) => b.value - a.value)
+  }, [leadsInRange])
+
   const kpiCards = [
     {
       title: 'Revenue Growth',
@@ -284,6 +349,7 @@ export default function Reports() {
       color: 'text-emerald-500',
       bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
       sparkColor: '#10b981',
+      sparklineData: revenueSparkline,
       trend: revenueGrowthPct >= 0 ? 'up' : 'down',
     },
     {
@@ -294,6 +360,7 @@ export default function Reports() {
       color: 'text-primary-500',
       bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
       sparkColor: '#6366f1',
+      sparklineData: enrollmentSparkline,
       trend: 'up',
     },
     {
@@ -304,6 +371,7 @@ export default function Reports() {
       color: 'text-accent-500',
       bg: isDark ? 'bg-accent-500/10' : 'bg-accent-50',
       sparkColor: '#f59e0b',
+      sparklineData: conversionSparkline,
       trend: 'up',
     },
     {
@@ -314,46 +382,10 @@ export default function Reports() {
       color: 'text-rose-500',
       bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50',
       sparkColor: '#f43f5e',
+      sparklineData: collectionSparkline,
       trend: 'up',
     },
   ]
-
-  // ── Revenue Trend (last 6 calendar months, real invoice data) ──
-  const revenueTrendData = useMemo(() => {
-    const buckets = getLastNMonthBuckets(6)
-    const map = new Map(buckets.map((b) => [b.key, { month: b.month, revenue: 0, students: 0 }]))
-    invoices.forEach((inv) => {
-      if (!inv.date) return
-      const d = new Date(inv.date)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (map.has(key)) map.get(key).revenue += inv.paid || 0
-    })
-    students.forEach((s) => {
-      if (!s.enrollDate) return
-      const d = new Date(s.enrollDate)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (map.has(key)) map.get(key).students += 1
-    })
-    return buckets.map((b) => map.get(b.key))
-  }, [invoices, students])
-  const hasRevenueTrendData = revenueTrendData.some((d) => d.revenue > 0)
-
-  // ── Lead Sources Distribution (real leads, filtered by range) ──
-  const leadSourceChartData = useMemo(() => {
-    const counts = {}
-    leadsInRange.forEach((l) => {
-      const src = l.source || 'Other'
-      counts[src] = (counts[src] || 0) + 1
-    })
-    const total = leadsInRange.length
-    return Object.entries(counts)
-      .map(([name, count], i) => ({
-        name,
-        value: total > 0 ? Math.round((count / total) * 100) : 0,
-        color: LEAD_SOURCE_COLORS[name] || FALLBACK_SOURCE_COLORS[i % FALLBACK_SOURCE_COLORS.length],
-      }))
-      .sort((a, b) => b.value - a.value)
-  }, [leadsInRange])
 
   const quickReports = [
     {
@@ -507,7 +539,7 @@ export default function Reports() {
                   <div className={`p-2.5 rounded-xl ${kpi.bg}`}>
                     <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
                   </div>
-                  <MiniSparkline data={sparklineData} color={kpi.sparkColor} />
+                  <MiniSparkline data={kpi.sparklineData} color={kpi.sparkColor} />
                 </div>
               </div>
             </GlassCard>
@@ -657,7 +689,7 @@ export default function Reports() {
                   Course-wise Enrollment
                 </h2>
                 <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                  Current students per course
+                  Students enrolled per course in this period
                 </p>
               </div>
               <div className={`p-2 rounded-lg ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
@@ -665,43 +697,50 @@ export default function Reports() {
               </div>
             </div>
             <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={courseEnrollmentData}
-                  layout="vertical"
-                  margin={{ top: 5, right: 30, bottom: 5, left: 5 }}
-                >
-                  <defs>
-                    <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#f59e0b" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tick={{ fill: axisColor, fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="course"
-                    tick={{ fill: axisColor, fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={85}
-                  />
-                  <Tooltip content={<CustomTooltip theme={theme} />} />
-                  <Bar
-                    dataKey="students"
-                    name="Students"
-                    fill="url(#barGradient)"
-                    radius={[0, 6, 6, 0]}
-                    barSize={18}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              {hasCourseEnrollmentData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={courseEnrollmentData}
+                    layout="vertical"
+                    margin={{ top: 5, right: 30, bottom: 5, left: 5 }}
+                  >
+                    <defs>
+                      <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#6366f1" />
+                        <stop offset="100%" stopColor="#f59e0b" />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} horizontal={false} />
+                    <XAxis
+                      type="number"
+                      allowDecimals={false}
+                      tick={{ fill: axisColor, fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="course"
+                      tick={{ fill: axisColor, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={110}
+                    />
+                    <Tooltip content={<CustomTooltip theme={theme} />} />
+                    <Bar
+                      dataKey="students"
+                      name="Students"
+                      fill="url(#barGradient)"
+                      radius={[0, 6, 6, 0]}
+                      barSize={18}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className={`h-full flex items-center justify-center text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  No enrollments in this period
+                </div>
+              )}
             </div>
           </GlassCard>
         </motion.div>
@@ -724,7 +763,7 @@ export default function Reports() {
             </div>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyLeadVsEnrollment} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                <LineChart data={monthlyLeadVsEnrollmentData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                   <CartesianGrid strokeDasharray="4 4" stroke={gridColor} opacity={0.4} />
                   <XAxis
                     dataKey="month"

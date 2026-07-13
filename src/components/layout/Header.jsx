@@ -128,7 +128,7 @@ function Header({ onMenuToggle, onLogout }) {
     ...students.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.course.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 3).map(s => ({ label: s.name, sub: `Student · ${s.course}`, link: '/students', icon: GraduationCap })),
   ] : []
 
-  const panelCls = `absolute right-0 top-full mt-2 w-80 rounded-2xl shadow-2xl border overflow-hidden z-50 ${
+  const panelCls = `fixed left-3 right-3 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 rounded-2xl shadow-2xl border overflow-hidden z-50 ${
     isDark ? 'bg-dark-900 border-dark-700/60 shadow-black/40' : 'bg-white border-dark-200/60 shadow-dark-300/20'
   }`
   const itemHover = isDark ? 'hover:bg-dark-800' : 'hover:bg-dark-50'
@@ -340,7 +340,7 @@ function Header({ onMenuToggle, onLogout }) {
               {userDropdownOpen && (
                 <motion.div initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={{ duration: 0.15 }}
-                  className={`absolute right-0 mt-2 w-56 rounded-xl shadow-xl border overflow-hidden z-50 ${isDark ? 'bg-dark-800 border-dark-700 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/40'}`}>
+                  className={`fixed left-3 right-3 top-16 sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-56 rounded-xl shadow-xl border overflow-hidden z-50 ${isDark ? 'bg-dark-800 border-dark-700 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/40'}`}>
                   <div className={`px-4 py-3 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'}`}>
                     <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{profile.name}</p>
                     <p className={`text-xs mt-0.5 ${textSecondary}`}>{profile.role}</p>

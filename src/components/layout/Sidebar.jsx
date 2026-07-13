@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -16,6 +17,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  X,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -50,17 +52,36 @@ const itemVariants = {
   visible: { opacity: 1, x: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } },
 }
 
+// Tailwind's `lg` breakpoint — the icon-only collapse toggle only makes sense at this width and up.
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 1024px)')
+    const handler = (e) => setIsDesktop(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
+
+  return isDesktop
+}
+
 export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate }) {
   const { theme, toggleTheme } = useTheme()
   const { profile, initials, isAdmin } = useAuth()
   const isDark = theme === 'dark'
   const visibleNavItems = navItems.filter((item) => item.to !== '/settings' || isAdmin)
+  const isDesktop = useIsDesktop()
+  // The icon-only collapsed look is a desktop-only affordance. On mobile the drawer
+  // must always show full labels — it's either fully open or fully off-screen, never
+  // stuck half-open — regardless of whatever the desktop collapse preference is set to.
+  const showCollapsed = collapsed && isDesktop
 
   return (
     <motion.aside
       layout
       variants={sidebarVariants}
-      animate={collapsed ? 'collapsed' : 'expanded'}
+      animate={showCollapsed ? 'collapsed' : 'expanded'}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       className={`h-screen flex flex-col border-r backdrop-blur-sm sm:backdrop-blur-xl
         ${isDark ? 'border-dark-700/60' : 'border-primary-200/60'}`}
@@ -70,14 +91,14 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
       }
     >
       {/* Logo Area */}
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'px-5'} h-16 shrink-0 border-b
+      <div className={`flex items-center ${showCollapsed ? 'justify-center' : 'px-5'} h-16 shrink-0 border-b
         ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-        <NavLink to="/" onClick={onNavigate} className="flex items-center gap-2 overflow-hidden">
+        <NavLink to="/" onClick={onNavigate} className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
           <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-primary-500 to-accent-500 bg-clip-text text-transparent select-none">
             BIX
           </span>
           <AnimatePresence mode="wait">
-            {!collapsed && (
+            {!showCollapsed && (
               <motion.span
                 key="academy-label"
                 initial={{ opacity: 0, width: 0 }}
@@ -96,6 +117,17 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
             )}
           </AnimatePresence>
         </NavLink>
+
+        {/* Mobile-only close button — the drawer is either fully open or fully off-screen */}
+        <button
+          onClick={onNavigate}
+          className={`lg:hidden shrink-0 p-1.5 rounded-lg transition-colors ${
+            isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'
+          }`}
+          title="Close menu"
+        >
+          <X size={20} />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -116,7 +148,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
-                    ${collapsed ? 'justify-center' : ''}
+                    ${showCollapsed ? 'justify-center' : ''}
                     ${
                       isActive
                         ? `bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-lg shadow-primary-600/25`
@@ -128,8 +160,8 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
                 >
                   {({ isActive }) => (
                     <motion.div
-                      className={`flex items-center gap-3 w-full ${collapsed ? 'justify-center' : ''}`}
-                      whileHover={{ x: collapsed ? 0 : 3 }}
+                      className={`flex items-center gap-3 w-full ${showCollapsed ? 'justify-center' : ''}`}
+                      whileHover={{ x: showCollapsed ? 0 : 3 }}
                       transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                     >
                       <span className="shrink-0 relative">
@@ -142,12 +174,12 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
                             layoutId="nav-indicator"
                             className="absolute -left-3 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-white/80"
                             transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                            style={{ display: collapsed ? 'none' : undefined }}
+                            style={{ display: showCollapsed ? 'none' : undefined }}
                           />
                         )}
                       </span>
                       <AnimatePresence mode="wait">
-                        {!collapsed && (
+                        {!showCollapsed && (
                           <motion.span
                             key={`label-${item.to}`}
                             initial={{ opacity: 0, width: 0 }}
@@ -165,7 +197,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
                 </NavLink>
 
                 {/* Tooltip when collapsed */}
-                {collapsed && (
+                {showCollapsed && (
                   <div
                     className={`absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-50 shadow-lg
                       ${isDark ? 'bg-dark-800 text-dark-100 shadow-dark-950/50' : 'bg-dark-900 text-white shadow-dark-900/20'}`}
@@ -189,7 +221,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
           whileTap={{ scale: 0.95 }}
           onClick={toggleTheme}
           className={`flex items-center gap-3 w-full rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
-            ${collapsed ? 'justify-center' : ''}
+            ${showCollapsed ? 'justify-center' : ''}
             ${isDark
               ? 'text-dark-400 hover:text-accent-400 hover:bg-dark-800/70'
               : 'text-dark-500 hover:text-accent-600 hover:bg-dark-100/80'
@@ -220,7 +252,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
             )}
           </AnimatePresence>
           <AnimatePresence mode="wait">
-            {!collapsed && (
+            {!showCollapsed && (
               <motion.span
                 key="theme-label"
                 initial={{ opacity: 0, width: 0 }}
@@ -237,7 +269,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
 
         {/* User Profile */}
         <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5
-          ${collapsed ? 'justify-center' : ''}
+          ${showCollapsed ? 'justify-center' : ''}
           ${isDark ? 'bg-dark-800/50' : 'bg-dark-100/60'}`}>
           {/* Avatar */}
           <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-md shadow-primary-600/20">
@@ -245,7 +277,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
           </div>
 
           <AnimatePresence mode="wait">
-            {!collapsed && (
+            {!showCollapsed && (
               <motion.div
                 key="user-info"
                 initial={{ opacity: 0, width: 0 }}
@@ -265,7 +297,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
           </AnimatePresence>
 
           <AnimatePresence mode="wait">
-            {!collapsed && (
+            {!showCollapsed && (
               <motion.button
                 key="logout-btn"
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -289,12 +321,12 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
         </div>
       </div>
 
-      {/* Collapse Toggle Button */}
+      {/* Collapse Toggle Button (desktop only — mobile is a full show/hide drawer, not icon-only) */}
       <motion.button
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => setCollapsed(!collapsed)}
-        className={`absolute -right-3 top-20 z-50 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-colors duration-200
+        className={`hidden lg:flex absolute -right-3 top-20 z-50 w-6 h-6 rounded-full items-center justify-center border shadow-md transition-colors duration-200
           ${isDark
             ? 'bg-dark-800 border-dark-600 text-dark-300 hover:text-primary-400 hover:border-primary-500/50 shadow-dark-950/40'
             : 'bg-white border-dark-200 text-dark-400 hover:text-primary-600 hover:border-primary-400/50 shadow-dark-200/40'

@@ -89,11 +89,11 @@ function StatCard({ icon: Icon, label, value, valueKey, change, positive, color,
           : 'bg-white border border-dark-200/60 shadow-sm'
       }`}
     >
-      <div className="flex items-center justify-between mb-4">
-        <div className={`p-3 rounded-xl ${theme === 'dark' ? c.darkBg : c.bg}`}>
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
+        <div className={`shrink-0 p-3 rounded-xl ${theme === 'dark' ? c.darkBg : c.bg}`}>
           <Icon className={`w-6 h-6 ${theme === 'dark' ? c.darkIcon : c.iconColor}`} />
         </div>
-        <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${
+        <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${
           positive
             ? theme === 'dark' ? 'bg-emerald-700/30 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
             : theme === 'dark' ? 'bg-rose-600/20 text-rose-400' : 'bg-rose-50 text-rose-600'

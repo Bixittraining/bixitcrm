@@ -40,8 +40,19 @@ export function AuthProvider({ children }) {
     }
   }, [loadProfile])
 
-  const signIn = (email, password) => supabase.auth.signInWithPassword({ email, password })
-  const signOut = () => supabase.auth.signOut()
+  const signIn = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) console.error('signIn error', error)
+    else console.log('signIn success', data.user.email)
+    return { data, error }
+  }
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) console.error('signOut error', error)
+    else console.log('signOut success')
+    return { error }
+  }
 
   const updateProfile = async (updates) => {
     if (!session?.user) return { error: new Error('Not authenticated') }
@@ -51,7 +62,8 @@ export function AuthProvider({ children }) {
       .eq('id', session.user.id)
       .select()
       .single()
-    if (!error) setProfileRow(data)
+    if (error) console.error('updateProfile error', error)
+    else setProfileRow(data)
     return { data, error }
   }
 
@@ -63,7 +75,7 @@ export function AuthProvider({ children }) {
     const ext = file.name.split('.').pop()
     const filePath = `${session.user.id}/${Date.now()}.${ext}`
     const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true })
-    if (uploadError) return { error: uploadError }
+    if (uploadError) { console.error('uploadAvatar error', uploadError); return { error: uploadError } }
 
     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
     return updateProfile({ avatar_url: urlData.publicUrl })
@@ -80,7 +92,11 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ name, email, phone, password, role }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) return { error: new Error(body.error || 'Failed to add team member') }
+    if (!res.ok) {
+      console.error('addTeamMember error', body.error || res.statusText)
+      return { error: new Error(body.error || 'Failed to add team member') }
+    }
+    console.log('addTeamMember success', email)
     return { data: body }
   }
 
