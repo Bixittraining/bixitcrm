@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Settings as SettingsIcon, User, Bell, Shield, Palette, Globe, Database, Mail,
+  User, Bell, Shield, Palette, Globe, Database, Mail,
   Sun, Moon, Save, Camera, Building2, Phone, MapPin, Plug, Key, Eye, EyeOff,
-  Copy, Check, X, Loader2, RefreshCw, Plus, Trash2, Download, Filter,
-  ArrowRight, ExternalLink, ChevronLeft, AlertTriangle, Activity, Clock,
-  Zap, ToggleLeft, ToggleRight, ArrowLeftRight, Search, Users, UserPlus, ShieldCheck
+  Copy, Check, Loader2, RefreshCw, Plus, Trash2,
+  ExternalLink, ChevronRight, AlertTriangle, Activity,
+  Zap, Users, UserPlus, ShieldCheck
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -26,69 +26,75 @@ const tabs = [
   { key: 'team', label: 'Team', icon: Users },
   { key: 'academy', label: 'Academy', icon: Building2 },
   { key: 'integrations', label: 'Integrations', icon: Plug },
-  { key: 'webhooks', label: 'Webhooks', icon: Globe },
   { key: 'api', label: 'API', icon: Key },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'security', label: 'Security', icon: Shield },
 ]
 
+// Each integration's real config lives in the `integrations` Supabase table
+// (supabase/migrations/0004_integrations.sql) and is read/written through
+// the api/integrations/* admin-only endpoints. `fields` describes which
+// columns this integration exposes in the UI and how to label them —
+// 'text' fields are plain (App ID, Page/Phone ID), 'secret' fields are
+// write-only (masked once set, never sent back from the server).
 const integrationsList = [
   {
-    id: 'metaAds',
+    key: 'meta_ads',
     name: 'Meta Ads',
-    description: 'Import leads automatically from Meta Ads campaigns',
+    description: 'Auto-capture leads from Facebook and Instagram Lead Ad forms.',
     brandColor: '#1877F2',
     icon: 'M',
-    webhookSlug: 'meta-ads',
+    webhookPath: '/api/webhooks/meta-ads',
+    webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → Page (leadgen subscription).',
+    fields: [
+      { key: 'appId', label: 'App ID', type: 'text' },
+      { key: 'appSecret', label: 'App Secret', type: 'secret', hasKey: 'hasAppSecret' },
+      { key: 'pageId', label: 'Connected Page ID', type: 'text' },
+      { key: 'pageAccessToken', label: 'Page Access Token', type: 'secret', hasKey: 'hasPageAccessToken' },
+      { key: 'webhookVerifyToken', label: 'Webhook Verify Token', type: 'secret', hasKey: 'hasWebhookToken' },
+    ],
   },
   {
-    id: 'justDial',
-    name: 'JustDial',
-    description: 'Sync leads from JustDial business listings',
-    brandColor: '#2196F3',
-    icon: 'JD',
-    webhookSlug: 'justdial',
-  },
-  {
-    id: 'googleAds',
+    key: 'google_ads',
     name: 'Google Ads',
-    description: 'Import leads from Google Ads campaigns and forms',
+    description: 'Import leads from Google Ads Lead Form extensions via webhook.',
     brandColor: '#4285F4',
     icon: 'G',
-    webhookSlug: 'google-ads',
+    webhookPath: '/api/webhooks/google-ads',
+    webhookNote: 'Paste this URL and Webhook Key into the lead form asset\'s webhook integration in Google Ads.',
+    fields: [
+      { key: 'webhookVerifyToken', label: 'Webhook Key', type: 'secret', hasKey: 'hasWebhookToken' },
+    ],
   },
-]
-
-const configSubTabs = [
-  { key: 'api-config', label: 'API Configuration' },
-  { key: 'webhook-setup', label: 'Webhook Setup' },
-  { key: 'field-mapping', label: 'Field Mapping' },
-  { key: 'sync-settings', label: 'Sync Settings' },
-  { key: 'activity-log', label: 'Activity Log' },
-]
-
-const defaultFieldMappings = [
-  { source: 'Name', crm: 'Lead Name' },
-  { source: 'Email', crm: 'Lead Email' },
-  { source: 'Phone', crm: 'Lead Phone' },
-  { source: 'Campaign', crm: 'Source' },
-  { source: 'Ad Set', crm: 'Notes' },
-]
-
-const crmFieldOptions = ['Lead Name', 'Lead Email', 'Lead Phone', 'Source', 'Notes', 'Company', 'Address', 'City', 'State', 'Custom Field 1', 'Custom Field 2']
-
-const mockActivityLogs = [
-  { id: 1, timestamp: '2026-06-27 10:30:15', action: 'Lead Imported', details: 'Imported lead "Rahul Sharma" from Meta campaign "Summer Batch"', status: 'success' },
-  { id: 2, timestamp: '2026-06-27 10:28:42', action: 'Webhook Received', details: 'Received form submission webhook from Meta Ads', status: 'success' },
-  { id: 3, timestamp: '2026-06-27 10:15:03', action: 'Sync Error', details: 'Failed to sync lead - duplicate email detected (priya@email.com)', status: 'failed' },
-  { id: 4, timestamp: '2026-06-27 09:45:22', action: 'Lead Imported', details: 'Imported lead "Amit Patel" from Google Ads form "Free Demo"', status: 'success' },
-  { id: 5, timestamp: '2026-06-27 09:30:11', action: 'Campaign Status Change', details: 'Campaign "Java Full Stack" status changed to Active', status: 'warning' },
-  { id: 6, timestamp: '2026-06-27 09:15:00', action: 'Bulk Sync', details: 'Synced 12 leads from Google Ads campaign "Data Science Batch 4"', status: 'success' },
-  { id: 7, timestamp: '2026-06-26 18:00:45', action: 'Lead Updated', details: 'Updated phone number for lead "Sneha Reddy" from JustDial', status: 'success' },
-  { id: 8, timestamp: '2026-06-26 17:30:22', action: 'Sync Error', details: 'API rate limit exceeded for Meta Ads - retrying in 5 minutes', status: 'failed' },
-  { id: 9, timestamp: '2026-06-26 16:45:10', action: 'Webhook Received', details: 'Received new lead webhook from JustDial', status: 'success' },
-  { id: 10, timestamp: '2026-06-26 15:20:33', action: 'Connection Test', details: 'Google Ads API connection test successful', status: 'warning' },
+  {
+    key: 'whatsapp',
+    name: 'WhatsApp Business',
+    description: 'Inbound WhatsApp lead capture — matches incoming numbers to existing leads.',
+    brandColor: '#25D366',
+    icon: 'W',
+    webhookPath: '/api/webhooks/whatsapp',
+    webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → WhatsApp Business Account.',
+    fields: [
+      { key: 'appId', label: 'App ID', type: 'text' },
+      { key: 'appSecret', label: 'App Secret', type: 'secret', hasKey: 'hasAppSecret' },
+      { key: 'pageId', label: 'Phone Number ID', type: 'text' },
+      { key: 'pageAccessToken', label: 'Access Token', type: 'secret', hasKey: 'hasPageAccessToken' },
+      { key: 'webhookVerifyToken', label: 'Webhook Verify Token', type: 'secret', hasKey: 'hasWebhookToken' },
+    ],
+  },
+  {
+    key: 'justdial',
+    name: 'JustDial',
+    description: 'Generic lead intake for JustDial, relayed via Zapier/Make or a custom script.',
+    brandColor: '#DA1C24',
+    icon: 'JD',
+    webhookPath: '/api/webhooks/justdial',
+    webhookNote: 'Send leads here as a POST with header X-Webhook-Secret set to the Webhook Secret below.',
+    fields: [
+      { key: 'webhookVerifyToken', label: 'Webhook Secret', type: 'secret', hasKey: 'hasWebhookToken' },
+    ],
+  },
 ]
 
 const mockApiKeys = [
@@ -97,16 +103,9 @@ const mockApiKeys = [
   { id: 3, name: 'Testing API Key', key: 'bix_test_sk_m1n2o3p4q5r6s7t8u9v0', created: '2026-06-20', lastUsed: '2026-06-25 11:00 AM', status: 'inactive' },
 ]
 
-const mockWebhooksList = [
-  { id: 1, integration: 'Meta Ads', url: 'https://api.bixacademy.com/webhooks/meta-ads/abc123', events: ['New Lead Created', 'Form Submission'], status: 'active', lastTriggered: '2026-06-27 10:28 AM' },
-  { id: 2, integration: 'JustDial', url: 'https://api.bixacademy.com/webhooks/justdial/def456', events: ['New Lead Created', 'Lead Updated'], status: 'active', lastTriggered: '2026-06-26 04:45 PM' },
-  { id: 3, integration: 'Google Ads', url: 'https://api.bixacademy.com/webhooks/google-ads/ghi789', events: ['New Lead Created', 'Form Submission', 'Campaign Status Change'], status: 'active', lastTriggered: '2026-06-27 09:15 AM' },
-  { id: 4, integration: 'Meta Ads', url: 'https://api.bixacademy.com/webhooks/meta-ads/jkl012', events: ['Campaign Status Change'], status: 'inactive', lastTriggered: '2026-06-20 02:00 PM' },
-]
-
 export default function Settings() {
   const { theme, toggleTheme, accentColor, setAccentColor } = useTheme()
-  const { profile, initials, isAdmin, updateProfile, uploadAvatar, addTeamMember } = useAuth()
+  const { session, profile, initials, isAdmin, updateProfile, uploadAvatar, addTeamMember } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
   const [draftProfile, setDraftProfile] = useState({ name: profile.name, email: profile.email, phone: profile.phone || '' })
@@ -194,35 +193,8 @@ export default function Settings() {
     loadTeamMembers()
   }
 
-  // Integration states
-  const [integrations, setIntegrations] = useState({
-    metaAds: { connected: true, lastSync: '2026-06-27 10:30 AM' },
-    justDial: { connected: false, lastSync: null },
-    googleAds: { connected: true, lastSync: '2026-06-27 09:15 AM' },
-  })
-  const [configuring, setConfiguring] = useState(null)
-  const [configTab, setConfigTab] = useState('api-config')
-  const [testingConnection, setTestingConnection] = useState(false)
-  const [testResult, setTestResult] = useState(null)
   const [copiedField, setCopiedField] = useState(null)
   const [visibleFields, setVisibleFields] = useState({})
-  const [webhookEvents, setWebhookEvents] = useState({
-    newLead: true,
-    leadUpdated: true,
-    formSubmission: false,
-    campaignStatus: false,
-  })
-  const [syncSettings, setSyncSettings] = useState({
-    autoSync: true,
-    frequency: 'every15min',
-    direction: 'one-way',
-    duplicateHandling: 'update',
-    defaultStatus: 'new',
-    defaultPriority: 'medium',
-  })
-  const [fieldMappings, setFieldMappings] = useState(defaultFieldMappings)
-  const [logFilter, setLogFilter] = useState('all')
-  const [testingWebhook, setTestingWebhook] = useState(false)
 
   const isDark = theme === 'dark'
   const cardBg = isDark ? 'bg-dark-900 border-dark-700/60' : 'bg-white border-dark-200/60'
@@ -230,32 +202,147 @@ export default function Settings() {
   const textSecondary = isDark ? 'text-dark-400' : 'text-dark-500'
   const labelText = isDark ? 'text-dark-300' : 'text-dark-600'
 
-  const toggleConnection = (integrationId) => {
-    setIntegrations(prev => ({
-      ...prev,
-      [integrationId]: {
-        ...prev[integrationId],
-        connected: !prev[integrationId].connected,
-        lastSync: !prev[integrationId].connected ? new Date().toLocaleString() : prev[integrationId].lastSync,
+  // Real integrations state — config comes from api/integrations/list,
+  // which reads the `integrations` table via the service role key.
+  const emptyDraft = { appId: '', pageId: '', appSecret: '', pageAccessToken: '', webhookVerifyToken: '' }
+  const [integrationsConfig, setIntegrationsConfig] = useState({})
+  const [integrationsLoading, setIntegrationsLoading] = useState(true)
+  const [expandedIntegration, setExpandedIntegration] = useState(null)
+  const [integrationDrafts, setIntegrationDrafts] = useState({})
+  const [integrationSaving, setIntegrationSaving] = useState(null)
+  const [integrationTesting, setIntegrationTesting] = useState(null)
+  const [integrationTestResult, setIntegrationTestResult] = useState({})
+  const [integrationDisconnecting, setIntegrationDisconnecting] = useState(null)
+  const [auditLogOpenKey, setAuditLogOpenKey] = useState(null)
+  const [auditLogs, setAuditLogs] = useState({})
+  const [auditLogLoading, setAuditLogLoading] = useState(false)
+
+  const [integrationsError, setIntegrationsError] = useState('')
+
+  const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` })
+
+  // The /api/* serverless functions only run under `vercel dev` or once
+  // deployed to Vercel — under plain `vite`/`npm run dev` they 404 or, worse,
+  // Vite serves the source file itself as text/javascript (still a 200).
+  // Detect that here instead of letting res.json() silently hand back {}.
+  const parseApiResponse = async (res) => {
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      throw new Error("Got a non-JSON response from the API. If you're running `npm run dev`, the /api routes need `vercel dev` (or a deployed Vercel URL) to actually execute — plain Vite doesn't run them.")
+    }
+    return res.json()
+  }
+
+  const loadIntegrations = async () => {
+    if (!session?.access_token) return
+    setIntegrationsLoading(true)
+    setIntegrationsError('')
+    try {
+      const res = await fetch('/api/integrations/list', { headers: authHeaders() })
+      const body = await parseApiResponse(res)
+      if (!res.ok) throw new Error(body.error || 'Failed to load integrations')
+      const map = {}
+      const drafts = {}
+      body.integrations.forEach((row) => {
+        map[row.key] = row
+        drafts[row.key] = { ...emptyDraft, appId: row.appId || '', pageId: row.pageId || '' }
+      })
+      setIntegrationsConfig(map)
+      setIntegrationDrafts(drafts)
+    } catch (err) {
+      setIntegrationsError(err.message)
+    } finally {
+      setIntegrationsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isAdmin && activeTab === 'integrations') loadIntegrations()
+  }, [isAdmin, activeTab])
+
+  const updateDraft = (key, field, value) => {
+    setIntegrationDrafts((prev) => ({ ...prev, [key]: { ...(prev[key] || emptyDraft), [field]: value } }))
+  }
+
+  const handleToggleExpand = (key) => {
+    setExpandedIntegration((prev) => (prev === key ? null : key))
+    setIntegrationTestResult((prev) => ({ ...prev, [key]: null }))
+  }
+
+  const handleSaveIntegration = async (key) => {
+    setIntegrationSaving(key)
+    try {
+      const draft = integrationDrafts[key] || emptyDraft
+      const res = await fetch('/api/integrations/save', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ key, ...draft }),
+      })
+      const body = await parseApiResponse(res)
+      if (!res.ok) throw new Error(body.error || 'Failed to save')
+      setIntegrationsConfig((prev) => ({ ...prev, [key]: body.integration }))
+      setIntegrationDrafts((prev) => ({ ...prev, [key]: { ...emptyDraft, appId: body.integration.appId || '', pageId: body.integration.pageId || '' } }))
+      setIntegrationTestResult((prev) => ({ ...prev, [key]: { ok: true, message: 'Configuration saved' } }))
+    } catch (err) {
+      setIntegrationTestResult((prev) => ({ ...prev, [key]: { ok: false, message: err.message } }))
+    } finally {
+      setIntegrationSaving(null)
+    }
+  }
+
+  const handleTestIntegration = async (key) => {
+    setIntegrationTesting(key)
+    try {
+      const res = await fetch('/api/integrations/test', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ key }),
+      })
+      const body = await parseApiResponse(res)
+      setIntegrationTestResult((prev) => ({ ...prev, [key]: { ok: !!body.ok, message: body.message || body.error || 'Test failed' } }))
+      loadIntegrations()
+    } catch (err) {
+      setIntegrationTestResult((prev) => ({ ...prev, [key]: { ok: false, message: err.message } }))
+    } finally {
+      setIntegrationTesting(null)
+    }
+  }
+
+  const handleDisconnectIntegration = async (key) => {
+    if (!window.confirm('Disconnect this integration? Its App Secret / access tokens / webhook key will be cleared.')) return
+    setIntegrationDisconnecting(key)
+    try {
+      const res = await fetch('/api/integrations/disconnect', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ key }),
+      })
+      const body = await parseApiResponse(res)
+      if (!res.ok) throw new Error(body.error || 'Failed to disconnect')
+      setIntegrationsConfig((prev) => ({ ...prev, [key]: body.integration }))
+      setIntegrationDrafts((prev) => ({ ...prev, [key]: { ...emptyDraft } }))
+    } catch (err) {
+      setIntegrationTestResult((prev) => ({ ...prev, [key]: { ok: false, message: err.message } }))
+    } finally {
+      setIntegrationDisconnecting(null)
+    }
+  }
+
+  const handleToggleAuditLog = async (key) => {
+    const opening = auditLogOpenKey !== key
+    setAuditLogOpenKey(opening ? key : null)
+    if (opening && !auditLogs[key]) {
+      setAuditLogLoading(true)
+      try {
+        const res = await fetch(`/api/integrations/audit-log?key=${key}`, { headers: authHeaders() })
+        const body = await parseApiResponse(res)
+        if (res.ok) setAuditLogs((prev) => ({ ...prev, [key]: body.logs }))
+      } catch {
+        setAuditLogs((prev) => ({ ...prev, [key]: [] }))
+      } finally {
+        setAuditLogLoading(false)
       }
-    }))
-  }
-
-  const handleTestConnection = () => {
-    setTestingConnection(true)
-    setTestResult(null)
-    setTimeout(() => {
-      setTestingConnection(false)
-      setTestResult('success')
-      setTimeout(() => setTestResult(null), 3000)
-    }, 2000)
-  }
-
-  const handleTestWebhook = () => {
-    setTestingWebhook(true)
-    setTimeout(() => {
-      setTestingWebhook(false)
-    }, 2000)
+    }
   }
 
   const copyToClipboard = (text, fieldId) => {
@@ -276,33 +363,6 @@ export default function Settings() {
     }
     return styles[status] || styles.warning
   }
-
-  const SecretField = ({ label, value, fieldId }) => (
-    <div>
-      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>{label}</label>
-      <div className="relative">
-        <input
-          type={visibleFields[fieldId] ? 'text' : 'password'}
-          defaultValue={value}
-          className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 font-mono pr-20`}
-        />
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-          <button
-            onClick={() => toggleFieldVisibility(fieldId)}
-            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-200 text-dark-500'}`}
-          >
-            {visibleFields[fieldId] ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-          <button
-            onClick={() => copyToClipboard(value, fieldId)}
-            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-200 text-dark-500'}`}
-          >
-            {copiedField === fieldId ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 
   const CopyField = ({ label, value, fieldId, mono = true }) => (
     <div>
@@ -334,430 +394,31 @@ export default function Settings() {
     </div>
   )
 
-  const renderIntegrationConfig = () => {
-    const integration = integrationsList.find(i => i.id === configuring)
-    if (!integration) return null
+  // Write-only secret input: shows a masked placeholder once a value is
+  // saved server-side, and only sends a new value up when the admin
+  // actually types one (blank = "leave the existing secret alone").
+  const DraftSecretField = ({ label, value, onChange, fieldId, placeholder }) => (
+    <div>
+      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>{label}</label>
+      <div className="relative">
+        <input
+          type={visibleFields[fieldId] ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 font-mono pr-10`}
+        />
+        <button
+          type="button"
+          onClick={() => toggleFieldVisibility(fieldId)}
+          className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-200 text-dark-500'}`}
+        >
+          {visibleFields[fieldId] ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+    </div>
+  )
 
-    return (
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -20 }}
-        className="space-y-6"
-      >
-        {/* Config Header */}
-        <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => { setConfiguring(null); setConfigTab('api-config'); setTestResult(null); }}
-              className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg"
-              style={{ backgroundColor: integration.brandColor }}
-            >
-              {integration.icon}
-            </div>
-            <div className="flex-1">
-              <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                {integration.name} Configuration
-              </h2>
-              <p className={`text-sm ${textSecondary}`}>{integration.description}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${integrations[integration.id].connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              <span className={`text-sm font-medium ${integrations[integration.id].connected ? 'text-emerald-500' : 'text-rose-500'}`}>
-                {integrations[integration.id].connected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-          </div>
-
-          {/* Sub-tabs */}
-          <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
-            {configSubTabs.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setConfigTab(tab.key)}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  configTab === tab.key
-                    ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                    : `${isDark ? 'bg-dark-800 text-dark-400 hover:text-dark-200' : 'bg-dark-100 text-dark-500 hover:text-dark-700'}`
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Sub-tab Content */}
-        <div key={configTab}>
-            {configTab === 'api-config' && (
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <h3 className={`text-base font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>API Configuration</h3>
-                <div className="space-y-4">
-                  <SecretField label="API Key / App ID" value="ak_1a2b3c4d5e6f7g8h9i0j" fieldId="apiKey" />
-                  <SecretField label="API Secret / App Secret" value="as_x9y8w7v6u5t4s3r2q1p0" fieldId="apiSecret" />
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Account ID / Campaign ID</label>
-                    <input
-                      type="text"
-                      defaultValue="act_123456789"
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 font-mono`}
-                    />
-                  </div>
-                  <SecretField label="Access Token" value="EAABsbCS1IHDBO4gT8kZB5Wd..." fieldId="accessToken" />
-
-                  {integrations[integration.id].lastSync && (
-                    <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
-                      <Clock size={14} />
-                      <span>Last synced: {integrations[integration.id].lastSync}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-3 pt-4">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={handleTestConnection}
-                      disabled={testingConnection}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                        testResult === 'success'
-                          ? 'border-emerald-500 text-emerald-500 bg-emerald-500/10'
-                          : testResult === 'error'
-                          ? 'border-rose-500 text-rose-500 bg-rose-500/10'
-                          : isDark
-                          ? 'border-dark-700 text-dark-300 hover:bg-dark-800'
-                          : 'border-dark-200 text-dark-600 hover:bg-dark-50'
-                      }`}
-                    >
-                      {testingConnection ? (
-                        <Loader2 size={16} className="animate-spin" />
-                      ) : testResult === 'success' ? (
-                        <Check size={16} />
-                      ) : testResult === 'error' ? (
-                        <X size={16} />
-                      ) : (
-                        <Zap size={16} />
-                      )}
-                      {testingConnection ? 'Testing...' : testResult === 'success' ? 'Connection Successful' : testResult === 'error' ? 'Connection Failed' : 'Test Connection'}
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25"
-                    >
-                      <Save size={16} /> Save Configuration
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {configTab === 'webhook-setup' && (
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <h3 className={`text-base font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Webhook Setup</h3>
-                <div className="space-y-5">
-                  <CopyField
-                    label="Webhook URL"
-                    value={`https://api.bixacademy.com/webhooks/${integration.webhookSlug}/abc123`}
-                    fieldId="webhookUrl"
-                  />
-                  <CopyField
-                    label="Webhook Secret Key"
-                    value="whsec_k7m2n9p4q1r8s5t0u3v6w"
-                    fieldId="webhookSecret"
-                  />
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-3 ${labelText}`}>Webhook Events</label>
-                    <div className="space-y-3">
-                      {[
-                        { key: 'newLead', label: 'New Lead Created' },
-                        { key: 'leadUpdated', label: 'Lead Updated' },
-                        { key: 'formSubmission', label: 'Form Submission' },
-                        { key: 'campaignStatus', label: 'Campaign Status Change' },
-                      ].map(event => (
-                        <label key={event.key} className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={webhookEvents[event.key]}
-                            onChange={() => setWebhookEvents(prev => ({ ...prev, [event.key]: !prev[event.key] }))}
-                            className="w-4 h-4 rounded border-dark-300 text-primary-500 focus:ring-primary-500"
-                          />
-                          <span className={`text-sm ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{event.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm font-medium ${labelText}`}>Webhook Status:</span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span className="text-sm font-medium text-emerald-500">Active</span>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3 pt-2">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
-                    >
-                      <RefreshCw size={14} /> Regenerate Webhook URL
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={handleTestWebhook}
-                      disabled={testingWebhook}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
-                    >
-                      {testingWebhook ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                      {testingWebhook ? 'Sending...' : 'Test Webhook'}
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {configTab === 'field-mapping' && (
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <h3 className={`text-base font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Field Mapping</h3>
-                <div className="space-y-4">
-                  <div className={`grid grid-cols-[1fr,auto,1fr] gap-3 items-center text-sm font-medium ${labelText}`}>
-                    <span>Source Field</span>
-                    <span />
-                    <span>CRM Field</span>
-                  </div>
-                  {fieldMappings.map((mapping, index) => (
-                    <div key={index} className="grid grid-cols-[1fr,auto,1fr] gap-3 items-center">
-                      <input
-                        type="text"
-                        value={mapping.source}
-                        readOnly
-                        className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} cursor-default`}
-                      />
-                      <ArrowRight size={16} className={textSecondary} />
-                      <select
-                        value={mapping.crm}
-                        onChange={(e) => {
-                          const updated = [...fieldMappings]
-                          updated[index] = { ...updated[index], crm: e.target.value }
-                          setFieldMappings(updated)
-                        }}
-                        className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                      >
-                        {crmFieldOptions.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-
-                  <div className="flex items-center gap-3 pt-4">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setFieldMappings(prev => [...prev, { source: '', crm: 'Lead Name' }])}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
-                    >
-                      <Plus size={14} /> Add Custom Mapping
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25"
-                    >
-                      <Save size={16} /> Save Mappings
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {configTab === 'sync-settings' && (
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <h3 className={`text-base font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Sync Settings</h3>
-                <div className="space-y-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>Auto-Sync</p>
-                      <p className={`text-sm ${textSecondary}`}>Automatically sync leads from this integration</p>
-                    </div>
-                    <button
-                      onClick={() => setSyncSettings(prev => ({ ...prev, autoSync: !prev.autoSync }))}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${syncSettings.autoSync ? 'bg-primary-500' : isDark ? 'bg-dark-700' : 'bg-dark-300'}`}
-                    >
-                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${syncSettings.autoSync ? 'left-6' : 'left-1'}`} />
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Sync Frequency</label>
-                    <select
-                      value={syncSettings.frequency}
-                      onChange={(e) => setSyncSettings(prev => ({ ...prev, frequency: e.target.value }))}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                    >
-                      <option value="realtime">Real-time</option>
-                      <option value="every5min">Every 5 minutes</option>
-                      <option value="every15min">Every 15 minutes</option>
-                      <option value="everyhour">Every hour</option>
-                      <option value="daily">Daily</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Sync Direction</label>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setSyncSettings(prev => ({ ...prev, direction: 'one-way' }))}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                          syncSettings.direction === 'one-way'
-                            ? 'border-primary-500 bg-primary-500/10 text-primary-500'
-                            : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
-                        }`}
-                      >
-                        <ArrowRight size={14} /> One-way (Import)
-                      </button>
-                      <button
-                        onClick={() => setSyncSettings(prev => ({ ...prev, direction: 'two-way' }))}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                          syncSettings.direction === 'two-way'
-                            ? 'border-primary-500 bg-primary-500/10 text-primary-500'
-                            : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
-                        }`}
-                      >
-                        <ArrowLeftRight size={14} /> Two-way
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Duplicate Handling</label>
-                    <select
-                      value={syncSettings.duplicateHandling}
-                      onChange={(e) => setSyncSettings(prev => ({ ...prev, duplicateHandling: e.target.value }))}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                    >
-                      <option value="skip">Skip Duplicates</option>
-                      <option value="update">Update Existing</option>
-                      <option value="create">Create New</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Default Lead Status on Import</label>
-                    <select
-                      value={syncSettings.defaultStatus}
-                      onChange={(e) => setSyncSettings(prev => ({ ...prev, defaultStatus: e.target.value }))}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                    >
-                      <option value="new">New</option>
-                      <option value="contacted">Contacted</option>
-                      <option value="qualified">Qualified</option>
-                      <option value="nurturing">Nurturing</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Default Priority Assignment</label>
-                    <select
-                      value={syncSettings.defaultPriority}
-                      onChange={(e) => setSyncSettings(prev => ({ ...prev, defaultPriority: e.target.value }))}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                    >
-                      <option value="high">High</option>
-                      <option value="medium">Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25"
-                    >
-                      <Save size={16} /> Save Settings
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {configTab === 'activity-log' && (
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Activity Log</h3>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={logFilter}
-                      onChange={(e) => setLogFilter(e.target.value)}
-                      className={`px-3 py-1.5 rounded-lg text-sm border ${inputBg} focus:outline-none`}
-                    >
-                      <option value="all">All Status</option>
-                      <option value="success">Success</option>
-                      <option value="failed">Failed</option>
-                      <option value="warning">Warning</option>
-                    </select>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className={`p-2 rounded-lg text-sm ${isDark ? 'text-dark-400 hover:bg-dark-800' : 'text-dark-500 hover:bg-dark-100'}`}
-                      title="Clear Logs"
-                    >
-                      <Trash2 size={16} />
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className={`p-2 rounded-lg text-sm ${isDark ? 'text-dark-400 hover:bg-dark-800' : 'text-dark-500 hover:bg-dark-100'}`}
-                      title="Export Logs"
-                    >
-                      <Download size={16} />
-                    </motion.button>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className={`border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Timestamp</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Action</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Details</th>
-                        <th className={`text-left py-3 font-medium ${labelText}`}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mockActivityLogs
-                        .filter(log => logFilter === 'all' || log.status === logFilter)
-                        .map(log => (
-                          <tr key={log.id} className={`border-b ${isDark ? 'border-dark-800/60' : 'border-dark-100/60'}`}>
-                            <td className={`py-3 pr-4 font-mono text-xs whitespace-nowrap ${textSecondary}`}>{log.timestamp}</td>
-                            <td className={`py-3 pr-4 whitespace-nowrap font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{log.action}</td>
-                            <td className={`py-3 pr-4 ${textSecondary} max-w-xs truncate`}>{log.details}</td>
-                            <td className="py-3">
-                              <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${getStatusBadge(log.status)}`}>
-                                {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-            )}
-          </div>
-      </motion.div>
-    )
-  }
 
   return (
     <div className="space-y-6">
@@ -1037,207 +698,203 @@ export default function Settings() {
 
           {activeTab === 'integrations' && (
             <>
-              {configuring ? (
-                renderIntegrationConfig()
-              ) : (
-                <>
-                  <motion.div variants={itemVariants}>
-                    <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Integrations</h2>
-                    <p className={`text-sm mb-6 ${textSecondary}`}>Connect your lead generation platforms to automatically import and sync leads</p>
-                  </motion.div>
+              <motion.div variants={itemVariants}>
+                <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Integrations</h2>
+                <p className={`text-sm mb-6 ${textSecondary}`}>Webhook URLs, API keys, and connection status for every lead-capture platform. Only administrators can view this page.</p>
+              </motion.div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {integrationsList.map(integration => (
-                      <motion.div
-                        key={integration.id}
-                        variants={itemVariants}
-                        whileHover={{ y: -2, transition: { duration: 0.2 } }}
-                        className={`${cardBg} border rounded-2xl p-6 shadow-sm`}
-                      >
-                        <div className="flex items-start justify-between mb-4">
+              {!isAdmin ? (
+                <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 text-sm ${textSecondary}`}>
+                  Only administrators can view or configure integrations.
+                </motion.div>
+              ) : integrationsLoading ? (
+                <motion.div variants={itemVariants} className={`flex items-center gap-2 text-sm ${textSecondary}`}>
+                  <Loader2 size={16} className="animate-spin" /> Loading integrations...
+                </motion.div>
+              ) : integrationsError ? (
+                <motion.div variants={itemVariants} className="flex items-start gap-2 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-sm text-rose-500">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p>{integrationsError}</p>
+                    <button onClick={loadIntegrations} className="mt-2 font-medium underline underline-offset-2">Retry</button>
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="space-y-3">
+                  {integrationsList.map((integration) => {
+                    const cfg = integrationsConfig[integration.key] || {}
+                    const draft = integrationDrafts[integration.key] || emptyDraft
+                    const isExpanded = expandedIntegration === integration.key
+                    const webhookUrl = `${window.location.origin}${integration.webhookPath}`
+                    const testResult = integrationTestResult[integration.key]
+                    const statusMeta = {
+                      connected: { label: 'Connected', dot: 'bg-emerald-500', text: 'text-emerald-500' },
+                      error: { label: 'Error', dot: 'bg-rose-500', text: 'text-rose-500' },
+                      not_connected: { label: 'Not Connected', dot: isDark ? 'bg-dark-600' : 'bg-dark-300', text: textSecondary },
+                    }[cfg.status || 'not_connected']
+
+                    return (
+                      <motion.div key={integration.key} variants={itemVariants} className={`${cardBg} border rounded-2xl overflow-hidden`}>
+                        <button
+                          onClick={() => handleToggleExpand(integration.key)}
+                          className="w-full flex items-center gap-4 p-5 text-left"
+                        >
+                          <ChevronRight size={16} className={`shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''} ${textSecondary}`} />
                           <div
-                            className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg"
+                            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-lg"
                             style={{ backgroundColor: integration.brandColor }}
                           >
                             {integration.icon}
                           </div>
-                          <button
-                            onClick={() => toggleConnection(integration.id)}
-                            className={`relative w-11 h-6 rounded-full transition-colors ${
-                              integrations[integration.id].connected ? 'bg-emerald-500' : isDark ? 'bg-dark-700' : 'bg-dark-300'
-                            }`}
-                          >
-                            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                              integrations[integration.id].connected ? 'left-6' : 'left-1'
-                            }`} />
-                          </button>
-                        </div>
-
-                        <h3 className={`font-semibold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>{integration.name}</h3>
-                        <p className={`text-sm mb-4 ${textSecondary}`}>{integration.description}</p>
-
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${integrations[integration.id].connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                            <span className={`text-xs font-medium ${integrations[integration.id].connected ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              {integrations[integration.id].connected ? 'Connected' : 'Disconnected'}
+                          <div className="flex-1 min-w-0">
+                            <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{integration.name}</h3>
+                            <p className={`text-sm truncate ${textSecondary}`}>{integration.description}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            {cfg.lastSyncedAt && (
+                              <p className={`text-xs mb-1 ${textSecondary}`}>Last synced {new Date(cfg.lastSyncedAt).toLocaleString()}</p>
+                            )}
+                            <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${statusMeta.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot}`} /> {statusMeta.label}
                             </span>
                           </div>
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => { setConfiguring(integration.id); setConfigTab('api-config'); }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-primary-500 hover:bg-primary-500/10 transition-colors"
-                          >
-                            Configure <ArrowRight size={14} />
-                          </motion.button>
-                        </div>
+                        </button>
 
-                        {integrations[integration.id].lastSync && (
-                          <p className={`text-xs mt-3 flex items-center gap-1 ${textSecondary}`}>
-                            <Clock size={12} /> Last sync: {integrations[integration.id].lastSync}
-                          </p>
-                        )}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className={`p-5 pt-0 space-y-5 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                                {cfg.status === 'error' && cfg.lastError && (
+                                  <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-sm text-rose-500 mt-5">
+                                    <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {cfg.lastError}
+                                  </div>
+                                )}
+
+                                <div className={cfg.status === 'error' ? '' : 'pt-5'}>
+                                  <CopyField label="Webhook callback URL" value={webhookUrl} fieldId={`webhook-url-${integration.key}`} />
+                                  <p className={`text-xs mt-1.5 ${textSecondary}`}>{integration.webhookNote}</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {integration.fields.map((field) => field.type === 'secret' ? (
+                                    <DraftSecretField
+                                      key={field.key}
+                                      label={field.label}
+                                      value={draft[field.key]}
+                                      onChange={(v) => updateDraft(integration.key, field.key, v)}
+                                      fieldId={`${integration.key}-${field.key}`}
+                                      placeholder={cfg[field.hasKey] ? '•••••••• (set — enter a new value to change)' : 'Not set'}
+                                    />
+                                  ) : (
+                                    <div key={field.key}>
+                                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>{field.label}</label>
+                                      <input
+                                        type="text"
+                                        value={draft[field.key]}
+                                        onChange={(e) => updateDraft(integration.key, field.key, e.target.value)}
+                                        className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 font-mono`}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {testResult && (
+                                  <div className={`flex items-center gap-2 text-sm ${testResult.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                    {testResult.ok ? <Check size={14} /> : <AlertTriangle size={14} />} {testResult.message}
+                                  </div>
+                                )}
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleSaveIntegration(integration.key)}
+                                    disabled={integrationSaving === integration.key}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25 disabled:opacity-60"
+                                  >
+                                    {integrationSaving === integration.key ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                    {integrationSaving === integration.key ? 'Saving...' : 'Save Configuration'}
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleTestIntegration(integration.key)}
+                                    disabled={integrationTesting === integration.key}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border disabled:opacity-60 ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+                                  >
+                                    {integrationTesting === integration.key ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                                    {integrationTesting === integration.key ? 'Testing...' : 'Test Connection'}
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleDisconnectIntegration(integration.key)}
+                                    disabled={integrationDisconnecting === integration.key}
+                                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 disabled:opacity-60"
+                                  >
+                                    {integrationDisconnecting === integration.key ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                                    Disconnect
+                                  </motion.button>
+                                  <button
+                                    onClick={() => handleToggleAuditLog(integration.key)}
+                                    className={`ml-auto text-sm font-medium ${isDark ? 'text-dark-300 hover:text-white' : 'text-dark-600 hover:text-dark-900'}`}
+                                  >
+                                    {auditLogOpenKey === integration.key ? 'Hide audit log' : 'View audit log'}
+                                  </button>
+                                </div>
+
+                                <AnimatePresence>
+                                  {auditLogOpenKey === integration.key && (
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="overflow-x-auto">
+                                      {auditLogLoading && !auditLogs[integration.key] ? (
+                                        <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
+                                          <Loader2 size={14} className="animate-spin" /> Loading...
+                                        </div>
+                                      ) : (auditLogs[integration.key] || []).length === 0 ? (
+                                        <p className={`text-sm ${textSecondary}`}>No activity yet.</p>
+                                      ) : (
+                                        <table className="w-full text-sm">
+                                          <thead>
+                                            <tr className={`border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                                              <th className={`text-left py-2 pr-4 font-medium ${labelText}`}>Timestamp</th>
+                                              <th className={`text-left py-2 pr-4 font-medium ${labelText}`}>Action</th>
+                                              <th className={`text-left py-2 pr-4 font-medium ${labelText}`}>Details</th>
+                                              <th className={`text-left py-2 font-medium ${labelText}`}>Status</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {auditLogs[integration.key].map((log) => (
+                                              <tr key={log.id} className={`border-b ${isDark ? 'border-dark-800/60' : 'border-dark-100/60'}`}>
+                                                <td className={`py-2 pr-4 font-mono text-xs whitespace-nowrap ${textSecondary}`}>{new Date(log.created_at).toLocaleString()}</td>
+                                                <td className={`py-2 pr-4 whitespace-nowrap font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{log.action}</td>
+                                                <td className={`py-2 pr-4 ${textSecondary} max-w-xs truncate`}>{log.detail}</td>
+                                                <td className="py-2">
+                                                  <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${getStatusBadge(log.status)}`}>
+                                                    {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </motion.div>
-                    ))}
-                  </div>
-                </>
+                    )
+                  })}
+                </div>
               )}
-            </>
-          )}
-
-          {activeTab === 'webhooks' && (
-            <>
-              <motion.div variants={itemVariants}>
-                <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Webhooks</h2>
-                <p className={`text-sm mb-6 ${textSecondary}`}>Manage webhook endpoints across all integrations</p>
-              </motion.div>
-
-              {/* Global Webhook Settings */}
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4`}>
-                <h3 className={`text-base font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Global Webhook Settings</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>Enable Webhooks</p>
-                      <p className={`text-sm ${textSecondary}`}>Allow external services to send data via webhooks</p>
-                    </div>
-                    <button className="relative w-11 h-6 rounded-full bg-primary-500 transition-colors">
-                      <span className="absolute top-1 left-6 w-4 h-4 rounded-full bg-white transition-transform" />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>Retry Failed Deliveries</p>
-                      <p className={`text-sm ${textSecondary}`}>Automatically retry failed webhook deliveries up to 3 times</p>
-                    </div>
-                    <button className="relative w-11 h-6 rounded-full bg-primary-500 transition-colors">
-                      <span className="absolute top-1 left-6 w-4 h-4 rounded-full bg-white transition-transform" />
-                    </button>
-                  </div>
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Timeout (seconds)</label>
-                    <input
-                      type="number"
-                      defaultValue={30}
-                      className={`w-32 px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`}
-                    />
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Active Webhooks List */}
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4`}>
-                <h3 className={`text-base font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Active Webhooks</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className={`border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Integration</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Webhook URL</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Events</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Status</th>
-                        <th className={`text-left py-3 font-medium ${labelText}`}>Last Triggered</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mockWebhooksList.map(wh => (
-                        <tr key={wh.id} className={`border-b ${isDark ? 'border-dark-800/60' : 'border-dark-100/60'}`}>
-                          <td className={`py-3 pr-4 font-medium whitespace-nowrap ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{wh.integration}</td>
-                          <td className={`py-3 pr-4`}>
-                            <div className="flex items-center gap-2">
-                              <code className={`text-xs font-mono ${textSecondary} max-w-[200px] truncate`}>{wh.url}</code>
-                              <button
-                                onClick={() => copyToClipboard(wh.url, `wh-${wh.id}`)}
-                                className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-500' : 'hover:bg-dark-200 text-dark-400'}`}
-                              >
-                                {copiedField === `wh-${wh.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              </button>
-                            </div>
-                          </td>
-                          <td className={`py-3 pr-4`}>
-                            <div className="flex flex-wrap gap-1">
-                              {wh.events.map(ev => (
-                                <span key={ev} className={`px-1.5 py-0.5 rounded text-xs ${isDark ? 'bg-dark-800 text-dark-400' : 'bg-dark-100 text-dark-500'}`}>
-                                  {ev}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span className={`flex items-center gap-1.5 text-xs font-medium ${wh.status === 'active' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${wh.status === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                              {wh.status === 'active' ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className={`py-3 font-mono text-xs whitespace-nowrap ${textSecondary}`}>{wh.lastTriggered}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-
-              {/* Webhook Delivery History */}
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-                <h3 className={`text-base font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Delivery History</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className={`border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Timestamp</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Integration</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Event</th>
-                        <th className={`text-left py-3 pr-4 font-medium ${labelText}`}>Response</th>
-                        <th className={`text-left py-3 font-medium ${labelText}`}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { time: '2026-06-27 10:30:15', integration: 'Meta Ads', event: 'New Lead Created', response: '200 OK', status: 'success' },
-                        { time: '2026-06-27 10:28:42', integration: 'Meta Ads', event: 'Form Submission', response: '200 OK', status: 'success' },
-                        { time: '2026-06-27 09:15:00', integration: 'Google Ads', event: 'New Lead Created', response: '200 OK', status: 'success' },
-                        { time: '2026-06-26 18:00:45', integration: 'JustDial', event: 'Lead Updated', response: '200 OK', status: 'success' },
-                        { time: '2026-06-26 17:30:22', integration: 'Meta Ads', event: 'New Lead Created', response: '429 Rate Limit', status: 'failed' },
-                        { time: '2026-06-26 16:45:10', integration: 'JustDial', event: 'New Lead Created', response: '200 OK', status: 'success' },
-                        { time: '2026-06-26 15:20:33', integration: 'Google Ads', event: 'Campaign Status Change', response: '200 OK', status: 'warning' },
-                      ].map((item, i) => (
-                        <tr key={i} className={`border-b ${isDark ? 'border-dark-800/60' : 'border-dark-100/60'}`}>
-                          <td className={`py-3 pr-4 font-mono text-xs whitespace-nowrap ${textSecondary}`}>{item.time}</td>
-                          <td className={`py-3 pr-4 whitespace-nowrap font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{item.integration}</td>
-                          <td className={`py-3 pr-4 whitespace-nowrap ${textSecondary}`}>{item.event}</td>
-                          <td className={`py-3 pr-4 font-mono text-xs ${textSecondary}`}>{item.response}</td>
-                          <td className="py-3">
-                            <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${getStatusBadge(item.status)}`}>
-                              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
             </>
           )}
 
