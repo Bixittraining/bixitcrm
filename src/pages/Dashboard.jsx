@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -12,9 +12,6 @@ import { useTheme } from '../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import {
-  monthlyRevenueData, leadSourceData, recentActivities
-} from '../data/mockData'
 
 // ---------- helpers ----------
 const formatCurrency = (val) => {
@@ -29,11 +26,50 @@ const formatStatValue = (key, val) => {
   return val.toLocaleString('en-IN')
 }
 
+const SOURCE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#0ea5e9', '#8b5cf6', '#ec4899']
+
+function timeAgo(isoDate) {
+  if (!isoDate) return ''
+  const diffMs = Date.now() - new Date(isoDate).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`
+  const months = Math.floor(days / 30)
+  return `${months} month${months === 1 ? '' : 's'} ago`
+}
+
+function pctChange(current, previous) {
+  if (previous === 0) return current > 0 ? 100 : 0
+  return Math.round(((current - previous) / previous) * 1000) / 10
+}
+
+function formatChange(pct) {
+  return `${pct >= 0 ? '+' : ''}${pct}%`
+}
+
+function monthKey(date) {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${d.getMonth()}`
+}
+
+function isInMonth(dateStr, monthsAgo) {
+  if (!dateStr) return false
+  const target = new Date()
+  target.setDate(1)
+  target.setMonth(target.getMonth() - monthsAgo)
+  return monthKey(dateStr) === monthKey(target)
+}
+
 // ---------- animated counter hook ----------
 function useAnimatedCounter(target, duration = 1500) {
   const [count, setCount] = useState(0)
   useEffect(() => {
-    let start = 0
     const startTime = performance.now()
     const step = (now) => {
       const elapsed = now - startTime
@@ -166,7 +202,7 @@ const pipelineStages = [
 ]
 
 // ---------- custom pie legend ----------
-function CustomPieLegend({ payload, theme }) {
+function CustomPieLegend({ payload, theme, leadSourceData }) {
   return (
     <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-4">
       {payload.map((entry, i) => (
@@ -202,13 +238,90 @@ export default function Dashboard() {
   const enrolledLeads = leads.filter(l => l.status === 'enrolled').length
   const conversionRate = leads.length > 0 ? Math.round((enrolledLeads / leads.length) * 100 * 10) / 10 : 0
 
+  // ---------- month-over-month deltas (real, from created_at/date) ----------
+  const leadsThisMonth = leads.filter(l => isInMonth(l.created_at, 0)).length
+  const leadsLastMonth = leads.filter(l => isInMonth(l.created_at, 1)).length
+  const studentsThisMonth = students.filter(s => s.status === 'active' && isInMonth(s.created_at, 0)).length
+  const studentsLastMonth = students.filter(s => s.status === 'active' && isInMonth(s.created_at, 1)).length
+  const revenueThisMonth = invoices.filter(i => isInMonth(i.date, 0)).reduce((sum, i) => sum + (i.paid || 0), 0)
+  const revenueLastMonth = invoices.filter(i => isInMonth(i.date, 1)).reduce((sum, i) => sum + (i.paid || 0), 0)
+  const conversionThisMonth = (() => {
+    const cohort = leads.filter(l => isInMonth(l.created_at, 0))
+    return cohort.length > 0 ? (cohort.filter(l => l.status === 'enrolled').length / cohort.length) * 100 : 0
+  })()
+  const conversionLastMonth = (() => {
+    const cohort = leads.filter(l => isInMonth(l.created_at, 1))
+    return cohort.length > 0 ? (cohort.filter(l => l.status === 'enrolled').length / cohort.length) * 100 : 0
+  })()
+
   // ---------- stat card configs ----------
+  const leadsChange = pctChange(leadsThisMonth, leadsLastMonth)
+  const studentsChange = pctChange(studentsThisMonth, studentsLastMonth)
+  const revenueChange = pctChange(revenueThisMonth, revenueLastMonth)
+  const conversionChange = pctChange(conversionThisMonth, conversionLastMonth)
+
   const statCards = [
-    { icon: Users, label: 'Total Leads', value: leads.length, valueKey: 'leads', change: '+12.5%', positive: true, color: 'primary' },
-    { icon: GraduationCap, label: 'Active Students', value: activeStudents, valueKey: 'students', change: '+8.3%', positive: true, color: 'emerald' },
-    { icon: IndianRupee, label: 'Revenue', value: totalRevenue, valueKey: 'revenue', change: '+15.2%', positive: true, color: 'accent' },
-    { icon: TrendingUp, label: 'Conversion Rate', value: conversionRate, valueKey: 'conversion', change: '+2.1%', positive: true, color: 'violet' },
+    { icon: Users, label: 'Total Leads', value: leads.length, valueKey: 'leads', change: formatChange(leadsChange), positive: leadsChange >= 0, color: 'primary' },
+    { icon: GraduationCap, label: 'Active Students', value: activeStudents, valueKey: 'students', change: formatChange(studentsChange), positive: studentsChange >= 0, color: 'emerald' },
+    { icon: IndianRupee, label: 'Revenue', value: totalRevenue, valueKey: 'revenue', change: formatChange(revenueChange), positive: revenueChange >= 0, color: 'accent' },
+    { icon: TrendingUp, label: 'Conversion Rate', value: conversionRate, valueKey: 'conversion', change: formatChange(conversionChange), positive: conversionChange >= 0, color: 'violet' },
   ]
+
+  // ---------- real monthly revenue trend (last 6 months) ----------
+  const monthlyRevenueData = useMemo(() => {
+    const now = new Date()
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
+      return { key: monthKey(d), month: d.toLocaleDateString('en-IN', { month: 'short' }), revenue: 0 }
+    })
+    invoices.forEach(inv => {
+      if (!inv.date) return
+      const bucket = months.find(m => m.key === monthKey(inv.date))
+      if (bucket) bucket.revenue += (inv.paid || 0)
+    })
+    return months.map(({ month, revenue }) => ({ month, revenue }))
+  }, [invoices])
+
+  // ---------- real lead source breakdown ----------
+  const leadSourceData = useMemo(() => {
+    if (leads.length === 0) return []
+    const counts = {}
+    leads.forEach(l => {
+      const src = l.source || 'Other'
+      counts[src] = (counts[src] || 0) + 1
+    })
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count], i) => ({
+        name,
+        value: Math.round((count / leads.length) * 100),
+        color: SOURCE_COLORS[i % SOURCE_COLORS.length],
+      }))
+  }, [leads])
+
+  // ---------- real recent activity feed ----------
+  const recentActivities = useMemo(() => {
+    const leadItems = leads.map(l => ({
+      id: `lead-${l.id}`, type: 'lead', icon: 'user-plus',
+      message: `New lead ${l.name} registered from ${l.source || 'Website'}`,
+      timestamp: l.created_at,
+    }))
+    const paymentItems = invoices.filter(i => (i.paid || 0) > 0).map(i => ({
+      id: `payment-${i.id}`, type: 'payment', icon: 'credit-card',
+      message: `${i.student} paid ${formatCurrency(i.paid)} for ${i.course}`,
+      timestamp: i.created_at || i.date,
+    }))
+    const enrollmentItems = students.map(s => ({
+      id: `enrollment-${s.id}`, type: 'enrollment', icon: 'graduation-cap',
+      message: `${s.name} enrolled in ${s.course}`,
+      timestamp: s.created_at || s.enrollDate,
+    }))
+    return [...leadItems, ...paymentItems, ...enrollmentItems]
+      .filter(a => a.timestamp)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 8)
+      .map(a => ({ ...a, time: timeAgo(a.timestamp) }))
+  }, [leads, invoices, students])
 
   // card wrapper class
   const glass = theme === 'dark'
@@ -359,7 +472,7 @@ export default function Dashboard() {
                     color: theme === 'dark' ? '#e2e8f0' : '#1e293b',
                   }}
                 />
-                <Legend content={<CustomPieLegend theme={theme} />} />
+                <Legend content={<CustomPieLegend theme={theme} leadSourceData={leadSourceData} />} />
               </PieChart>
             </ResponsiveContainer>
           </div>

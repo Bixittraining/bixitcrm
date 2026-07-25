@@ -11,7 +11,6 @@ import {
   Check,
   ChevronRight,
   X,
-  BarChart3,
   UserPlus,
   CheckCircle2,
   AlertCircle,

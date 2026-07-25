@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Menu, Search, Bell, MessageSquare, Sun, Moon, ChevronDown,
-  User, Settings, LogOut, Check, X, Phone, Mail, Users,
+  User, Settings, LogOut, Phone, Mail, Users,
   GraduationCap, AlertCircle, CalendarClock, IndianRupee,
-  Send, Smartphone,
+  Smartphone,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useData } from '../../context/DataContext'

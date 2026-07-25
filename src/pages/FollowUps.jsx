@@ -17,7 +17,6 @@ import {
   X,
   ChevronDown,
   Bell,
-  FileText,
   GraduationCap,
   Trash2,
   CheckCircle2,
@@ -738,7 +737,6 @@ export default function FollowUps() {
                 >
                   <div className="space-y-1.5">
                     {dayFollowUps.map((fu) => {
-                      const typeInfo = typeConfig[fu.type]
                       return (
                         <motion.div
                           key={fu.id}

@@ -23,10 +23,10 @@ const itemVariants = {
 
 const tabs = [
   { key: 'profile', label: 'Profile', icon: User },
-  { key: 'team', label: 'Team', icon: Users },
-  { key: 'academy', label: 'Academy', icon: Building2 },
-  { key: 'integrations', label: 'Integrations', icon: Plug },
-  { key: 'api', label: 'API', icon: Key },
+  { key: 'team', label: 'Team', icon: Users, adminOnly: true },
+  { key: 'academy', label: 'Academy', icon: Building2, adminOnly: true },
+  { key: 'integrations', label: 'Integrations', icon: Plug, adminOnly: true },
+  { key: 'api', label: 'API', icon: Key, adminOnly: true },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'security', label: 'Security', icon: Shield },
@@ -108,6 +108,13 @@ export default function Settings() {
   const { session, profile, initials, isAdmin, updateProfile, uploadAvatar, addTeamMember } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
+  // Defense in depth: non-admins can only ever land on non-admin tabs, even
+  // if activeTab were somehow set to an admin-only one.
+  useEffect(() => {
+    const tab = tabs.find(t => t.key === activeTab)
+    if (tab?.adminOnly && !isAdmin) setActiveTab('profile')
+  }, [activeTab, isAdmin])
+
   const [draftProfile, setDraftProfile] = useState({ name: profile.name, email: profile.email, phone: profile.phone || '' })
   const [profileSaved, setProfileSaved] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
@@ -168,6 +175,57 @@ export default function Settings() {
     if (isAdmin) loadTeamMembers()
   }, [isAdmin])
 
+  // Academy tab — real, persisted business info (academy_settings table)
+  const [academyForm, setAcademyForm] = useState({ name: '', contactEmail: '', phone: '', website: '', gstNumber: '', address: '' })
+  const [academyLoading, setAcademyLoading] = useState(true)
+  const [academySaving, setAcademySaving] = useState(false)
+  const [academySaved, setAcademySaved] = useState(false)
+  const [academyError, setAcademyError] = useState('')
+
+  const loadAcademySettings = async () => {
+    setAcademyLoading(true)
+    const { data, error } = await supabase.from('academy_settings').select('*').eq('id', true).single()
+    if (!error && data) {
+      setAcademyForm({
+        name: data.name || '',
+        contactEmail: data.contact_email || '',
+        phone: data.phone || '',
+        website: data.website || '',
+        gstNumber: data.gst_number || '',
+        address: data.address || '',
+      })
+    }
+    setAcademyLoading(false)
+  }
+
+  useEffect(() => { loadAcademySettings() }, [])
+
+  const handleAcademyChange = (field) => (e) => {
+    setAcademyForm((prev) => ({ ...prev, [field]: e.target.value }))
+    setAcademySaved(false)
+  }
+
+  const handleSaveAcademy = async () => {
+    setAcademySaving(true)
+    setAcademyError('')
+    const { error } = await supabase.from('academy_settings').update({
+      name: academyForm.name,
+      contact_email: academyForm.contactEmail,
+      phone: academyForm.phone,
+      website: academyForm.website,
+      gst_number: academyForm.gstNumber,
+      address: academyForm.address,
+      updated_at: new Date().toISOString(),
+    }).eq('id', true)
+    setAcademySaving(false)
+    if (error) {
+      setAcademyError(error.message)
+      return
+    }
+    setAcademySaved(true)
+    setTimeout(() => setAcademySaved(false), 2500)
+  }
+
   const handleTeamFormChange = (field) => (e) => {
     setTeamForm((prev) => ({ ...prev, [field]: e.target.value }))
     setTeamError('')
@@ -191,6 +249,49 @@ export default function Settings() {
     setTeamSuccess(`${teamForm.name} added successfully`)
     setTeamForm({ name: '', email: '', phone: '', password: '', role: 'sales' })
     loadTeamMembers()
+  }
+
+  // Security tab — change password (real, via Supabase Auth)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [securitySaving, setSecuritySaving] = useState(false)
+  const [securityError, setSecurityError] = useState('')
+  const [securitySuccess, setSecuritySuccess] = useState('')
+
+  const handleChangePassword = async () => {
+    setSecurityError('')
+    setSecuritySuccess('')
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setSecurityError('All three fields are required')
+      return
+    }
+    if (newPassword.length < 8) {
+      setSecurityError('New password must be at least 8 characters')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setSecurityError('New password and confirmation do not match')
+      return
+    }
+    setSecuritySaving(true)
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: profile.email, password: currentPassword })
+    if (signInError) {
+      setSecuritySaving(false)
+      setSecurityError('Current password is incorrect')
+      return
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
+    setSecuritySaving(false)
+    if (updateError) {
+      setSecurityError(updateError.message)
+      return
+    }
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setSecuritySuccess('Password updated successfully')
+    setTimeout(() => setSecuritySuccess(''), 4000)
   }
 
   const [copiedField, setCopiedField] = useState(null)
@@ -430,7 +531,7 @@ export default function Settings() {
       <div className="flex flex-col lg:flex-row gap-6">
         <div className={`${cardBg} border rounded-2xl p-3 lg:w-56 flex-shrink-0`}>
           <nav className="flex lg:flex-col gap-1">
-            {tabs.map(tab => (
+            {tabs.filter(tab => !tab.adminOnly || isAdmin).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -650,49 +751,72 @@ export default function Settings() {
           {activeTab === 'academy' && (
             <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
               <h2 className={`text-lg font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Academy Information</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Academy Name</label>
-                  <input type="text" defaultValue="BIX Academy" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+              {academyLoading ? (
+                <div className={`flex items-center gap-2 text-sm ${textSecondary}`}>
+                  <Loader2 size={16} className="animate-spin" /> Loading...
                 </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Contact Email</label>
-                  <div className="relative">
-                    <Mail size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                    <input type="email" defaultValue="info@bixacademy.com" className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Academy Name</label>
+                      <input type="text" value={academyForm.name} onChange={handleAcademyChange('name')} disabled={!isAdmin} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Contact Email</label>
+                      <div className="relative">
+                        <Mail size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
+                        <input type="email" value={academyForm.contactEmail} onChange={handleAcademyChange('contactEmail')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone Number</label>
+                      <div className="relative">
+                        <Phone size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
+                        <input type="tel" value={academyForm.phone} onChange={handleAcademyChange('phone')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Website</label>
+                      <div className="relative">
+                        <Globe size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
+                        <input type="url" value={academyForm.website} onChange={handleAcademyChange('website')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>GST Number</label>
+                      <input type="text" value={academyForm.gstNumber} onChange={handleAcademyChange('gstNumber')} disabled={!isAdmin} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Address</label>
+                      <div className="relative">
+                        <MapPin size={16} className={`absolute left-3 top-3 ${textSecondary}`} />
+                        <textarea rows={2} value={academyForm.address} onChange={handleAcademyChange('address')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none disabled:opacity-60`} />
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone Number</label>
-                  <div className="relative">
-                    <Phone size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                    <input type="tel" defaultValue="+91 80000 12345" className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
-                  </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Website</label>
-                  <div className="relative">
-                    <Globe size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                    <input type="url" defaultValue="www.bixacademy.com" className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
-                  </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>GST Number</label>
-                  <input type="text" defaultValue="29AABCU9603R1Z3" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Address</label>
-                  <div className="relative">
-                    <MapPin size={16} className={`absolute left-3 top-3 ${textSecondary}`} />
-                    <textarea rows={2} defaultValue="123 Tech Park, Electronic City, Bangalore 560100" className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none`} />
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end mt-6">
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/25">
-                  <Save size={16} /> Save Changes
-                </motion.button>
-              </div>
+                  {!isAdmin && <p className={`text-sm mt-4 ${textSecondary}`}>Only administrators can edit academy information.</p>}
+                  {academyError && <p className="text-sm mt-4 text-rose-500">{academyError}</p>}
+                  {isAdmin && (
+                    <div className="flex justify-end mt-6">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleSaveAcademy}
+                        disabled={academySaving}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium shadow-lg transition-colors disabled:opacity-60 ${
+                          academySaved
+                            ? 'bg-emerald-500 shadow-emerald-500/25 text-white'
+                            : 'bg-gradient-to-r from-primary-600 to-primary-500 shadow-primary-500/25 text-white'
+                        }`}
+                      >
+                        {academySaving ? <Loader2 size={16} className="animate-spin" /> : academySaved ? <Check size={16} /> : <Save size={16} />}
+                        {academySaving ? 'Saving...' : academySaved ? 'Saved' : 'Save Changes'}
+                      </motion.button>
+                    </div>
+                  )}
+                </>
+              )}
             </motion.div>
           )}
 
@@ -902,17 +1026,18 @@ export default function Settings() {
             <>
               <motion.div variants={itemVariants}>
                 <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>API Management</h2>
-                <p className={`text-sm mb-6 ${textSecondary}`}>Manage API keys, view usage statistics, and access documentation</p>
+                <p className={`text-sm mb-6 ${textSecondary}`}>
+                  There is no public API for third-party access yet — the entries below are illustrative only. Real integrations (Meta Ads, Google Ads, WhatsApp, JustDial) are configured under the Integrations tab instead.
+                </p>
               </motion.div>
 
               {/* API Keys */}
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4`}>
+              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4 opacity-60`}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>API Keys</h3>
                   <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25"
+                    disabled
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-primary-500/25 cursor-not-allowed"
                   >
                     <Plus size={14} /> Generate New API Key
                   </motion.button>
@@ -962,7 +1087,7 @@ export default function Settings() {
               </motion.div>
 
               {/* Usage Statistics */}
-              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4`}>
+              <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6 mb-4 opacity-60`}>
                 <h3 className={`text-base font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Usage Statistics</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className={`p-4 rounded-xl border ${isDark ? 'border-dark-700/60 bg-dark-800/50' : 'border-dark-200/60 bg-dark-50/50'}`}>
@@ -1037,8 +1162,12 @@ export default function Settings() {
 
           {activeTab === 'notifications' && (
             <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>
-              <h2 className={`text-lg font-bold mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Notification Preferences</h2>
-              <div className="space-y-4">
+              <h2 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>Notification Preferences</h2>
+              <p className={`text-sm mb-6 ${textSecondary}`}>
+                The bell icon in the header already shows live alerts (due follow-ups, new leads, overdue fees, low attendance) computed from your real data.
+                Per-category email/push delivery preferences below aren&apos;t wired to a delivery provider yet, so they&apos;re shown for reference only.
+              </p>
+              <div className="space-y-4 opacity-60">
                 {[
                   { title: 'New Lead Alerts', description: 'Get notified when a new lead is registered', enabled: true },
                   { title: 'Follow-up Reminders', description: 'Receive reminders for scheduled follow-ups', enabled: true },
@@ -1052,7 +1181,7 @@ export default function Settings() {
                       <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>{item.title}</p>
                       <p className={`text-sm ${textSecondary}`}>{item.description}</p>
                     </div>
-                    <button className={`relative w-11 h-6 rounded-full transition-colors ${item.enabled ? 'bg-primary-500' : isDark ? 'bg-dark-700' : 'bg-dark-300'}`}>
+                    <button disabled className={`relative w-11 h-6 rounded-full cursor-not-allowed ${item.enabled ? 'bg-primary-500' : isDark ? 'bg-dark-700' : 'bg-dark-300'}`}>
                       <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${item.enabled ? 'left-6' : 'left-1'}`} />
                     </button>
                   </div>
@@ -1128,40 +1257,40 @@ export default function Settings() {
               <div className="space-y-4">
                 <div>
                   <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Current Password</label>
-                  <input type="password" placeholder="Enter current password" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  <input type="password" placeholder="Enter current password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                 </div>
                 <div>
                   <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>New Password</label>
-                  <input type="password" placeholder="Enter new password" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  <input type="password" placeholder="Enter new password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                 </div>
                 <div>
                   <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Confirm Password</label>
-                  <input type="password" placeholder="Confirm new password" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                  <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                 </div>
+                {securityError && <p className="text-sm text-rose-500">{securityError}</p>}
+                {securitySuccess && <p className="text-sm text-emerald-500">{securitySuccess}</p>}
                 <div className="pt-4">
                   <div className="flex items-center justify-between py-3">
                     <div>
                       <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>Two-Factor Authentication</p>
-                      <p className={`text-sm ${textSecondary}`}>Add an extra layer of security to your account</p>
+                      <p className={`text-sm ${textSecondary}`}>Coming soon</p>
                     </div>
-                    <button className={`px-4 py-2 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+                    <button disabled className={`px-4 py-2 rounded-xl text-sm font-medium border opacity-50 cursor-not-allowed ${isDark ? 'border-dark-700 text-dark-300' : 'border-dark-200 text-dark-600'}`}>
                       Enable
-                    </button>
-                  </div>
-                  <div className={`flex items-center justify-between py-3 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                    <div>
-                      <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>Active Sessions</p>
-                      <p className={`text-sm ${textSecondary}`}>Manage your active login sessions</p>
-                    </div>
-                    <button className="px-4 py-2 rounded-xl text-sm font-medium text-rose-500 border border-rose-500/30 hover:bg-rose-500/10">
-                      View All
                     </button>
                   </div>
                 </div>
               </div>
               <div className="flex justify-end mt-6">
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/25">
-                  <Shield size={16} /> Update Security
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleChangePassword}
+                  disabled={securitySaving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-medium shadow-lg shadow-primary-500/25 disabled:opacity-60"
+                >
+                  {securitySaving ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+                  {securitySaving ? 'Updating...' : 'Update Password'}
                 </motion.button>
               </div>
             </motion.div>

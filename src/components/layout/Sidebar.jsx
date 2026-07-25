@@ -68,9 +68,8 @@ function useIsDesktop() {
 
 export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate }) {
   const { theme, toggleTheme } = useTheme()
-  const { profile, initials, isAdmin } = useAuth()
+  const { profile, initials } = useAuth()
   const isDark = theme === 'dark'
-  const visibleNavItems = navItems.filter((item) => item.to !== '/settings' || isAdmin)
   const isDesktop = useIsDesktop()
   // The icon-only collapsed look is a desktop-only affordance. On mobile the drawer
   // must always show full labels — it's either fully open or fully off-screen, never
@@ -138,7 +137,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
           initial="hidden"
           animate="visible"
         >
-          {visibleNavItems.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon
             return (
               <motion.li key={item.to} variants={itemVariants}>

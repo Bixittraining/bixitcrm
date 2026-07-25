@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   IndianRupee,
-  TrendingUp,
   AlertTriangle,
   CheckCircle2,
   Clock,

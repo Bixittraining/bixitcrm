@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Upload, Download, Eye, Pencil, Phone, UserPlus, Users, UserCheck,
   MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, ArrowRightLeft,
-  RefreshCw, Trash2, Mail, Calendar, Clock, MapPin, Star, Send, MessageCircle,
+  Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
-  Activity, ArrowLeft, Bell, Key, CreditCard, Award, Receipt
+  Activity, ArrowLeft, Key, CreditCard, Award, Receipt
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -560,7 +560,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onStatusChange, onEnroll, followUpsData, setFollowUpsData, updateFollowUp, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
     { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
@@ -1124,7 +1124,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, setLeads: setLeadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, enrollLead, packages } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, enrollLead, packages } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 

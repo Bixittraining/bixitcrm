@@ -24,7 +24,7 @@ function FullScreenSpinner() {
 }
 
 function AppRoutes() {
-  const { session, profile, isAdmin, loading, signOut } = useAuth()
+  const { session, profile, loading, signOut } = useAuth()
 
   if (loading) return <FullScreenSpinner />
   if (!session) return <Login />
@@ -44,7 +44,7 @@ function AppRoutes() {
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="reports" element={<Reports />} />
             <Route path="communications" element={<Communications />} />
-            <Route path="settings" element={isAdmin ? <Settings /> : <Navigate to="/" replace />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
