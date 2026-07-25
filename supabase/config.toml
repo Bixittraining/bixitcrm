@@ -1,0 +1,13 @@
+project_id = "fyxkzqvelvkiqvtptbca"
+
+[functions.webhook-whatsapp]
+verify_jwt = false
+
+[functions.webhook-meta-ads]
+verify_jwt = false
+
+[functions.webhook-google-ads]
+verify_jwt = false
+
+[functions.webhook-justdial]
+verify_jwt = false
