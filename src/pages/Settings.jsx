@@ -39,12 +39,12 @@ const tabs = [
 // 'text' fields are plain (App ID, Page/Phone ID), 'secret' fields are
 // write-only (masked once set, never sent back from the server).
 //
-// Webhook receivers are Supabase Edge Functions (supabase/functions/webhook-*)
-// rather than the api/webhooks/* Vercel functions — Edge Functions get a
-// public HTTPS URL the moment they're deployed with `supabase functions
-// deploy`, with no separate hosting/tunnel needed for the webhook itself.
-const edgeFunctionsBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
-
+// Webhook receivers are Vercel functions (api/webhooks/*) — this is what's
+// actually registered with each provider today. Supabase Edge Function
+// equivalents also exist in supabase/functions/webhook-* (ported by a
+// teammate) but are undeployed and unregistered; switching webhookPath to
+// point at them would show a URL nothing has told Meta/Google/WhatsApp to
+// call, silently breaking the one integration (Meta Ads) that's live.
 const integrationsList = [
   {
     key: 'meta_ads',
@@ -52,7 +52,7 @@ const integrationsList = [
     description: 'Auto-capture leads from Facebook and Instagram Lead Ad forms.',
     brandColor: '#1877F2',
     icon: 'M',
-    webhookPath: `${edgeFunctionsBase}/webhook-meta-ads`,
+    webhookPath: '/api/webhooks/meta-ads',
     webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → Page (leadgen subscription).',
     fields: [
       { key: 'appId', label: 'App ID', type: 'text' },
@@ -68,7 +68,7 @@ const integrationsList = [
     description: 'Import leads from Google Ads Lead Form extensions via webhook.',
     brandColor: '#4285F4',
     icon: 'G',
-    webhookPath: `${edgeFunctionsBase}/webhook-google-ads`,
+    webhookPath: '/api/webhooks/google-ads',
     webhookNote: 'Paste this URL and Webhook Key into the lead form asset\'s webhook integration in Google Ads.',
     fields: [
       { key: 'webhookVerifyToken', label: 'Webhook Key', type: 'secret', hasKey: 'hasWebhookToken' },
@@ -80,7 +80,7 @@ const integrationsList = [
     description: 'Inbound WhatsApp lead capture — matches incoming numbers to existing leads.',
     brandColor: '#25D366',
     icon: 'W',
-    webhookPath: `${edgeFunctionsBase}/webhook-whatsapp`,
+    webhookPath: '/api/webhooks/whatsapp',
     webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → WhatsApp Business Account.',
     fields: [
       { key: 'appId', label: 'App ID', type: 'text' },
@@ -96,7 +96,7 @@ const integrationsList = [
     description: 'Generic lead intake for JustDial, relayed via Zapier/Make or a custom script.',
     brandColor: '#DA1C24',
     icon: 'JD',
-    webhookPath: `${edgeFunctionsBase}/webhook-justdial`,
+    webhookPath: '/api/webhooks/justdial',
     webhookNote: 'Send leads here as a POST with header X-Webhook-Secret set to the Webhook Secret below.',
     fields: [
       { key: 'webhookVerifyToken', label: 'Webhook Secret', type: 'secret', hasKey: 'hasWebhookToken' },
@@ -856,7 +856,7 @@ export default function Settings() {
                     const cfg = integrationsConfig[integration.key] || {}
                     const draft = integrationDrafts[integration.key] || emptyDraft
                     const isExpanded = expandedIntegration === integration.key
-                    const webhookUrl = integration.webhookPath
+                    const webhookUrl = `${window.location.origin}${integration.webhookPath}`
                     const testResult = integrationTestResult[integration.key]
                     const statusMeta = {
                       connected: { label: 'Connected', dot: 'bg-emerald-500', text: 'text-emerald-500' },
