@@ -38,6 +38,19 @@ export async function readRawBody(req) {
   return Buffer.concat(chunks)
 }
 
+// Verifies the caller's bearer token against Supabase Auth — any logged-in
+// team member, not just admins (used by api/whatsapp/send, where anyone on
+// the team should be able to reply to a conversation).
+export async function requireAuth(req, admin) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '')
+  if (!token) return { error: 'Missing authorization token', status: 401 }
+
+  const { data, error } = await admin.auth.getUser(token)
+  if (error || !data?.user) return { error: 'Invalid session', status: 401 }
+
+  return { user: data.user }
+}
+
 // Reads one row of api/integrations config (App ID/secret, page/phone id,
 // access token, verify token) that admins set from the Settings UI.
 export async function getIntegrationConfig(admin, key) {

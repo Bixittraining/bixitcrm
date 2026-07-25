@@ -2,14 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Menu, Search, Bell, MessageSquare, Sun, Moon, ChevronDown,
-  User, Settings, LogOut, Phone, Mail, Users,
+  User, Settings, LogOut, Users,
   GraduationCap, AlertCircle, CalendarClock, IndianRupee,
-  Smartphone,
+  Bot, UserCheck,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useData } from '../../context/DataContext'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../../lib/supabase'
+
+const WHATSAPP_POLL_MS = 15000
 
 function useClickOutside(ref, handler) {
   useEffect(() => {
@@ -21,20 +24,24 @@ function useClickOutside(ref, handler) {
   }, [ref, handler])
 }
 
-const msgTypeIcon = { email: Mail, sms: Smartphone, notification: Bell, call: Phone }
-const msgTypeColor = {
-  email: 'bg-primary-500/15 text-primary-500',
-  sms: 'bg-emerald-500/15 text-emerald-500',
-  notification: 'bg-accent-500/15 text-accent-500',
-  call: 'bg-sky-500/15 text-sky-500',
-}
-
 function Header({ onMenuToggle, onLogout }) {
   const { theme, toggleTheme } = useTheme()
   const { profile, initials, isAdmin } = useAuth()
-  const { leads, followUps, students, invoices, communications } = useData()
+  const { leads, followUps, students, invoices } = useData()
   const navigate = useNavigate()
   const isDark = theme === 'dark'
+
+  const [whatsappConvos, setWhatsappConvos] = useState([])
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      const { data } = await supabase.from('whatsapp_conversations').select('*').order('last_message_at', { ascending: false }).limit(6)
+      if (active && data) setWhatsappConvos(data)
+    }
+    load()
+    const id = setInterval(load, WHATSAPP_POLL_MS)
+    return () => { active = false; clearInterval(id) }
+  }, [])
 
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -42,7 +49,6 @@ function Header({ onMenuToggle, onLogout }) {
   const [showMessages, setShowMessages] = useState(false)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const [readNotifs, setReadNotifs] = useState(new Set())
-  const [readMsgs, setReadMsgs] = useState(new Set())
 
   const notifRef = useRef(null)
   const msgRef = useRef(null)
@@ -108,18 +114,16 @@ function Header({ onMenuToggle, onLogout }) {
 
   const unreadNotifCount = notifications.filter(n => !readNotifs.has(n.id)).length
 
-  // Messages from communications context
-  const recentMessages = [...(communications || [])]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 6)
-
-  const unreadMsgCount = recentMessages.filter(m => !readMsgs.has(m.id)).length
+  const unreadMsgCount = whatsappConvos.reduce((sum, c) => sum + (c.unread_count || 0), 0)
 
   function markAllNotifsRead() {
     setReadNotifs(new Set(notifications.map(n => n.id)))
   }
-  function markAllMsgsRead() {
-    setReadMsgs(new Set(recentMessages.map(m => m.id)))
+  async function markAllMsgsRead() {
+    const phones = whatsappConvos.filter(c => c.unread_count > 0).map(c => c.phone)
+    if (phones.length === 0) return
+    await supabase.from('whatsapp_conversations').update({ unread_count: 0 }).in('phone', phones)
+    setWhatsappConvos(prev => prev.map(c => ({ ...c, unread_count: 0 })))
   }
 
   // Global search results
@@ -275,25 +279,23 @@ function Header({ onMenuToggle, onLogout }) {
                     </button>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
-                    {recentMessages.length === 0 ? (
-                      <p className={`text-center text-sm py-8 ${textSecondary}`}>No messages</p>
-                    ) : recentMessages.map(msg => {
-                      const isRead = readMsgs.has(msg.id)
-                      const Icon = msgTypeIcon[msg.type] || Mail
-                      const colorCls = msgTypeColor[msg.type] || msgTypeColor.email
+                    {whatsappConvos.length === 0 ? (
+                      <p className={`text-center text-sm py-8 ${textSecondary}`}>No WhatsApp conversations yet</p>
+                    ) : whatsappConvos.map(convo => {
+                      const isRead = !convo.unread_count
+                      const Icon = convo.mode === 'human' ? UserCheck : Bot
+                      const colorCls = convo.mode === 'human' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-primary-500/15 text-primary-500'
                       return (
-                        <button key={msg.id} onClick={() => { navigate('/communications'); setShowMessages(false); setReadMsgs(p => new Set([...p, msg.id])) }}
+                        <button key={convo.phone} onClick={() => { navigate('/conversations', { state: { openPhone: convo.phone } }); setShowMessages(false) }}
                           className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer ${itemHover} ${!isRead ? isDark ? 'bg-dark-800/40' : 'bg-blue-50/40' : ''}`}>
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${colorCls}`}>
                             <Icon size={15} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${isDark ? 'text-dark-100' : 'text-dark-800'}`}>{msg.subject}</p>
-                            <p className={`text-xs truncate mt-0.5 ${textSecondary}`}>To: {msg.to}</p>
-                            <p className={`text-xs truncate ${textSecondary}`}>{msg.message}</p>
+                            <p className={`text-sm font-medium truncate ${isDark ? 'text-dark-100' : 'text-dark-800'}`}>{convo.contact_name || convo.phone}</p>
+                            <p className={`text-xs truncate ${textSecondary}`}>{convo.last_message}</p>
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            <span className={`text-[10px] ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>{msg.date}</span>
                             {!isRead && <span className="w-2 h-2 rounded-full bg-blue-500" />}
                           </div>
                         </button>
@@ -301,7 +303,7 @@ function Header({ onMenuToggle, onLogout }) {
                     })}
                   </div>
                   <div className={`border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                    <button onClick={() => { navigate('/communications'); setShowMessages(false) }}
+                    <button onClick={() => { navigate('/conversations'); setShowMessages(false) }}
                       className="w-full text-center text-xs font-medium py-3 text-primary-500 hover:text-primary-400 transition-colors cursor-pointer">
                       View all messages →
                     </button>

@@ -99,13 +99,6 @@ export const enrollmentPipeline = {
   enrolled: leads.filter(l => l.status === 'enrolled'),
 }
 
-export const communications = [
-  { id: 1, from: 'System', to: 'Arjun Mehta', type: 'sms', subject: 'Welcome to BIX Academy', message: 'Thank you for your interest in our courses. We will get back to you shortly.', date: '2026-06-25', status: 'sent' },
-  { id: 2, from: 'Admin', to: 'Priya Sharma', type: 'email', subject: 'Course Brochure - Data Science & AI', message: 'Please find attached the detailed brochure for our Data Science & AI program.', date: '2026-06-24', status: 'sent' },
-  { id: 3, from: 'System', to: 'All Students', type: 'notification', subject: 'Holiday Notice - July 4th', message: 'The academy will remain closed on July 4th. Classes will resume on July 5th.', date: '2026-06-26', status: 'scheduled' },
-  { id: 4, from: 'Admin', to: 'Divya Rao', type: 'email', subject: 'Fee Reminder', message: 'This is a gentle reminder that your fee installment of Rs. 20,000 is due on June 28th.', date: '2026-06-25', status: 'sent' },
-]
-
 export const integrationLogs = [
   { id: 1, timestamp: '2026-06-27 10:30:15', integration: 'Meta Ads', action: 'Lead Imported', details: 'New lead "Rohit Verma" imported from campaign "Summer Enrollment 2026"', status: 'success' },
   { id: 2, timestamp: '2026-06-27 10:28:42', integration: 'Google Ads', action: 'Webhook Received', details: 'Form submission received from "BIX Academy - Data Science" campaign', status: 'success' },

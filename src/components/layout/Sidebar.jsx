@@ -31,7 +31,7 @@ const navItems = [
   { to: '/billing', label: 'Fees & Billing', icon: Receipt },
   { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/communications', label: 'Communications', icon: MessageSquare },
+  { to: '/conversations', label: 'Conversations', icon: MessageSquare },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 

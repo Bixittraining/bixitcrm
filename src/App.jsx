@@ -12,7 +12,7 @@ import Packages from './pages/Packages'
 import Billing from './pages/Billing'
 import Pipeline from './pages/Pipeline'
 import Reports from './pages/Reports'
-import Communications from './pages/Communications'
+import Conversations from './pages/Conversations'
 import Settings from './pages/Settings'
 
 function FullScreenSpinner() {
@@ -43,7 +43,7 @@ function AppRoutes() {
             <Route path="billing" element={<Billing />} />
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="reports" element={<Reports />} />
-            <Route path="communications" element={<Communications />} />
+            <Route path="conversations" element={<Conversations />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

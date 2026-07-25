@@ -7,12 +7,40 @@ import { getAdminClient, getIntegrationConfig, logAudit, markIntegrationStatus, 
 // https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks
 export const config = { api: { bodyParser: false } }
 
-// bixitcrm has no message inbox yet, so inbound WhatsApp messages are
-// logged to the integration's activity log and, when the sender's number
-// matches an existing lead, appended to that lead's notes — rather than
-// stored as their own "conversation" record.
 function digitsOnly(value) {
   return (value || '').replace(/\D/g, '')
+}
+
+// New conversations default to 'bot' mode. There is no actual bot engine
+// wired up (see supabase/migrations/0007_whatsapp_conversations.sql) — this
+// just tracks whether a human on the team has taken over yet, for the
+// Conversations inbox UI.
+async function upsertConversation(admin, { phone, leadId, contactName, lastMessage }) {
+  const { data: existing } = await admin.from('whatsapp_conversations').select('phone, unread_count').eq('phone', phone).maybeSingle()
+
+  if (existing) {
+    await admin
+      .from('whatsapp_conversations')
+      .update({
+        lead_id: leadId ?? undefined,
+        contact_name: contactName || undefined,
+        last_message: lastMessage,
+        last_message_at: new Date().toISOString(),
+        unread_count: (existing.unread_count || 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('phone', phone)
+  } else {
+    await admin.from('whatsapp_conversations').insert({
+      phone,
+      lead_id: leadId ?? null,
+      contact_name: contactName || null,
+      mode: 'bot',
+      last_message: lastMessage,
+      last_message_at: new Date().toISOString(),
+      unread_count: 1,
+    })
+  }
 }
 
 export default async function handler(req, res) {
@@ -80,28 +108,33 @@ export default async function handler(req, res) {
 
       for (const message of value.messages || []) {
         const contact = (value.contacts || []).find((c) => c.wa_id === message.from)
-        const senderName = contact?.profile?.name || message.from
+        const senderName = contact?.profile?.name || null
         const text = message.text?.body || `[${message.type} message]`
 
-        const { data: matchingLeads } = await admin.from('leads').select('id, notes').ilike('phone', `%${digitsOnly(message.from).slice(-10)}%`)
+        const { data: matchingLeads } = await admin.from('leads').select('id').ilike('phone', `%${digitsOnly(message.from).slice(-10)}%`)
         const lead = matchingLeads?.[0]
-        if (lead) {
-          await admin
-            .from('leads')
-            .update({ notes: `${lead.notes ? `${lead.notes}\n` : ''}[WhatsApp ${new Date().toISOString()}] ${text}` })
-            .eq('id', lead.id)
-        }
+
+        await upsertConversation(admin, { phone: message.from, leadId: lead?.id, contactName: senderName, lastMessage: text })
+        await admin.from('whatsapp_messages').insert({
+          phone: message.from,
+          lead_id: lead?.id ?? null,
+          direction: 'inbound',
+          sender: 'contact',
+          body: text,
+          wamid: message.id,
+        })
 
         await logAudit(
           admin,
           'whatsapp',
           'Message received',
-          `${senderName}: ${text}${lead ? '' : ' (no matching lead)'}`,
+          `${senderName || message.from}: ${text}${lead ? '' : ' (no matching lead)'}`,
           'success'
         )
       }
 
       for (const status of value.statuses || []) {
+        await admin.from('whatsapp_messages').update({ status: status.status }).eq('wamid', status.id)
         await logAudit(admin, 'whatsapp', 'Delivery status', `Message ${status.id} → ${status.status}`, 'success')
       }
     }

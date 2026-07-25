@@ -561,6 +561,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
 function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
+  const navigate = useNavigate()
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
     { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
@@ -640,7 +641,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all">
               <Phone className="w-4 h-4" />Call
             </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => window.open(`https://wa.me/${lead.phone.replace(/\s+/g, '').replace('+', '')}`)}
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => navigate('/conversations', { state: { openPhone: lead.phone, leadId: lead.id, leadName: lead.name } })}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all">
               <MessageCircle className="w-4 h-4" />WhatsApp
             </motion.button>
@@ -1156,6 +1157,16 @@ function Leads() {
       navigate(location.pathname, { replace: true, state: {} })
     }
   }, [location.state, location.pathname, navigate])
+
+  // Auto-open a specific lead's profile when navigated here with that intent
+  // (e.g. the "View Lead" link from a Conversations thread)
+  useEffect(() => {
+    if (location.state?.openLeadId != null) {
+      const found = leadsData.find((l) => l.id === location.state.openLeadId)
+      if (found) setSelectedLead(found)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate, leadsData])
 
   const showNotification = useCallback((message, type = 'success') => setNotification({ message, type }), [])
   const importFileRef = useRef(null)
