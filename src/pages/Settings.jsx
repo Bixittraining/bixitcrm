@@ -39,12 +39,16 @@ const tabs = [
 // 'text' fields are plain (App ID, Page/Phone ID), 'secret' fields are
 // write-only (masked once set, never sent back from the server).
 //
-// Webhook receivers are Vercel functions (api/webhooks/*) — this is what's
-// actually registered with each provider today. Supabase Edge Function
-// equivalents also exist in supabase/functions/webhook-* (ported by a
-// teammate) but are undeployed and unregistered; switching webhookPath to
-// point at them would show a URL nothing has told Meta/Google/WhatsApp to
-// call, silently breaking the one integration (Meta Ads) that's live.
+// Webhook receivers: Meta Ads and WhatsApp are registered against their
+// Supabase Edge Function URLs (supabase/functions/webhook-*, deployed
+// manually via the Supabase Dashboard — confirmed live via the Graph API's
+// /{app-id}/subscriptions endpoint on 2026-07-25). Google Ads and JustDial
+// have never been configured by anyone yet (no app_id saved either
+// integration), so they still point at their unused api/webhooks/* Vercel
+// equivalents as a placeholder default. webhookPath may be an absolute URL
+// (used as-is) or a path relative to this app's own origin.
+const edgeFunctionsBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
+
 const integrationsList = [
   {
     key: 'meta_ads',
@@ -52,7 +56,7 @@ const integrationsList = [
     description: 'Auto-capture leads from Facebook and Instagram Lead Ad forms.',
     brandColor: '#1877F2',
     icon: 'M',
-    webhookPath: '/api/webhooks/meta-ads',
+    webhookPath: `${edgeFunctionsBase}/webhook-meta-ads`,
     webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → Page (leadgen subscription).',
     fields: [
       { key: 'appId', label: 'App ID', type: 'text' },
@@ -80,7 +84,7 @@ const integrationsList = [
     description: 'Inbound WhatsApp lead capture — matches incoming numbers to existing leads.',
     brandColor: '#25D366',
     icon: 'W',
-    webhookPath: '/api/webhooks/whatsapp',
+    webhookPath: `${edgeFunctionsBase}/webhook-whatsapp`,
     webhookNote: 'Add this URL and your Webhook Verify Token under Meta App Dashboard → Webhooks → WhatsApp Business Account.',
     fields: [
       { key: 'appId', label: 'App ID', type: 'text' },
@@ -856,7 +860,9 @@ export default function Settings() {
                     const cfg = integrationsConfig[integration.key] || {}
                     const draft = integrationDrafts[integration.key] || emptyDraft
                     const isExpanded = expandedIntegration === integration.key
-                    const webhookUrl = `${window.location.origin}${integration.webhookPath}`
+                    const webhookUrl = /^https?:\/\//.test(integration.webhookPath)
+                      ? integration.webhookPath
+                      : `${window.location.origin}${integration.webhookPath}`
                     const testResult = integrationTestResult[integration.key]
                     const statusMeta = {
                       connected: { label: 'Connected', dot: 'bg-emerald-500', text: 'text-emerald-500' },
