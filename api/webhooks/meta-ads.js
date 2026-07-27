@@ -76,14 +76,24 @@ export default async function handler(req, res) {
       if (!leadgenId) continue
 
       try {
+        // form_name is not a field on the leadgen object itself (only
+        // ad_name/campaign_name are) — the form's name has to come from a
+        // separate lookup on form_id.
         const graphRes = await fetch(
-          `https://graph.facebook.com/${GRAPH_API_VERSION}/${leadgenId}?fields=field_data,form_name,ad_name&access_token=${integration.page_access_token}`
+          `https://graph.facebook.com/${GRAPH_API_VERSION}/${leadgenId}?fields=field_data,ad_name&access_token=${integration.page_access_token}`
         )
         const leadData = await graphRes.json()
         if (leadData.error) {
           results.push({ leadgenId, error: leadData.error.message })
           await logAudit(admin, 'meta_ads', 'Lead fetch failed', `leadgen_id ${leadgenId}: ${leadData.error.message}`, 'failed')
           continue
+        }
+
+        let formName = null
+        if (formId) {
+          const formRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${formId}?fields=name&access_token=${integration.page_access_token}`)
+          const formData = await formRes.json()
+          formName = formData.name || null
         }
 
         const fields = {}
@@ -94,16 +104,16 @@ export default async function handler(req, res) {
           name,
           email: fields.email,
           phone: fields.phone_number,
-          course: leadData.form_name || 'General Inquiry',
+          course: formName || 'General Inquiry',
           source: 'Meta Ads',
-          notes: `Imported from Meta Lead Ad${leadData.ad_name ? ` "${leadData.ad_name}"` : ''} (form: ${leadData.form_name || formId || 'n/a'}, ad: ${adId || 'n/a'})`,
+          notes: `Imported from Meta Lead Ad${leadData.ad_name ? ` "${leadData.ad_name}"` : ''} (form: ${formName || formId || 'n/a'}, ad: ${adId || 'n/a'})`,
         })
         results.push({ leadgenId, ...outcome })
         await logAudit(
           admin,
           'meta_ads',
           outcome.duplicate ? 'Duplicate lead skipped' : 'Lead imported',
-          `${name || 'Unnamed lead'} from form "${leadData.form_name || formId}"`,
+          `${name || 'Unnamed lead'} from form "${formName || formId}"`,
           outcome.error ? 'failed' : 'success'
         )
       } catch (err) {
