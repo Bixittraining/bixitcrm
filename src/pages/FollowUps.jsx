@@ -554,12 +554,12 @@ export default function FollowUps() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`rounded-2xl overflow-hidden ${cardClass}`}
+                  className={`rounded-2xl ${cardClass}`}
                 >
                   <div className="flex">
                     {/* Left Color Border */}
                     <div
-                      className={`w-1.5 shrink-0 ${
+                      className={`w-1.5 shrink-0 rounded-l-2xl ${
                         fu.type === 'call'
                           ? 'bg-sky-500'
                           : fu.type === 'email'
