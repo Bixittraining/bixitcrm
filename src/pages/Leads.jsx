@@ -251,7 +251,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onStatusChange, onEnroll, onLost, onEdit, onDelete }) {
+function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEnroll, onLost, onEdit, onDelete }) {
   const ref = useRef(null)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
@@ -275,8 +275,6 @@ function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onSt
     >
       {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
       {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
-      {lead.status !== 'qualified' && item(<UserCheck className="w-3.5 h-3.5" />, 'Move to Qualified', () => onStatusChange(lead.id, 'qualified'))}
-      {lead.status !== 'negotiation' && item(<Users className="w-3.5 h-3.5" />, 'Move to Negotiation', () => onStatusChange(lead.id, 'negotiation'))}
       {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
       {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
       <div className={dividerCls} />
@@ -1709,7 +1707,6 @@ function Leads() {
                                       onClose={() => setActionMenuId(null)}
                                       onScheduleFollowUp={(l) => setShowTransferModal(l)}
                                       onRNR={(l) => setShowRNRModal(l)}
-                                      onStatusChange={handleStatusChange}
                                       onEnroll={handleEnrollLead}
                                       onLost={(l) => setShowLostModal(l)}
                                       onEdit={(l) => setEditingLead(l)}
