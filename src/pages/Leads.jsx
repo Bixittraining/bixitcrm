@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Upload, Download, Pencil, Phone, UserPlus, Users, UserCheck,
-  MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X,
+  MessageSquare, GraduationCap, UserX, ChevronDown, ChevronLeft, ChevronRight, X,
   Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
   Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed
@@ -1305,8 +1305,8 @@ function Leads() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [sourceFilter, setSourceFilter] = useState('All')
-  const [sortField, setSortField] = useState('date')
-  const [sortDirection, setSortDirection] = useState('desc')
+  const sortField = 'date'
+  const sortDirection = 'desc'
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingLead, setEditingLead] = useState(null)
   const [showTransferModal, setShowTransferModal] = useState(null)
@@ -1380,11 +1380,6 @@ function Leads() {
     }
     reader.readAsText(file)
     e.target.value = ''
-  }
-
-  const handleSort = (field) => {
-    if (sortField === field) setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortField(field); setSortDirection('asc') }
   }
 
   const filteredLeads = useMemo(() => {
@@ -1522,11 +1517,6 @@ function Leads() {
     ? 'bg-dark-800 border-dark-700 text-dark-100 placeholder-dark-500 focus:border-primary-500 focus:ring-primary-500/20'
     : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400 focus:border-primary-500 focus:ring-primary-500/20'
 
-  const SortIcon = ({ field }) => {
-    if (sortField !== field) return <ChevronUp className="w-3 h-3 opacity-30" />
-    return sortDirection === 'asc' ? <ChevronUp className="w-3 h-3 text-primary-500" /> : <ChevronDown className="w-3 h-3 text-primary-500" />
-  }
-
   const columns = [
     { key: 'name', label: 'Name' }, { key: 'email', label: 'Contact' }, { key: 'course', label: 'Course Interested' },
     { key: 'source', label: 'Source' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' }, { key: 'date', label: 'Date' },
@@ -1661,9 +1651,9 @@ function Leads() {
                   <thead>
                     <tr className={isDark ? 'bg-dark-800/80' : 'bg-dark-50/80'}>
                       {columns.map((col) => (
-                        <th key={col.key} onClick={() => handleSort(col.key)}
-                          className={`px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider cursor-pointer select-none transition-colors ${isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
-                          <span className="inline-flex items-center gap-1">{col.label}<SortIcon field={col.key} /></span>
+                        <th key={col.key}
+                          className={`px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                          {col.label}
                         </th>
                       ))}
                       <th className={`px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Actions</th>
