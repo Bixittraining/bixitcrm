@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Phone,
@@ -20,6 +21,8 @@ import {
   GraduationCap,
   Trash2,
   CheckCircle2,
+  PhoneMissed,
+  UserX,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
@@ -67,11 +70,13 @@ function getWeekDates() {
 export default function FollowUps() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const navigate = useNavigate()
 
   const [viewMode, setViewMode] = useState('list')
   const [typeFilter, setTypeFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const { followUps: localFollowUps, addFollowUp, updateFollowUp, leads, enrollLead, setFollowUps, addActivity } = useData()
   const [notification, setNotification] = useState(null)
@@ -90,10 +95,25 @@ export default function FollowUps() {
     notes: '',
   })
 
+  const getLeadFor = (fu) => leads.find((l) => l.name === fu.lead)
+  const isRNR = (fu) => fu.notes?.toLowerCase().startsWith('ring no response')
+  const isLostLead = (fu) => getLeadFor(fu)?.status === 'lost'
+  const goToLead = (fu) => {
+    const lead = getLeadFor(fu)
+    if (lead) navigate('/leads', { state: { openLeadId: lead.id } })
+    else showToast(`Lead "${fu.lead}" not found`, 'error')
+  }
+
   const filtered = localFollowUps.filter((fu) => {
     if (typeFilter !== 'all' && fu.type !== typeFilter) return false
     if (priorityFilter !== 'all' && fu.priority !== priorityFilter) return false
     if (statusFilter !== 'all' && fu.status !== statusFilter) return false
+    if (bucketFilter === 'today' && fu.date !== today) return false
+    if (bucketFilter === 'pending' && fu.status !== 'pending') return false
+    if (bucketFilter === 'completed' && fu.status !== 'completed') return false
+    if (bucketFilter === 'overdue' && !(fu.date < today && fu.status === 'pending')) return false
+    if (bucketFilter === 'rnr' && !isRNR(fu)) return false
+    if (bucketFilter === 'lost' && !isLostLead(fu)) return false
     return true
   })
 
@@ -103,6 +123,8 @@ export default function FollowUps() {
   const overdueCount = localFollowUps.filter(
     (f) => f.date < today && f.status === 'pending'
   ).length
+  const rnrCount = localFollowUps.filter(isRNR).length
+  const lostCount = localFollowUps.filter(isLostLead).length
 
   const weekDates = getWeekDates()
 
@@ -219,45 +241,34 @@ export default function FollowUps() {
         </div>
       </motion.div>
 
-      {/* Stats Bar */}
+      {/* Stats Bar — click a bucket to filter the list below */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+        className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4"
       >
         {[
-          {
-            label: "Today's Follow-ups",
-            value: todayCount,
-            icon: Calendar,
-            colorClass: 'text-sky-500 bg-sky-500/10',
-          },
-          {
-            label: 'Pending',
-            value: pendingCount,
-            icon: Clock,
-            colorClass: 'text-accent-500 bg-accent-500/10',
-          },
-          {
-            label: 'Completed',
-            value: completedCount,
-            icon: CheckCircle,
-            colorClass: 'text-emerald-500 bg-emerald-500/10',
-          },
-          {
-            label: 'Overdue',
-            value: overdueCount,
-            icon: AlertCircle,
-            colorClass: 'text-rose-500 bg-rose-500/10',
-          },
+          { key: 'all', label: 'All', value: localFollowUps.length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
+          { key: 'today', label: "Today's Follow-ups", value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
+          { key: 'pending', label: 'Pending', value: pendingCount, icon: Clock, colorClass: 'text-accent-500 bg-accent-500/10' },
+          { key: 'completed', label: 'Completed', value: completedCount, icon: CheckCircle, colorClass: 'text-emerald-500 bg-emerald-500/10' },
+          { key: 'overdue', label: 'Overdue', value: overdueCount, icon: AlertCircle, colorClass: 'text-rose-500 bg-rose-500/10' },
+          { key: 'rnr', label: 'RNR', value: rnrCount, icon: PhoneMissed, colorClass: 'text-amber-500 bg-amber-500/10' },
+          { key: 'lost', label: 'Lost Lead', value: lostCount, icon: UserX, colorClass: 'text-rose-600 bg-rose-600/10' },
         ].map((stat, index) => (
-          <motion.div
-            key={stat.label}
+          <motion.button
+            key={stat.key}
+            type="button"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.1 + index * 0.05 }}
-            className={`rounded-2xl p-4 ${cardClass}`}
+            whileHover={{ scale: 1.03, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setBucketFilter(bucketFilter === stat.key ? 'all' : stat.key)}
+            className={`rounded-2xl p-4 text-left transition-all ${cardClass} ${
+              bucketFilter === stat.key ? 'ring-2 ring-primary-500 border-primary-500' : ''
+            }`}
           >
             <div className="flex items-center gap-3">
               <div className={`p-2.5 rounded-xl ${stat.colorClass}`}>
@@ -273,7 +284,7 @@ export default function FollowUps() {
                 </p>
                 <p
                   className={`text-2xl font-bold ${
-                    stat.label === 'Overdue'
+                    stat.key === 'overdue' || stat.key === 'lost'
                       ? 'text-rose-500'
                       : isDark
                       ? 'text-white'
@@ -284,7 +295,7 @@ export default function FollowUps() {
                 </p>
               </div>
             </div>
-          </motion.div>
+          </motion.button>
         ))}
       </motion.div>
 
@@ -467,8 +478,9 @@ export default function FollowUps() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <h3
-                                className={`font-semibold ${
-                                  isDark ? 'text-white' : 'text-dark-900'
+                                onClick={() => goToLead(fu)}
+                                className={`font-semibold cursor-pointer hover:underline ${
+                                  isDark ? 'text-white hover:text-primary-400' : 'text-dark-900 hover:text-primary-600'
                                 }`}
                               >
                                 {fu.lead}
@@ -748,6 +760,7 @@ export default function FollowUps() {
                           key={fu.id}
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
+                          onClick={() => goToLead(fu)}
                           className={`px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-all duration-200 hover:scale-105 ${
                             fu.type === 'call'
                               ? 'bg-sky-500/15 text-sky-500'
