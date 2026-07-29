@@ -35,14 +35,28 @@ export function DataProvider({ children }) {
       if (activitiesRes.error) console.error('lead_activities error', activitiesRes.error)
       if (profilesRes.error) console.error('profiles error', profilesRes.error)
 
-      setLeads((leadsRes.data || []).map(mapLeadFromDb))
-      setFollowUps((followUpsRes.data || []).map(mapFollowUpFromDb))
+      const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
+      const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
+
+      setLeads(leadsList)
+      setFollowUps(followUpsList)
       setStudents((studentsRes.data || []).map(mapStudentFromDb))
       setPackages(packagesRes.data || [])
       setInvoices((invoicesRes.data || []).map(mapInvoiceFromDb))
       setLeadActivities(activitiesRes.data || [])
       setTeamMembers(profilesRes.data || [])
       setLoading(false)
+
+      // Reconcile stale data: a follow-up left "pending" for a lead that has
+      // already reached a terminal outcome (enrolled/lost) is dead weight —
+      // auto-close it so it stops cluttering the Follow-ups list.
+      const terminalNames = new Set(leadsList.filter((l) => l.status === 'enrolled' || l.status === 'lost').map((l) => l.name))
+      const staleIds = followUpsList.filter((f) => f.status === 'pending' && terminalNames.has(f.lead)).map((f) => f.id)
+      if (staleIds.length > 0) {
+        supabase.from('follow_ups').update({ status: 'completed' }).in('id', staleIds)
+          .then(({ error }) => { if (error) console.error('reconcile stale follow_ups error', error) })
+        setFollowUps((prev) => prev.map((f) => staleIds.includes(f.id) ? { ...f, status: 'completed' } : f))
+      }
     }
     loadAll()
   }, [])
@@ -71,6 +85,17 @@ export function DataProvider({ children }) {
     if (error) { console.error('addActivity error', error); return }
     setLeadActivities((prev) => [data, ...prev])
   }, [])
+
+  // A lead reaching a terminal outcome (enrolled/lost) means any follow-up
+  // still marked "pending" for it is dead weight — auto-close it so it
+  // doesn't keep cluttering the Follow-ups list.
+  const closePendingFollowUps = useCallback(async (leadName) => {
+    const pendingIds = followUps.filter((f) => f.lead === leadName && f.status === 'pending').map((f) => f.id)
+    if (pendingIds.length === 0) return
+    const { error } = await supabase.from('follow_ups').update({ status: 'completed' }).in('id', pendingIds)
+    if (error) { console.error('closePendingFollowUps error', error); return }
+    setFollowUps((prev) => prev.map((f) => pendingIds.includes(f.id) ? { ...f, status: 'completed' } : f))
+  }, [followUps])
 
   // ── LEADS ────────────────────────────────────────────────
   const addLead = useCallback(async (lead) => {
@@ -112,8 +137,9 @@ export function DataProvider({ children }) {
     setLeads((prev) => prev.map((l) => l.id === id ? mapLeadFromDb(data) : l))
     if (prevLead && prevLead.status !== data.status) {
       addActivity(id, prevLead.status, data.status, activityDescription || `Status changed from ${prevLead.status} to ${data.status}`)
+      if (data.status === 'enrolled' || data.status === 'lost') closePendingFollowUps(data.name)
     }
-  }, [leads, addActivity])
+  }, [leads, addActivity, closePendingFollowUps])
 
   const deleteLead = useCallback(async (leadId) => {
     const { error } = await supabase.from('leads').delete().eq('id', leadId)
@@ -132,7 +158,8 @@ export function DataProvider({ children }) {
     if (error) { console.error('updateLeadStatus error', error); return }
     setLeads((prev) => prev.map((l) => l.id === leadId ? mapLeadFromDb(data) : l))
     addActivity(leadId, prevLead?.status, newStatus, description || `Status changed from ${prevLead?.status || '—'} to ${newStatus}`)
-  }, [leads, addActivity])
+    if (newStatus === 'enrolled' || newStatus === 'lost') closePendingFollowUps(data.name)
+  }, [leads, addActivity, closePendingFollowUps])
 
   // ── FOLLOW-UPS ───────────────────────────────────────────
   const addFollowUp = useCallback(async (followUp) => {
@@ -173,6 +200,7 @@ export function DataProvider({ children }) {
     if (leadErr) { console.error('enrollLead: lead update error', leadErr); return }
     setLeads((prev) => prev.map((l) => l.id === lead.id ? mapLeadFromDb(updatedLead) : l))
     addActivity(lead.id, lead.status, 'enrolled', `Enrolled in ${lead.course}`)
+    closePendingFollowUps(lead.name)
 
     // 2. skip if student already exists with this email
     const existingStudent = students.find(s => s.email === lead.email)
@@ -225,7 +253,7 @@ export function DataProvider({ children }) {
       if (invoiceErr) { console.error('enrollLead: invoice insert error', invoiceErr); return }
       setInvoices((prev) => [mapInvoiceFromDb(invoiceData), ...prev])
     }
-  }, [students, invoices, addActivity])
+  }, [students, invoices, addActivity, closePendingFollowUps])
 
   return (
     <DataContext.Provider value={{
