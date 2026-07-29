@@ -106,6 +106,7 @@ const avatarGradients = {
 const iconColorMap = {
   sky: 'text-sky-500', accent: 'text-accent-500', emerald: 'text-emerald-500',
   violet: 'text-violet-500', primary: 'text-primary-500', rose: 'text-rose-500',
+  slate: 'text-dark-500',
 }
 const bgSubtleMap = (isDark) => ({
   sky: isDark ? 'bg-sky-500/10' : 'bg-sky-50',
@@ -114,6 +115,7 @@ const bgSubtleMap = (isDark) => ({
   violet: isDark ? 'bg-violet-500/10' : 'bg-violet-50',
   primary: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
   rose: isDark ? 'bg-rose-500/10' : 'bg-rose-50',
+  slate: isDark ? 'bg-dark-500/10' : 'bg-dark-100',
 })
 
 // ─── HELPERS ──────────────────────────────────────────────────────────
@@ -1408,27 +1410,43 @@ function Leads() {
               </div>
             </motion.div>
 
-            {/* Status Overview */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {Object.entries(statusConfig).map(([key, cfg], i) => {
-                const Icon = cfg.icon
-                const subtleBg = bgSubtleMap(isDark)
+            {/* Status Overview — click a bucket to filter the table below */}
+            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
                   emerald: isDark ? 'text-emerald-400' : 'text-emerald-600', violet: isDark ? 'text-violet-400' : 'text-violet-600',
                   primary: isDark ? 'text-primary-400' : 'text-primary-600', rose: isDark ? 'text-rose-400' : 'text-rose-600',
+                  slate: isDark ? 'text-dark-300' : 'text-dark-600',
                 }
-                return (
-                  <motion.div key={key} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
-                    whileHover={{ scale: 1.03, y: -2 }} className={`rounded-xl p-4 flex items-center gap-3 cursor-default ${cardClass}`}>
-                    <div className={`p-2 rounded-lg ${subtleBg[cfg.color]}`}><Icon className={`w-4 h-4 ${iconColorMap[cfg.color]}`} /></div>
-                    <div>
-                      <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{cfg.label}</p>
-                      <p className={`text-lg font-bold ${countColor[cfg.color]}`}>{statusCounts[key]}</p>
-                    </div>
-                  </motion.div>
-                )
-              })}
+                const subtleBg = bgSubtleMap(isDark)
+                const buckets = [
+                  { key: 'all', label: 'All Leads', color: 'slate', icon: Users, count: leadsData.length },
+                  ...Object.entries(statusConfig).map(([key, cfg]) => ({ key, label: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
+                ]
+                return buckets.map((b, i) => {
+                  const Icon = b.icon
+                  const isActive = statusFilter === b.label
+                  return (
+                    <motion.button
+                      key={b.key}
+                      type="button"
+                      initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
+                      whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}
+                      onClick={() => setStatusFilter(b.label)}
+                      className={`rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all ${cardClass} ${
+                        isActive ? 'ring-2 ring-primary-500 border-primary-500' : ''
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg ${subtleBg[b.color] || subtleBg.slate}`}><Icon className={`w-4 h-4 ${iconColorMap[b.color] || countColor.slate}`} /></div>
+                      <div>
+                        <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
+                        <p className={`text-lg font-bold ${countColor[b.color] || countColor.slate}`}>{b.count}</p>
+                      </div>
+                    </motion.button>
+                  )
+                })
+              })()}
             </motion.div>
 
             {/* Leads Table */}
