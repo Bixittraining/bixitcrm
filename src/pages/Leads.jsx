@@ -1441,10 +1441,11 @@ function Leads() {
 
   const handleTransferSubmit = (lead, form) => {
     const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
-    if (lead.status === 'new') {
-      updateLeadStatus(lead.id, 'contacted')
-      setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'contacted' } : prev))
+    const existing = followUpsData.find((f) => f.lead === lead.name && f.status === 'pending')
+    if (existing) {
+      updateFollowUp(existing.id, { type: form.type, date: form.date, time: timeStr, notes: form.notes, priority: form.priority })
+    } else {
+      addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
     }
     setShowTransferModal(null)
     showNotification(`Follow-up scheduled for ${lead.name}`)
@@ -1460,10 +1461,11 @@ function Leads() {
   const handleRNRSubmit = (lead, form) => {
     const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
     const noteText = `Ring No Response (RNR).${form.notes ? ` ${form.notes}` : ''}`
-    addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
-    if (lead.status === 'new') {
-      updateLeadStatus(lead.id, 'contacted')
-      setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'contacted' } : prev))
+    const existing = followUpsData.find((f) => f.lead === lead.name && f.status === 'pending')
+    if (existing) {
+      updateFollowUp(existing.id, { type: 'call', date: form.date, time: timeStr, notes: noteText, priority: lead.priority })
+    } else {
+      addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
     }
     setShowRNRModal(null)
     showNotification(`Marked RNR — next attempt scheduled for ${lead.name}`)
