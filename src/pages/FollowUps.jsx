@@ -73,7 +73,7 @@ export default function FollowUps() {
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, leads, enrollLead, setFollowUps } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, leads, enrollLead, setFollowUps, addActivity } = useData()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [rescheduleId, setRescheduleId] = useState(null)
@@ -111,7 +111,10 @@ export default function FollowUps() {
     : 'bg-white border border-dark-200/60 shadow-sm'
 
   const handleMarkComplete = (id) => {
+    const fu = localFollowUps.find((f) => f.id === id)
     updateFollowUp(id, { status: 'completed' })
+    const lead = fu && leads.find((l) => l.name === fu.lead)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up marked COMPLETED`)
   }
 
   const handleScheduleSubmit = (e) => {
@@ -154,8 +157,11 @@ export default function FollowUps() {
 
   const handleReschedule = (id) => {
     if (!rescheduleData.date || !rescheduleData.time) return
+    const fu = localFollowUps.find((f) => f.id === id)
     const timeStr = new Date(`2000-01-01T${rescheduleData.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
     updateFollowUp(id, { date: rescheduleData.date, time: timeStr })
+    const lead = fu && leads.find((l) => l.name === fu.lead)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${rescheduleData.date} ${timeStr}`)
     setRescheduleId(null)
     setRescheduleData({ date: '', time: '' })
     showToast('Follow-up rescheduled')

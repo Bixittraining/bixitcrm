@@ -43,6 +43,7 @@ const followUpTypes = [
 
 const profileTabs = [
   { key: 'overview', label: 'Overview' },
+  { key: 'timeline', label: 'Timeline' },
   { key: 'requirement', label: 'Requirement' },
   { key: 'followup', label: 'Follow-up' },
   { key: 'meeting', label: 'Meeting' },
@@ -695,7 +696,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
   const navigate = useNavigate()
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
@@ -706,6 +707,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
   const statusColor = getStatusColor(lead.status)
   const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
+  const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
   const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
@@ -910,6 +912,41 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── Timeline Tab ── */}
+          {activeTab === 'timeline' && (
+            <div className={`rounded-xl p-5 ${cardClass}`}>
+              <h3 className={`text-sm font-semibold mb-5 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
+                <Activity className="w-4 h-4" />Lead Timeline
+              </h3>
+              {leadTimeline.length === 0 ? (
+                <div className="text-center py-8">
+                  <Activity className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+                  <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No activity recorded yet</p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {leadTimeline.map((a) => {
+                    const color = a.to_status === 'lost' ? 'rose' : getStatusColor(a.to_status || a.from_status || 'new')
+                    const fromLabel = (statusConfig[a.from_status]?.label || a.from_status || '—').toUpperCase()
+                    const toLabel = (statusConfig[a.to_status]?.label || a.to_status || '—').toUpperCase()
+                    return (
+                      <div key={a.id} className="flex items-start gap-3">
+                        <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${iconColorMap[color].replace('text-', 'bg-')}`} />
+                        <div className="min-w-0">
+                          <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{fromLabel} &rarr; {toLabel}</p>
+                          <p className={`text-sm mt-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{a.description}</p>
+                          <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                            {new Date(a.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -1260,7 +1297,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, enrollLead, packages } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, packages } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1447,6 +1484,7 @@ function Leads() {
     } else {
       addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
     }
+    addActivity(lead.id, lead.status, lead.status, `${form.type.toUpperCase()} follow-up scheduled for ${form.date} ${timeStr}`)
     setShowTransferModal(null)
     showNotification(`Follow-up scheduled for ${lead.name}`)
   }
@@ -1467,12 +1505,13 @@ function Leads() {
     } else {
       addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
     }
+    addActivity(lead.id, lead.status, lead.status, `CALL follow-up marked NOT_ATTEMPT — next attempt ${form.date} ${timeStr}`)
     setShowRNRModal(null)
     showNotification(`Marked RNR — next attempt scheduled for ${lead.name}`)
   }
 
   const handleLostSubmit = (lead, reason) => {
-    updateLead({ ...lead, status: 'lost', notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}` })
+    updateLead({ ...lead, status: 'lost', notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}` }, reason)
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'lost' } : prev))
     setShowLostModal(null)
     showNotification(`${lead.name} marked as Lost`)
@@ -1512,6 +1551,7 @@ function Leads() {
             followUpsData={followUpsData}
             setFollowUpsData={setFollowUpsData}
             updateFollowUp={updateFollowUp}
+            leadActivities={leadActivities}
             cardClass={cardClass}
             inputClass={inputClass}
             activeTab={activeProfileTab}
