@@ -1421,19 +1421,19 @@ function Leads() {
                 }
                 const subtleBg = bgSubtleMap(isDark)
                 const buckets = [
-                  { key: 'all', label: 'All Leads', color: 'slate', icon: Users, count: leadsData.length },
-                  ...Object.entries(statusConfig).map(([key, cfg]) => ({ key, label: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
+                  { key: 'all', label: 'All Leads', filterValue: 'All', color: 'slate', icon: Users, count: leadsData.length },
+                  ...Object.entries(statusConfig).map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
                 ]
                 return buckets.map((b, i) => {
                   const Icon = b.icon
-                  const isActive = statusFilter === b.label
+                  const isActive = statusFilter === b.filterValue
                   return (
                     <motion.button
                       key={b.key}
                       type="button"
                       initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
                       whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}
-                      onClick={() => setStatusFilter(b.label)}
+                      onClick={() => setStatusFilter(b.filterValue)}
                       className={`rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all ${cardClass} ${
                         isActive ? 'ring-2 ring-primary-500 border-primary-500' : ''
                       }`}
@@ -1498,7 +1498,7 @@ function Leads() {
                               </div>
                             </td>
                             <td className="px-4 py-3.5"><PriorityBadge priority={lead.priority} isDark={isDark} /></td>
-                            <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.date}</td>
+                            <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} title={lead.date}>{relativeDate(lead.date)}</td>
                             <td className="px-4 py-3.5">
                               <div className="flex items-center gap-1">
                                 <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="View" onClick={() => setSelectedLead(lead)}
