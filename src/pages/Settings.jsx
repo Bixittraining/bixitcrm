@@ -5,7 +5,7 @@ import {
   Sun, Moon, Save, Camera, Building2, Phone, MapPin, Plug, Key, Eye, EyeOff,
   Copy, Check, Loader2, RefreshCw, Plus, Trash2,
   ExternalLink, ChevronRight, AlertTriangle, Activity,
-  Zap, Users, UserPlus, ShieldCheck
+  Zap, Users, UserPlus, ShieldCheck, Briefcase
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -23,10 +23,10 @@ const itemVariants = {
 
 const tabs = [
   { key: 'profile', label: 'Profile', icon: User },
-  { key: 'team', label: 'Team', icon: Users, adminOnly: true },
-  { key: 'academy', label: 'Academy', icon: Building2, adminOnly: true },
-  { key: 'integrations', label: 'Integrations', icon: Plug, adminOnly: true },
-  { key: 'api', label: 'API', icon: Key, adminOnly: true },
+  { key: 'team', label: 'Team', icon: Users, visibleTo: 'manager' },
+  { key: 'academy', label: 'Academy', icon: Building2, visibleTo: 'manager' },
+  { key: 'integrations', label: 'Integrations', icon: Plug, visibleTo: 'admin' },
+  { key: 'api', label: 'API', icon: Key, visibleTo: 'admin' },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'security', label: 'Security', icon: Shield },
@@ -116,15 +116,23 @@ const mockApiKeys = [
 
 export default function Settings() {
   const { theme, toggleTheme, accentColor, setAccentColor } = useTheme()
-  const { session, profile, initials, isAdmin, updateProfile, uploadAvatar, addTeamMember } = useAuth()
+  const { session, profile, initials, isAdmin, canManageTeam, updateProfile, uploadAvatar, addTeamMember } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
-  // Defense in depth: non-admins can only ever land on non-admin tabs, even
-  // if activeTab were somehow set to an admin-only one.
+  // 'admin' tabs (Integrations/API) are admin-only; 'manager' tabs
+  // (Team/Academy) are visible to admins and managers alike.
+  const canSeeTab = (tab) => {
+    if (!tab.visibleTo) return true
+    if (tab.visibleTo === 'admin') return isAdmin
+    return canManageTeam
+  }
+
+  // Defense in depth: users can only ever land on tabs they can see, even
+  // if activeTab were somehow set to a restricted one.
   useEffect(() => {
     const tab = tabs.find(t => t.key === activeTab)
-    if (tab?.adminOnly && !isAdmin) setActiveTab('profile')
-  }, [activeTab, isAdmin])
+    if (tab && !canSeeTab(tab)) setActiveTab('profile')
+  }, [activeTab, isAdmin, canManageTeam])
 
   const [draftProfile, setDraftProfile] = useState({ name: profile.name, email: profile.email, phone: profile.phone || '' })
   const [profileSaved, setProfileSaved] = useState(false)
@@ -183,8 +191,8 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (isAdmin) loadTeamMembers()
-  }, [isAdmin])
+    if (canManageTeam) loadTeamMembers()
+  }, [canManageTeam])
 
   // Academy tab — real, persisted business info (academy_settings table)
   const [academyForm, setAcademyForm] = useState({ name: '', contactEmail: '', phone: '', website: '', gstNumber: '', address: '' })
@@ -542,7 +550,7 @@ export default function Settings() {
       <div className="flex flex-col lg:flex-row gap-6">
         <div className={`${cardBg} border rounded-2xl p-3 lg:w-56 flex-shrink-0`}>
           <nav className="flex lg:flex-col gap-1">
-            {tabs.filter(tab => !tab.adminOnly || isAdmin).map(tab => (
+            {tabs.filter(canSeeTab).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -683,19 +691,32 @@ export default function Settings() {
                             : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
                         }`}
                       >
-                        <Users size={14} /> Sales Person
+                        <Users size={14} /> Sales Executive
                       </button>
                       <button
                         type="button"
-                        onClick={() => setTeamForm((prev) => ({ ...prev, role: 'admin' }))}
+                        onClick={() => setTeamForm((prev) => ({ ...prev, role: 'manager' }))}
                         className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                          teamForm.role === 'admin'
+                          teamForm.role === 'manager'
                             ? 'border-primary-500 bg-primary-500/10 text-primary-500'
                             : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
                         }`}
                       >
-                        <ShieldCheck size={14} /> Administrator
+                        <Briefcase size={14} /> Manager
                       </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setTeamForm((prev) => ({ ...prev, role: 'admin' }))}
+                          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                            teamForm.role === 'admin'
+                              ? 'border-primary-500 bg-primary-500/10 text-primary-500'
+                              : isDark ? 'border-dark-700 text-dark-400 hover:bg-dark-800' : 'border-dark-200 text-dark-500 hover:bg-dark-50'
+                          }`}
+                        >
+                          <ShieldCheck size={14} /> Administrator
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -747,9 +768,11 @@ export default function Settings() {
                         <span className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium ${
                           member.role === 'admin'
                             ? 'bg-primary-500/10 text-primary-500'
+                            : member.role === 'manager'
+                            ? 'bg-accent-500/10 text-accent-500'
                             : 'bg-emerald-500/10 text-emerald-500'
                         }`}>
-                          {member.role === 'admin' ? 'Administrator' : 'Sales Person'}
+                          {member.role === 'admin' ? 'Administrator' : member.role === 'manager' ? 'Manager' : 'Sales Executive'}
                         </span>
                       </div>
                     ))}
@@ -771,44 +794,44 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Academy Name</label>
-                      <input type="text" value={academyForm.name} onChange={handleAcademyChange('name')} disabled={!isAdmin} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      <input type="text" value={academyForm.name} onChange={handleAcademyChange('name')} disabled={!canManageTeam} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                     </div>
                     <div>
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Contact Email</label>
                       <div className="relative">
                         <Mail size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                        <input type="email" value={academyForm.contactEmail} onChange={handleAcademyChange('contactEmail')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                        <input type="email" value={academyForm.contactEmail} onChange={handleAcademyChange('contactEmail')} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                       </div>
                     </div>
                     <div>
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone Number</label>
                       <div className="relative">
                         <Phone size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                        <input type="tel" value={academyForm.phone} onChange={handleAcademyChange('phone')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                        <input type="tel" value={academyForm.phone} onChange={handleAcademyChange('phone')} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                       </div>
                     </div>
                     <div>
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Website</label>
                       <div className="relative">
                         <Globe size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                        <input type="url" value={academyForm.website} onChange={handleAcademyChange('website')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                        <input type="url" value={academyForm.website} onChange={handleAcademyChange('website')} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                       </div>
                     </div>
                     <div>
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>GST Number</label>
-                      <input type="text" value={academyForm.gstNumber} onChange={handleAcademyChange('gstNumber')} disabled={!isAdmin} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      <input type="text" value={academyForm.gstNumber} onChange={handleAcademyChange('gstNumber')} disabled={!canManageTeam} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                     </div>
                     <div className="md:col-span-2">
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Address</label>
                       <div className="relative">
                         <MapPin size={16} className={`absolute left-3 top-3 ${textSecondary}`} />
-                        <textarea rows={2} value={academyForm.address} onChange={handleAcademyChange('address')} disabled={!isAdmin} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none disabled:opacity-60`} />
+                        <textarea rows={2} value={academyForm.address} onChange={handleAcademyChange('address')} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none disabled:opacity-60`} />
                       </div>
                     </div>
                   </div>
-                  {!isAdmin && <p className={`text-sm mt-4 ${textSecondary}`}>Only administrators can edit academy information.</p>}
+                  {!canManageTeam && <p className={`text-sm mt-4 ${textSecondary}`}>Only administrators and managers can edit academy information.</p>}
                   {academyError && <p className="text-sm mt-4 text-rose-500">{academyError}</p>}
-                  {isAdmin && (
+                  {canManageTeam && (
                     <div className="flex justify-end mt-6">
                       <motion.button
                         whileHover={{ scale: 1.02 }}

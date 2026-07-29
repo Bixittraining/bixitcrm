@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext()
 
-const roleLabels = { admin: 'Administrator', sales: 'Sales Person' }
+const roleLabels = { admin: 'Administrator', manager: 'Manager', sales: 'Sales Executive' }
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
@@ -109,10 +109,14 @@ export function AuthProvider({ children }) {
     : '?'
 
   const isAdmin = profile?.roleCode === 'admin'
+  const isManager = profile?.roleCode === 'manager'
+  // Team + Academy management: Admin and Manager. Integrations/API stay
+  // strictly admin-only (isAdmin) since they hold secrets/webhooks.
+  const canManageTeam = isAdmin || isManager
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, loading, signIn, signOut, updateProfile, uploadAvatar, addTeamMember }}
+      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, isManager, canManageTeam, loading, signIn, signOut, updateProfile, uploadAvatar, addTeamMember }}
     >
       {children}
     </AuthContext.Provider>

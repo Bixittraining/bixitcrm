@@ -26,7 +26,7 @@ function useClickOutside(ref, handler) {
 
 function Header({ onMenuToggle, onLogout }) {
   const { theme, toggleTheme } = useTheme()
-  const { profile, initials, isAdmin } = useAuth()
+  const { profile, initials } = useAuth()
   const { leads, followUps, students, invoices } = useData()
   const navigate = useNavigate()
   const isDark = theme === 'dark'
@@ -348,13 +348,10 @@ function Header({ onMenuToggle, onLogout }) {
                     <p className={`text-xs mt-0.5 ${textSecondary}`}>{profile.role}</p>
                   </div>
                   <div className="p-1.5">
-                    {(isAdmin
-                      ? [
-                          { icon: User, label: 'My Profile', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
-                          { icon: Settings, label: 'Settings', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
-                        ]
-                      : []
-                    ).map(({ icon: Icon, label, action }) => (
+                    {[
+                      { icon: User, label: 'My Profile', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
+                      { icon: Settings, label: 'Settings', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
+                    ].map(({ icon: Icon, label, action }) => (
                       <motion.button key={label} whileHover={{ x: 2 }} onClick={action}
                         className={`flex items-center gap-3 w-full px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer ${isDark ? 'text-dark-300 hover:text-white hover:bg-dark-700' : 'text-dark-600 hover:text-dark-900 hover:bg-dark-50'}`}>
                         <Icon size={16} />{label}

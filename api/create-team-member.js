@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-const ROLES = ['admin', 'sales']
+const ROLES = ['admin', 'manager', 'sales']
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -37,8 +37,15 @@ export default async function handler(req, res) {
     .eq('id', callerData.user.id)
     .single()
 
-  if (callerProfileError || callerProfile?.role !== 'admin') {
-    res.status(403).json({ error: 'Only administrators can add team members' })
+  if (callerProfileError || !['admin', 'manager'].includes(callerProfile?.role)) {
+    res.status(403).json({ error: 'Only administrators or managers can add team members' })
+    return
+  }
+
+  // Only admins may create other admins — a manager could otherwise grant
+  // themselves or anyone else full admin access.
+  if (req.body?.role === 'admin' && callerProfile.role !== 'admin') {
+    res.status(403).json({ error: 'Only administrators can create another administrator' })
     return
   }
 
