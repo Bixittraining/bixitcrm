@@ -25,7 +25,7 @@ const statusConfig = {
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
 const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'Walk-in']
-const statusOptions = ['All', 'Today', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
+const statusOptions = ['All', 'Today', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
 
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
@@ -1389,6 +1389,8 @@ function Leads() {
     if (statusFilter === 'Today') {
       const todayStr = new Date().toISOString().slice(0, 10)
       result = result.filter((l) => l.date === todayStr)
+    } else if (statusFilter === 'Not Attempted') {
+      result = result.filter((l) => l.status === 'new')
     } else if (statusFilter !== 'All') {
       result = result.filter((l) => l.status === statusFilter.toLowerCase())
     }
@@ -1601,7 +1603,7 @@ function Leads() {
             </motion.div>
 
             {/* Status Overview — click a bucket to filter the table below */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
               {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
@@ -1615,6 +1617,7 @@ function Leads() {
                 const buckets = [
                   { key: 'all', label: 'All Leads', filterValue: 'All', color: 'slate', icon: Users, count: leadsData.length },
                   { key: 'today', label: 'Today', filterValue: 'Today', color: 'sky', icon: Calendar, count: todayCount },
+                  { key: 'not-attempted', label: 'Not Attempted', filterValue: 'Not Attempted', color: 'rose', icon: AlertCircle, count: statusCounts.new || 0 },
                   ...Object.entries(statusConfig).filter(([key]) => key !== 'new').map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
                 ]
                 return buckets.map((b, i) => {
