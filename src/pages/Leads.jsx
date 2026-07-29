@@ -251,7 +251,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEnroll, onLost, onEdit, onDelete }) {
+function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const ref = useRef(null)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
@@ -273,6 +273,7 @@ function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEn
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
       className={`absolute right-0 z-30 mt-1 w-52 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
+      {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
       {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
       {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
       {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
@@ -694,7 +695,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers }) {
   const navigate = useNavigate()
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
@@ -851,7 +852,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                     { icon: Phone, label: 'Phone', value: lead.phone },
                     { icon: MapPin, label: 'Source', value: lead.source },
                     { icon: Calendar, label: 'Date of Inquiry', value: lead.date },
-                    { icon: UserCheck, label: 'Assigned To', value: 'Admin' },
+                    { icon: UserCheck, label: 'Assigned To', value: (teamMembers || []).find((m) => m.id === lead.assigned_to)?.name || 'Unassigned' },
                   ].map((item) => (
                     <div key={item.label} className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
@@ -1295,7 +1296,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, packages } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, packages, teamMembers } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1484,6 +1485,11 @@ function Leads() {
     showNotification(`Follow-up scheduled for ${lead.name}`)
   }
 
+  const handleTakeOver = (lead) => {
+    takeOverLead(lead.id)
+    showNotification(`You've taken over ${lead.name}`)
+  }
+
   const handleEnrollLead = (lead) => {
     const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
     enrollLead(lead, pkg)
@@ -1519,8 +1525,10 @@ function Leads() {
 
   const columns = [
     { key: 'name', label: 'Name' }, { key: 'email', label: 'Contact' }, { key: 'course', label: 'Course Interested' },
-    { key: 'source', label: 'Source' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' }, { key: 'date', label: 'Date' },
+    { key: 'source', label: 'Source' }, { key: 'agent', label: 'Agent' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' }, { key: 'date', label: 'Date' },
   ]
+
+  const agentName = (lead) => teamMembers.find((m) => m.id === lead.assigned_to)?.name || 'Unassigned'
 
   return (
     <>
@@ -1548,6 +1556,7 @@ function Leads() {
             setActiveTab={setActiveProfileTab}
             showNotification={showNotification}
             packages={packages}
+            teamMembers={teamMembers}
           />
         ) : (
           <motion.div key="list" className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit={{ opacity: 0, x: -40 }}>
@@ -1683,6 +1692,7 @@ function Leads() {
                             </td>
                             <td className={`px-4 py-3.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{lead.course}</td>
                             <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.source}</td>
+                            <td className={`px-4 py-3.5 text-xs font-medium ${lead.assigned_to ? (isDark ? 'text-dark-200' : 'text-dark-700') : (isDark ? 'text-dark-600' : 'text-dark-400')}`}>{agentName(lead)}</td>
                             <td className="px-4 py-3.5">
                               <div className="relative">
                                 <StatusBadge status={lead.status} isDark={isDark} onClick={() => setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id)} />
@@ -1712,6 +1722,7 @@ function Leads() {
                                       onRNR={(l) => setShowRNRModal(l)}
                                       onEnroll={handleEnrollLead}
                                       onLost={(l) => setShowLostModal(l)}
+                                      onTakeOver={handleTakeOver}
                                       onEdit={(l) => setEditingLead(l)}
                                       onDelete={(l) => setShowDeleteConfirm(l)}
                                     />

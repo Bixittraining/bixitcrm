@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -67,6 +67,102 @@ function getWeekDates() {
   return days
 }
 
+// ─── ACTION DROPDOWN (per follow-up card) ──────────────────────────────
+function FollowUpActionMenu({ fu, isDark, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
+  const ref = useRef(null)
+  const [customDate, setCustomDate] = useState('')
+  const [customTime, setCustomTime] = useState('')
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
+    isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
+  }`
+  const dividerCls = `my-1 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-100'}`
+  const sectionLabelCls = `px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-dark-500' : 'text-dark-400'}`
+  const item = (icon, label, onClick, extraCls = '') => (
+    <button onClick={() => { onClick(); onClose() }} className={`${itemCls} ${extraCls}`}>{icon}{label}</button>
+  )
+
+  return (
+    <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
+      className={`absolute right-0 z-30 mt-1 w-64 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+    >
+      {fu.status === 'pending' && item(<Check className="w-3.5 h-3.5" />, 'Mark Completed', onMarkComplete, isDark ? 'text-emerald-400' : 'text-emerald-600')}
+      {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', onRNR)}
+      {item(<GraduationCap className="w-3.5 h-3.5" />, 'Transfer to Student', onTransferToStudent, isDark ? 'text-primary-400' : 'text-primary-600')}
+      {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', onLost, isDark ? 'text-rose-400' : 'text-rose-600')}
+      <div className={dividerCls} />
+      <p className={sectionLabelCls}>Reschedule</p>
+      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 1 day', () => onPresetReschedule(1))}
+      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 3 days', () => onPresetReschedule(3))}
+      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 7 days', () => onPresetReschedule(7))}
+      <div className="px-3 py-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)}
+          className={`flex-1 min-w-0 px-2 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+        <input type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)}
+          className={`w-[4.7rem] px-1.5 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+        <button
+          type="button"
+          disabled={!customDate}
+          onClick={() => { if (!customDate) return; onCustomReschedule(customDate, customTime); onClose() }}
+          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-40 transition-colors"
+        >Set</button>
+      </div>
+      <div className={dividerCls} />
+      {item(<Phone className="w-3.5 h-3.5" />, 'Call Now', onCallNow)}
+      {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete', onDelete, isDark ? 'text-rose-400' : 'text-rose-600')}
+    </motion.div>
+  )
+}
+
+// ─── LOST REASON MODAL ───────────────────────────────────────────────
+function FollowUpLostReasonModal({ fu, isDark, onClose, onSubmit }) {
+  const [reason, setReason] = useState('')
+  const handleSubmit = (e) => { e.preventDefault(); if (reason.trim()) onSubmit(fu, reason.trim()) }
+  const inputClass = isDark
+    ? 'bg-dark-800 border-dark-700 text-dark-100 placeholder-dark-500 focus:border-primary-500 focus:ring-primary-500/20'
+    : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400 focus:border-primary-500 focus:ring-primary-500/20'
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><UserX className="w-5 h-5 text-rose-500" />Mark as Lost</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Why is {fu.lead} being marked lost?</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Reason *</label>
+            <textarea rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. too expensive, chose another institute, not interested anymore..."
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 shadow-lg shadow-rose-500/25 transition-all"
+            ><UserX className="w-4 h-4" />Mark Lost</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function FollowUps() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -78,11 +174,11 @@ export default function FollowUps() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, leads, enrollLead, setFollowUps, addActivity } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity } = useData()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
-  const [rescheduleId, setRescheduleId] = useState(null)
-  const [rescheduleData, setRescheduleData] = useState({ date: '', time: '' })
+  const [actionMenuId, setActionMenuId] = useState(null)
+  const [showLostModal, setShowLostModal] = useState(null)
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
@@ -177,24 +273,37 @@ export default function FollowUps() {
     showToast('Follow-up deleted')
   }
 
-  const handleReschedule = (id) => {
-    if (!rescheduleData.date || !rescheduleData.time) return
-    const fu = localFollowUps.find((f) => f.id === id)
-    const timeStr = new Date(`2000-01-01T${rescheduleData.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    updateFollowUp(id, { date: rescheduleData.date, time: timeStr })
-    const lead = fu && leads.find((l) => l.name === fu.lead)
-    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${rescheduleData.date} ${timeStr}`)
-    setRescheduleId(null)
-    setRescheduleData({ date: '', time: '' })
-    showToast('Follow-up rescheduled')
-  }
-
   const handleCallNow = (fu) => {
     const lead = leads.find((l) => l.name === fu.lead)
     if (lead) {
       window.open(`tel:${lead.phone}`)
     }
     showToast(`Calling ${fu.lead}...`)
+  }
+
+  const handlePresetReschedule = (fu, days) => {
+    const newDate = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
+    updateFollowUp(fu.id, { date: newDate, status: 'pending' })
+    const lead = getLeadFor(fu)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${newDate}`)
+    showToast(`Follow-up with ${fu.lead} rescheduled to ${newDate}`)
+  }
+
+  const handleRNR = (fu) => {
+    const newDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    const noteText = `Ring No Response (RNR).${fu.notes && !isRNR(fu) ? ` ${fu.notes}` : ''}`
+    updateFollowUp(fu.id, { date: newDate, notes: noteText, status: 'pending' })
+    const lead = getLeadFor(fu)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `CALL follow-up marked NOT_ATTEMPT — next attempt ${newDate}`)
+    showToast(`Marked RNR for ${fu.lead} — next attempt ${newDate}`)
+  }
+
+  const handleMarkLost = (fu, reason) => {
+    const lead = getLeadFor(fu)
+    if (!lead) { showToast(`Lead "${fu.lead}" not found`, 'error'); return }
+    updateLead({ ...lead, status: 'lost', notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}` }, reason)
+    updateFollowUp(fu.id, { status: 'completed' })
+    showToast(`${fu.lead} marked as Lost`)
   }
 
   const leadNames = [...new Set([...localFollowUps.map((f) => f.lead), ...leads.map((l) => l.name)])]
@@ -551,105 +660,43 @@ export default function FollowUps() {
                             {isOverdue ? 'Overdue' : statInfo.label}
                           </span>
 
-                          {/* Action Buttons */}
-                          <div className="flex items-center gap-1 ml-2">
-                            {fu.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => handleMarkComplete(fu.id)}
-                                  title="Mark Complete"
-                                  className={`p-2 rounded-lg transition-all duration-200 ${
-                                    isDark
-                                      ? 'hover:bg-emerald-500/10 text-dark-400 hover:text-emerald-500'
-                                      : 'hover:bg-emerald-50 text-dark-400 hover:text-emerald-600'
-                                  }`}
-                                >
-                                  <Check className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => setShowTransferConfirm(fu)}
-                                  title="Transfer to Student"
-                                  className={`p-2 rounded-lg transition-all duration-200 ${
-                                    isDark
-                                      ? 'hover:bg-primary-500/10 text-dark-400 hover:text-primary-500'
-                                      : 'hover:bg-primary-50 text-dark-400 hover:text-primary-600'
-                                  }`}
-                                >
-                                  <GraduationCap className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={() => {
-                                setRescheduleId(rescheduleId === fu.id ? null : fu.id)
-                                setRescheduleData({ date: fu.date, time: '' })
-                              }}
-                              title="Reschedule"
-                              className={`p-2 rounded-lg transition-all duration-200 ${
-                                isDark
-                                  ? 'hover:bg-accent-500/10 text-dark-400 hover:text-accent-500'
-                                  : 'hover:bg-accent-50 text-dark-400 hover:text-accent-600'
-                              }`}
+                          {/* Action Dropdown */}
+                          <div className="relative ml-2">
+                            <motion.button
+                              type="button"
+                              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                              onClick={() => setActionMenuId(actionMenuId === fu.id ? null : fu.id)}
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' : 'bg-dark-100 text-dark-600 hover:text-dark-900 hover:bg-dark-200'}`}
                             >
-                              <Clock className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleCallNow(fu)}
-                              title="Call Now"
-                              className={`p-2 rounded-lg transition-all duration-200 ${
-                                isDark
-                                  ? 'hover:bg-sky-500/10 text-dark-400 hover:text-sky-500'
-                                  : 'hover:bg-sky-50 text-dark-400 hover:text-sky-600'
-                              }`}
-                            >
-                              <Phone className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteFollowUp(fu.id)}
-                              title="Delete"
-                              className={`p-2 rounded-lg transition-all duration-200 ${
-                                isDark
-                                  ? 'hover:bg-rose-500/10 text-dark-400 hover:text-rose-500'
-                                  : 'hover:bg-rose-50 text-dark-400 hover:text-rose-600'
-                              }`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              Action<ChevronDown className="w-3.5 h-3.5" />
+                            </motion.button>
+                            <AnimatePresence>
+                              {actionMenuId === fu.id && (
+                                <FollowUpActionMenu
+                                  fu={fu}
+                                  isDark={isDark}
+                                  onClose={() => setActionMenuId(null)}
+                                  onMarkComplete={() => handleMarkComplete(fu.id)}
+                                  onRNR={() => handleRNR(fu)}
+                                  onLost={() => setShowLostModal(fu)}
+                                  onTransferToStudent={() => setShowTransferConfirm(fu)}
+                                  onPresetReschedule={(days) => handlePresetReschedule(fu, days)}
+                                  onCustomReschedule={(date, time) => {
+                                    const timeStr = time ? new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : fu.time
+                                    updateFollowUp(fu.id, { date, time: timeStr, status: 'pending' })
+                                    const lead = getLeadFor(fu)
+                                    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${date} ${timeStr}`)
+                                    showToast('Follow-up rescheduled')
+                                  }}
+                                  onCallNow={() => handleCallNow(fu)}
+                                  onDelete={() => handleDeleteFollowUp(fu.id)}
+                                />
+                              )}
+                            </AnimatePresence>
                           </div>
                         </div>
                       </div>
                     </div>
-
-                    {/* Inline Reschedule Form */}
-                    {rescheduleId === fu.id && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className={`mt-3 pt-3 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}
-                      >
-                        <div className="flex items-end gap-3">
-                          <div className="flex-1">
-                            <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>New Date</label>
-                            <input type="date" value={rescheduleData.date} onChange={(e) => setRescheduleData(p => ({ ...p, date: e.target.value }))}
-                              className={`w-full px-3 py-2 rounded-lg text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
-                          </div>
-                          <div className="flex-1">
-                            <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>New Time</label>
-                            <input type="time" value={rescheduleData.time} onChange={(e) => setRescheduleData(p => ({ ...p, time: e.target.value }))}
-                              className={`w-full px-3 py-2 rounded-lg text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
-                          </div>
-                          <button onClick={() => handleReschedule(fu.id)}
-                            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors">
-                            Save
-                          </button>
-                          <button onClick={() => setRescheduleId(null)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300' : 'border-dark-200 text-dark-600'}`}>
-                            Cancel
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
                   </div>
                 </motion.div>
               )
@@ -804,6 +851,19 @@ export default function FollowUps() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Lost Reason Modal */}
+      <AnimatePresence>
+        {showLostModal && (
+          <FollowUpLostReasonModal
+            key={`lost-${showLostModal.id}`}
+            fu={showLostModal}
+            isDark={isDark}
+            onClose={() => setShowLostModal(null)}
+            onSubmit={(fu, reason) => { handleMarkLost(fu, reason); setShowLostModal(null) }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Transfer to Student Confirm Modal */}
       <AnimatePresence>
