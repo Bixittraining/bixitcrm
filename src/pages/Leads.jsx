@@ -2,11 +2,11 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, Plus, Upload, Download, Eye, Pencil, Phone, UserPlus, Users, UserCheck,
-  MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X, ArrowRightLeft,
+  Search, Plus, Upload, Download, Pencil, Phone, UserPlus, Users, UserCheck,
+  MessageSquare, GraduationCap, UserX, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X,
   Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
-  Activity, ArrowLeft, Key, CreditCard, Award, Receipt
+  Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -245,6 +245,139 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
           {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
         </button>
       ))}
+    </motion.div>
+  )
+}
+
+// ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
+function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onStatusChange, onEnroll, onLost, onEdit, onDelete }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
+    isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
+  }`
+  const dividerCls = `my-1 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-100'}`
+  const item = (icon, label, onClick, extraCls = '') => (
+    <button onClick={() => { onClick(); onClose() }} className={`${itemCls} ${extraCls}`}>
+      {icon}{label}
+    </button>
+  )
+
+  return (
+    <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
+      className={`absolute right-0 z-30 mt-1 w-52 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+    >
+      {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
+      {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
+      {lead.status !== 'qualified' && item(<UserCheck className="w-3.5 h-3.5" />, 'Move to Qualified', () => onStatusChange(lead.id, 'qualified'))}
+      {lead.status !== 'negotiation' && item(<Users className="w-3.5 h-3.5" />, 'Move to Negotiation', () => onStatusChange(lead.id, 'negotiation'))}
+      {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+      {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+      <div className={dividerCls} />
+      {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
+      {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+    </motion.div>
+  )
+}
+
+// ─── RNR MODAL (Ring No Response — schedule next attempt) ──────────────
+function RNRModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [form, setForm] = useState({ date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), time: '10:00', notes: '' })
+  const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, form) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><PhoneMissed className="w-5 h-5 text-accent-500" />Ring No Response</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>When should we try {lead.name} again?</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Next Attempt Date</label>
+              <div className="relative">
+                <Calendar className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                <input type="date" required value={form.date} onChange={(e) => handleChange('date', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+              </div>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Time</label>
+              <div className="relative">
+                <Clock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                <input type="time" required value={form.time} onChange={(e) => handleChange('time', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Notes (optional)</label>
+            <textarea rows={2} value={form.notes} onChange={(e) => handleChange('notes', e.target.value)} placeholder="e.g. tried at lunchtime, will call again in the evening..."
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
+            ><PhoneMissed className="w-4 h-4" />Save & Schedule Next Attempt</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── LOST REASON MODAL ───────────────────────────────────────────────
+function LostReasonModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [reason, setReason] = useState('')
+  const handleSubmit = (e) => { e.preventDefault(); if (reason.trim()) onSubmit(lead, reason.trim()) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><UserX className="w-5 h-5 text-rose-500" />Mark as Lost</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Why is {lead.name} being marked lost?</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Reason *</label>
+            <textarea rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. too expensive, chose another institute, not interested anymore..."
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 shadow-lg shadow-rose-500/25 transition-all"
+            ><UserX className="w-4 h-4" />Mark Lost</motion.button>
+          </div>
+        </form>
+      </motion.div>
     </motion.div>
   )
 }
@@ -1144,6 +1277,9 @@ function Leads() {
   const [activeProfileTab, setActiveProfileTab] = useState('overview')
   const [notification, setNotification] = useState(null)
   const [statusDropdownId, setStatusDropdownId] = useState(null)
+  const [actionMenuId, setActionMenuId] = useState(null)
+  const [showRNRModal, setShowRNRModal] = useState(null)
+  const [showLostModal, setShowLostModal] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
 
   // Scroll to top whenever this page is landed on (e.g. navigating from Dashboard)
@@ -1319,6 +1455,25 @@ function Leads() {
     enrollLead(lead, pkg)
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'enrolled' } : prev))
     showNotification(`${lead.name} has been enrolled in ${lead.course}`)
+  }
+
+  const handleRNRSubmit = (lead, form) => {
+    const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    const noteText = `Ring No Response (RNR).${form.notes ? ` ${form.notes}` : ''}`
+    addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
+    if (lead.status === 'new') {
+      updateLeadStatus(lead.id, 'contacted')
+      setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'contacted' } : prev))
+    }
+    setShowRNRModal(null)
+    showNotification(`Marked RNR — next attempt scheduled for ${lead.name}`)
+  }
+
+  const handleLostSubmit = (lead, reason) => {
+    updateLead({ ...lead, status: 'lost', notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}` })
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'lost' } : prev))
+    setShowLostModal(null)
+    showNotification(`${lead.name} marked as Lost`)
   }
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
@@ -1508,23 +1663,28 @@ function Leads() {
                             <td className="px-4 py-3.5"><PriorityBadge priority={lead.priority} isDark={isDark} /></td>
                             <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} title={lead.date}>{relativeDate(lead.date)}</td>
                             <td className="px-4 py-3.5">
-                              <div className="flex items-center gap-1">
-                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="View" onClick={() => setSelectedLead(lead)}
-                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-primary-400 hover:bg-primary-500/10' : 'text-dark-400 hover:text-primary-600 hover:bg-primary-50'}`}>
-                                  <Eye className="w-4 h-4" />
+                              <div className="relative inline-block">
+                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => setActionMenuId(actionMenuId === lead.id ? null : lead.id)}
+                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' : 'bg-dark-100 text-dark-600 hover:text-dark-900 hover:bg-dark-200'}`}>
+                                  Action
+                                  <ChevronDown className="w-3.5 h-3.5" />
                                 </motion.button>
-                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Edit" onClick={() => setEditingLead(lead)}
-                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-accent-400 hover:bg-accent-500/10' : 'text-dark-400 hover:text-accent-600 hover:bg-accent-50'}`}>
-                                  <Pencil className="w-4 h-4" />
-                                </motion.button>
-                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Transfer" onClick={() => setShowTransferModal(lead)}
-                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-emerald-400 hover:bg-emerald-500/10' : 'text-dark-400 hover:text-emerald-600 hover:bg-emerald-50'}`}>
-                                  <ArrowRightLeft className="w-4 h-4" />
-                                </motion.button>
-                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Delete" onClick={() => setShowDeleteConfirm(lead)}
-                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-rose-400 hover:bg-rose-500/10' : 'text-dark-400 hover:text-rose-600 hover:bg-rose-50'}`}>
-                                  <Trash2 className="w-4 h-4" />
-                                </motion.button>
+                                <AnimatePresence>
+                                  {actionMenuId === lead.id && (
+                                    <LeadActionMenu
+                                      lead={lead}
+                                      isDark={isDark}
+                                      onClose={() => setActionMenuId(null)}
+                                      onScheduleFollowUp={(l) => setShowTransferModal(l)}
+                                      onRNR={(l) => setShowRNRModal(l)}
+                                      onStatusChange={handleStatusChange}
+                                      onEnroll={handleEnrollLead}
+                                      onLost={(l) => setShowLostModal(l)}
+                                      onEdit={(l) => setEditingLead(l)}
+                                      onDelete={(l) => setShowDeleteConfirm(l)}
+                                    />
+                                  )}
+                                </AnimatePresence>
                               </div>
                             </td>
                           </motion.tr>
@@ -1605,6 +1765,12 @@ function Leads() {
       </AnimatePresence>
       <AnimatePresence>
         {showTransferModal && <TransferModal key={`transfer-${showTransferModal.id}`} lead={showTransferModal} isDark={isDark} onClose={() => setShowTransferModal(null)} onSubmit={handleTransferSubmit} inputClass={inputClass} cardClass={cardClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showRNRModal && <RNRModal key={`rnr-${showRNRModal.id}`} lead={showRNRModal} isDark={isDark} onClose={() => setShowRNRModal(null)} onSubmit={handleRNRSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showLostModal && <LostReasonModal key={`lost-${showLostModal.id}`} lead={showLostModal} isDark={isDark} onClose={() => setShowLostModal(null)} onSubmit={handleLostSubmit} inputClass={inputClass} />}
       </AnimatePresence>
       <AnimatePresence>
         {showDeleteConfirm && (
