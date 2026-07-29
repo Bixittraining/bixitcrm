@@ -25,7 +25,7 @@ const statusConfig = {
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
 const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'Walk-in']
-const statusOptions = ['All', 'New', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
+const statusOptions = ['All', 'Today', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
 
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
@@ -1220,7 +1220,12 @@ function Leads() {
       const q = searchQuery.toLowerCase()
       result = result.filter((l) => l.name.toLowerCase().includes(q) || l.email.toLowerCase().includes(q) || l.course.toLowerCase().includes(q))
     }
-    if (statusFilter !== 'All') result = result.filter((l) => l.status === statusFilter.toLowerCase())
+    if (statusFilter === 'Today') {
+      const todayStr = new Date().toISOString().slice(0, 10)
+      result = result.filter((l) => l.date === todayStr)
+    } else if (statusFilter !== 'All') {
+      result = result.filter((l) => l.status === statusFilter.toLowerCase())
+    }
     if (sourceFilter !== 'All') {
       const sf = sourceFilter.toLowerCase()
       result = result.filter((l) => {
@@ -1420,9 +1425,12 @@ function Leads() {
                   slate: isDark ? 'text-dark-300' : 'text-dark-600',
                 }
                 const subtleBg = bgSubtleMap(isDark)
+                const todayStr = new Date().toISOString().slice(0, 10)
+                const todayCount = leadsData.filter((l) => l.date === todayStr).length
                 const buckets = [
                   { key: 'all', label: 'All Leads', filterValue: 'All', color: 'slate', icon: Users, count: leadsData.length },
-                  ...Object.entries(statusConfig).map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
+                  { key: 'today', label: 'Today', filterValue: 'Today', color: 'sky', icon: Calendar, count: todayCount },
+                  ...Object.entries(statusConfig).filter(([key]) => key !== 'new').map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
                 ]
                 return buckets.map((b, i) => {
                   const Icon = b.icon
