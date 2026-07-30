@@ -84,7 +84,17 @@ export default function Billing() {
 
   const handleCreateBill = (e) => {
     e.preventDefault()
-    const id = `INV-${new Date().getFullYear()}-${String(invoicesData.length + 1).padStart(3, '0')}`
+    // Deriving from array length breaks the moment a gap appears in the
+    // sequence (e.g. an invoice gets deleted) — length+1 can collide with
+    // an ID that already exists, silently failing the insert. Derive from
+    // the highest existing suffix for the current year instead.
+    const prefix = `INV-${new Date().getFullYear()}-`
+    const maxSeq = invoicesData.reduce((max, inv) => {
+      if (!inv.id?.startsWith(prefix)) return max
+      const n = parseInt(inv.id.slice(prefix.length), 10)
+      return Number.isFinite(n) && n > max ? n : max
+    }, 0)
+    const id = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`
     createInvoice({
       id, student: createForm.student, course: createForm.course,
       amount: Number(createForm.amount), paid: 0, balance: Number(createForm.amount),

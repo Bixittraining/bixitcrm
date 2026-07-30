@@ -1304,6 +1304,8 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                             showNotification('This fee bill is already locked — ask an admin to unlock it first', 'error')
                           } else if (result?.invoice) {
                             showNotification(`Fee bill ${result.invoice.id} locked in with ${planLabel} — ${formatINR(result.invoice.amount)} (see Fees & Billing)`)
+                          } else {
+                            showNotification('Could not generate the fee bill — please try again or check with admin', 'error')
                           }
                         }}
                         className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400' : 'bg-dark-600 cursor-not-allowed opacity-60'}`}>

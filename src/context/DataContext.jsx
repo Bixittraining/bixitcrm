@@ -3,6 +3,21 @@ import { supabase } from '../lib/supabase'
 
 const DataContext = createContext()
 
+// Deriving the next invoice ID from array length breaks the moment a gap
+// appears in the sequence (e.g. an invoice gets deleted) — length+1 can
+// collide with an ID that already exists, which silently fails the insert
+// (unique constraint) with no visible error. Deriving from the highest
+// existing suffix for the current year is gap-proof.
+function nextInvoiceId(list) {
+  const prefix = `INV-${new Date().getFullYear()}-`
+  const maxSeq = list.reduce((max, inv) => {
+    if (!inv.id?.startsWith(prefix)) return max
+    const n = parseInt(inv.id.slice(prefix.length), 10)
+    return Number.isFinite(n) && n > max ? n : max
+  }, 0)
+  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`
+}
+
 export function DataProvider({ children }) {
   const [leads, setLeads] = useState([])
   const [followUps, setFollowUps] = useState([])
@@ -342,7 +357,7 @@ export function DataProvider({ children }) {
     const existingInvoice = invoices.find(inv => inv.student === lead.name && inv.course === lead.course)
     if (!existingInvoice) {
       const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
-      const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
+      const invoiceId = nextInvoiceId(invoices)
       const { data: invoiceData, error: invoiceErr } = await supabase
         .from('invoices')
         .insert({
@@ -466,7 +481,7 @@ export function DataProvider({ children }) {
       return { invoice: mapped }
     }
     const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
-    const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
+    const invoiceId = nextInvoiceId(invoices)
     const invoiceDate = new Date().toISOString().slice(0, 10)
     const { data, error } = await supabase
       .from('invoices')
