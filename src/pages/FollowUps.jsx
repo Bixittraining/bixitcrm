@@ -390,7 +390,7 @@ export default function FollowUps() {
               </div>
               <div className="min-w-0">
                 <p
-                  className={`text-sm truncate ${
+                  className={`text-sm leading-tight ${
                     isDark ? 'text-dark-400' : 'text-dark-500'
                   }`}
                 >

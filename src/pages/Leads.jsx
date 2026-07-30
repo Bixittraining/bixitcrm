@@ -25,7 +25,7 @@ const statusConfig = {
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
 const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'Walk-in']
-const statusOptions = ['All', 'Today', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
+const statusOptions = ['All', 'Today', 'Meeting', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
 
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
@@ -251,7 +251,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
+function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const ref = useRef(null)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
@@ -275,6 +275,7 @@ function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onRNR, onEn
     >
       {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
       {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
+      {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
       {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
       {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
       {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
@@ -485,8 +486,8 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
 }
 
 // ─── TRANSFER TO FOLLOW-UP MODAL ─────────────────────────────────────
-function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass }) {
-  const [form, setForm] = useState({ type: 'call', date: new Date().toISOString().slice(0, 10), time: '10:00', priority: 'medium', notes: lead.notes || '' })
+function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass, initialType = 'call' }) {
+  const [form, setForm] = useState({ type: initialType, date: new Date().toISOString().slice(0, 10), time: '10:00', priority: 'medium', notes: lead.notes || '' })
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
   const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, form) }
 
@@ -695,7 +696,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
   const [addingDocCategory, setAddingDocCategory] = useState(null)
@@ -1059,7 +1060,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Meetings ({leadMeetings.length})</h3>
-                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onTransfer(lead)}
+                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onScheduleMeeting(lead)}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
                   <Plus className="w-3.5 h-3.5" />Schedule Meeting
                 </motion.button>
@@ -1344,6 +1345,7 @@ function Leads() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingLead, setEditingLead] = useState(null)
   const [showTransferModal, setShowTransferModal] = useState(null)
+  const [transferModalType, setTransferModalType] = useState('call')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
   const [activeProfileTab, setActiveProfileTab] = useState('overview')
   const [notification, setNotification] = useState(null)
@@ -1427,6 +1429,9 @@ function Leads() {
       result = result.filter((l) => l.date === todayStr)
     } else if (statusFilter === 'Not Attempted') {
       result = result.filter((l) => l.status === 'new')
+    } else if (statusFilter === 'Meeting') {
+      const meetingLeadNames = new Set(followUpsData.filter((f) => f.type === 'meeting' && f.status === 'pending').map((f) => f.lead))
+      result = result.filter((l) => meetingLeadNames.has(l.name))
     } else if (statusFilter !== 'All') {
       result = result.filter((l) => l.status === statusFilter.toLowerCase())
     }
@@ -1448,7 +1453,7 @@ function Leads() {
       return 0
     })
     return result
-  }, [leadsData, searchQuery, statusFilter, sourceFilter, sortField, sortDirection])
+  }, [leadsData, followUpsData, searchQuery, statusFilter, sourceFilter, sortField, sortDirection])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -1583,7 +1588,8 @@ function Leads() {
             isDark={isDark}
             onBack={() => { setSelectedLead(null); setActiveProfileTab('overview') }}
             onEdit={(lead) => setEditingLead(lead)}
-            onTransfer={(lead) => setShowTransferModal(lead)}
+            onTransfer={(lead) => { setTransferModalType('call'); setShowTransferModal(lead) }}
+            onScheduleMeeting={(lead) => { setTransferModalType('meeting'); setShowTransferModal(lead) }}
             onDelete={(lead) => setShowDeleteConfirm(lead)}
             onStatusChange={handleStatusChange}
             onEnroll={handleEnrollLead}
@@ -1658,7 +1664,7 @@ function Leads() {
             </motion.div>
 
             {/* Status Overview — click a bucket to filter the table below */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9 gap-3">
               {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
@@ -1669,9 +1675,12 @@ function Leads() {
                 const subtleBg = bgSubtleMap(isDark)
                 const todayStr = new Date().toISOString().slice(0, 10)
                 const todayCount = leadsData.filter((l) => l.date === todayStr).length
+                const meetingLeadNames = new Set(followUpsData.filter((f) => f.type === 'meeting' && f.status === 'pending').map((f) => f.lead))
+                const meetingCount = leadsData.filter((l) => meetingLeadNames.has(l.name)).length
                 const buckets = [
                   { key: 'all', label: 'All Leads', filterValue: 'All', color: 'slate', icon: Users, count: leadsData.length },
                   { key: 'today', label: 'Today', filterValue: 'Today', color: 'sky', icon: Calendar, count: todayCount },
+                  { key: 'meeting', label: 'Meeting', filterValue: 'Meeting', color: 'violet', icon: Video, count: meetingCount },
                   { key: 'not-attempted', label: 'Not Attempted', filterValue: 'Not Attempted', color: 'rose', icon: AlertCircle, count: statusCounts.new || 0 },
                   ...Object.entries(statusConfig).filter(([key]) => key !== 'new').map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
                 ]
@@ -1691,7 +1700,7 @@ function Leads() {
                     >
                       <div className={`p-2 rounded-lg shrink-0 ${subtleBg[b.color] || subtleBg.slate}`}><Icon className={`w-4 h-4 ${iconColorMap[b.color] || countColor.slate}`} /></div>
                       <div className="min-w-0">
-                        <p className={`text-xs font-medium truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
+                        <p className={`text-xs font-medium leading-tight ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
                         <p className={`text-lg font-bold ${countColor[b.color] || countColor.slate}`}>{b.count}</p>
                       </div>
                     </motion.button>
@@ -1764,7 +1773,8 @@ function Leads() {
                                       lead={lead}
                                       isDark={isDark}
                                       onClose={() => setActionMenuId(null)}
-                                      onScheduleFollowUp={(l) => setShowTransferModal(l)}
+                                      onScheduleFollowUp={(l) => { setTransferModalType('call'); setShowTransferModal(l) }}
+                                      onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}
                                       onRNR={(l) => setShowRNRModal(l)}
                                       onEnroll={handleEnrollLead}
                                       onLost={(l) => setShowLostModal(l)}
@@ -1853,7 +1863,7 @@ function Leads() {
         {editingLead && <EditLeadModal key={`edit-${editingLead.id}`} lead={editingLead} isDark={isDark} onClose={() => setEditingLead(null)} onSave={handleEditSave} inputClass={inputClass} />}
       </AnimatePresence>
       <AnimatePresence>
-        {showTransferModal && <TransferModal key={`transfer-${showTransferModal.id}`} lead={showTransferModal} isDark={isDark} onClose={() => setShowTransferModal(null)} onSubmit={handleTransferSubmit} inputClass={inputClass} cardClass={cardClass} />}
+        {showTransferModal && <TransferModal key={`transfer-${showTransferModal.id}`} lead={showTransferModal} isDark={isDark} onClose={() => setShowTransferModal(null)} onSubmit={handleTransferSubmit} inputClass={inputClass} cardClass={cardClass} initialType={transferModalType} />}
       </AnimatePresence>
       <AnimatePresence>
         {showRNRModal && <RNRModal key={`rnr-${showRNRModal.id}`} lead={showRNRModal} isDark={isDark} onClose={() => setShowRNRModal(null)} onSubmit={handleRNRSubmit} inputClass={inputClass} />}
