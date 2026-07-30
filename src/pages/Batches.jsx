@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Layers, Plus, X, Users, Calendar, Clock, Pencil, Trash2, User,
-  CheckCircle2, AlertCircle, PlayCircle, Hourglass, GraduationCap,
+  CheckCircle2, AlertCircle, PlayCircle, Hourglass, GraduationCap, Eye, Mail, Phone,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -176,6 +176,91 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
   )
 }
 
+function BatchDetailModal({ batch, isDark, students, instructor, scheduleText, dateRange, cfg, onClose }) {
+  const roster = students.filter((s) => s.batch_id === batch.id)
+  const StatusIcon = cfg.icon
+  const badgeCls = {
+    sky: isDark ? 'bg-sky-500/15 text-sky-400' : 'bg-sky-50 text-sky-600',
+    emerald: isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600',
+    violet: isDark ? 'bg-violet-500/15 text-violet-400' : 'bg-violet-50 text-violet-600',
+  }[cfg.color]
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className={`sticky top-0 z-10 flex items-start justify-between px-6 py-4 border-b ${isDark ? 'border-dark-700/60 bg-dark-900' : 'border-dark-200/60 bg-white'}`}>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{batch.name}</h2>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${badgeCls}`}>
+                <StatusIcon className="w-3 h-3" />{cfg.label}
+              </span>
+            </div>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{batch.course}</p>
+          </div>
+          <button onClick={onClose} className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl text-sm ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <div>
+              <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Staff / Instructor</p>
+              <p className={`flex items-center gap-1.5 font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}><User className="w-3.5 h-3.5" />{instructor || 'Unassigned'}</p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Duration</p>
+              <p className={`flex items-center gap-1.5 font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}><Calendar className="w-3.5 h-3.5" />{dateRange}</p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Schedule</p>
+              <p className={`flex items-center gap-1.5 font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}><Clock className="w-3.5 h-3.5" />{scheduleText || 'Not set'}</p>
+            </div>
+          </div>
+
+          <div>
+            <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>
+              <Users className="w-4 h-4" />Enrolled Students ({roster.length}/{batch.capacity})
+            </h3>
+            {roster.length === 0 ? (
+              <div className={`rounded-xl p-6 text-center text-sm ${isDark ? 'bg-dark-800/50 text-dark-500' : 'bg-dark-50 text-dark-400'}`}>
+                No students assigned to this batch yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {roster.map((s) => (
+                  <div key={s.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500`}>
+                        {s.avatar || s.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+                        <div className={`flex items-center gap-3 text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                          <span className="flex items-center gap-1 truncate"><Mail className="w-3 h-3 shrink-0" />{s.email}</span>
+                          <span className="flex items-center gap-1 shrink-0"><Phone className="w-3 h-3" />{s.phone}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-xs font-semibold ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{s.feePaid?.toLocaleString('en-IN')} / {s.feeTotal?.toLocaleString('en-IN')}</p>
+                      <p className={`text-[11px] ${s.status === 'active' ? 'text-emerald-500' : isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function Batches() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -184,6 +269,7 @@ export default function Batches() {
   const [showFormModal, setShowFormModal] = useState(false)
   const [editingBatch, setEditingBatch] = useState(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
+  const [viewingBatch, setViewingBatch] = useState(null)
   const [notification, setNotification] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -311,8 +397,8 @@ export default function Batches() {
             return (
               <motion.div key={batch.id} variants={itemVariants} className={`rounded-2xl p-6 ${cardClass}`}>
                 <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <h3 className={`font-semibold truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{batch.name}</h3>
+                  <div className="min-w-0 cursor-pointer" onClick={() => setViewingBatch(batch)}>
+                    <h3 className={`font-semibold truncate hover:underline ${isDark ? 'text-white' : 'text-dark-900'}`}>{batch.name}</h3>
                     <p className={`text-xs mt-0.5 truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{batch.course}</p>
                   </div>
                   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium shrink-0 ${badgeCls}`}>
@@ -349,6 +435,10 @@ export default function Batches() {
                 </div>
 
                 <div className={`flex items-center gap-2 pt-4 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                  <button onClick={() => setViewingBatch(batch)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'}`}>
+                    <Eye size={14} />View
+                  </button>
                   <button onClick={() => { setEditingBatch(batch); setShowFormModal(true) }}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'}`}>
                     <Pencil size={14} />Edit
@@ -363,6 +453,23 @@ export default function Batches() {
           })}
         </motion.div>
       )}
+
+      <AnimatePresence>
+        {viewingBatch && (
+          <BatchDetailModal
+            batch={viewingBatch}
+            isDark={isDark}
+            students={students}
+            instructor={instructorName(viewingBatch)}
+            scheduleText={formatSchedule(viewingBatch)}
+            dateRange={viewingBatch.start_date
+              ? `${new Date(viewingBatch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}${viewingBatch.end_date ? ` – ${new Date(viewingBatch.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`
+              : 'Dates not set'}
+            cfg={statusConfig[viewingBatch.status] || statusConfig.upcoming}
+            onClose={() => setViewingBatch(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showFormModal && (
