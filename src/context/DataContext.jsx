@@ -227,6 +227,12 @@ export function DataProvider({ children }) {
     setFollowUps((prev) => [mapFollowUpFromDb(data), ...prev.filter((f) => f.id !== followUpId)])
   }, [])
 
+  const deleteFollowUp = useCallback(async (followUpId) => {
+    const { error } = await supabase.from('follow_ups').delete().eq('id', followUpId)
+    if (error) { console.error('deleteFollowUp error', error); return }
+    setFollowUps((prev) => prev.filter((f) => f.id !== followUpId))
+  }, [])
+
   // ── STUDENTS ─────────────────────────────────────────────
   const addStudent = useCallback(async (student) => {
     const { id, ...studentData } = student
@@ -547,7 +553,7 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider value={{
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
-      followUps, setFollowUps, addFollowUp, updateFollowUp,
+      followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp,
       leadActivities, addActivity,
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage,

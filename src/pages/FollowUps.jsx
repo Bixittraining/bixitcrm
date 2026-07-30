@@ -190,7 +190,7 @@ export default function FollowUps() {
   const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers, takeOverLead, packages } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, deleteFollowUp, addActivity, teamMembers, takeOverLead, packages } = useData()
   const { isAdmin, user } = useAuth()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
@@ -315,7 +315,7 @@ export default function FollowUps() {
   }
 
   const handleDeleteFollowUp = (id) => {
-    setFollowUps((prev) => prev.filter((f) => f.id !== id))
+    deleteFollowUp(id)
     showToast('Follow-up deleted')
   }
 
