@@ -365,7 +365,7 @@ export default function Batches() {
       </motion.div>
 
       {filteredBatches.length === 0 ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`rounded-2xl p-12 text-center ${cardClass}`}>
+        <div className={`rounded-2xl p-12 text-center ${cardClass}`}>
           <Layers className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
           <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
             {batches.length === 0 ? 'No batches yet' : 'No batches in this status'}
@@ -376,9 +376,9 @@ export default function Batches() {
               <Plus className="w-3.5 h-3.5" />Create your first batch
             </button>
           )}
-        </motion.div>
+        </div>
       ) : (
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredBatches.map((batch) => {
             const enrolled = enrolledCountFor(batch.id)
             const pctFull = batch.capacity > 0 ? Math.min(100, Math.round((enrolled / batch.capacity) * 100)) : 0
@@ -395,7 +395,7 @@ export default function Batches() {
               ? `${new Date(batch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}${batch.end_date ? ` – ${new Date(batch.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`
               : 'Dates not set'
             return (
-              <motion.div key={batch.id} variants={itemVariants} className={`rounded-2xl p-6 ${cardClass}`}>
+              <div key={batch.id} className={`rounded-2xl p-6 ${cardClass}`}>
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0 cursor-pointer" onClick={() => setViewingBatch(batch)}>
                     <h3 className={`font-semibold truncate hover:underline ${isDark ? 'text-white' : 'text-dark-900'}`}>{batch.name}</h3>
@@ -448,10 +448,10 @@ export default function Batches() {
                     <Trash2 size={14} />Delete
                   </button>
                 </div>
-              </motion.div>
+              </div>
             )
           })}
-        </motion.div>
+        </div>
       )}
 
       <AnimatePresence>
