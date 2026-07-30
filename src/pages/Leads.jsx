@@ -26,7 +26,7 @@ const statusConfig = {
 
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
-const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'Walk-in']
+const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'WhatsApp', 'Walk-in']
 const statusOptions = ['All', 'Today', 'Meeting', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
 
 const courseOptions = [
@@ -34,7 +34,7 @@ const courseOptions = [
   'Cloud Computing', 'Cybersecurity', 'Mobile App Development', 'DevOps Engineering', 'Python Programming',
 ]
 
-const sourceFormOptions = ['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'Walk-in']
+const sourceFormOptions = ['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'WhatsApp', 'Walk-in']
 
 const followUpTypes = [
   { key: 'call', label: 'Call', icon: PhoneCall },

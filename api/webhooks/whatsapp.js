@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { getAdminClient, getIntegrationConfig, logAudit, markIntegrationStatus, readRawBody, timingSafeEqualStr } from './_lib.js'
+import { getAdminClient, getIntegrationConfig, insertLead, logAudit, markIntegrationStatus, readRawBody, timingSafeEqualStr } from './_lib.js'
 
 // WhatsApp Cloud API webhooks reuse Meta's Graph API webhooks platform:
 // same GET verification handshake and X-Hub-Signature-256 signing as
@@ -112,7 +112,24 @@ export default async function handler(req, res) {
         const text = message.text?.body || `[${message.type} message]`
 
         const { data: matchingLeads } = await admin.from('leads').select('id').ilike('phone', `%${digitsOnly(message.from).slice(-10)}%`)
-        const lead = matchingLeads?.[0]
+        let lead = matchingLeads?.[0]
+        let leadCreated = false
+
+        // A message from a number with no matching lead is itself a new
+        // inbound lead — without this, every WhatsApp-originated contact
+        // just sat in the Conversations inbox unlinked, invisible to
+        // Leads/Reports and impossible to track as a "WhatsApp" source.
+        if (!lead) {
+          const outcome = await insertLead(admin, {
+            name: senderName || `WhatsApp ${digitsOnly(message.from).slice(-10)}`,
+            phone: message.from,
+            course: 'General Inquiry',
+            source: 'WhatsApp',
+            notes: `First message: "${text}"`,
+          })
+          if (outcome.data?.id) { lead = outcome.data; leadCreated = true }
+          else if (outcome.error) await logAudit(admin, 'whatsapp', 'Auto-create lead failed', `${message.from}: ${outcome.error}`, 'failed')
+        }
 
         await upsertConversation(admin, { phone: message.from, leadId: lead?.id, contactName: senderName, lastMessage: text })
         await admin.from('whatsapp_messages').insert({
@@ -127,7 +144,7 @@ export default async function handler(req, res) {
         await logAudit(
           admin,
           'whatsapp',
-          'Message received',
+          leadCreated ? 'New lead created from WhatsApp' : 'Message received',
           `${senderName || message.from}: ${text}${lead ? '' : ' (no matching lead)'}`,
           'success'
         )

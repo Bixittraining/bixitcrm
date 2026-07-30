@@ -184,12 +184,13 @@ const LEAD_SOURCE_COLORS = {
   Instagram: '#ec4899',
   LinkedIn: '#0ea5e9',
   Facebook: '#3b82f6',
+  WhatsApp: '#22c55e',
   'Walk-in': '#8b5cf6',
   Other: '#64748b',
 }
 // Any lead.source value outside this known set (e.g. stray data from a CSV import)
 // gets bucketed under "Other" instead of polluting the chart with raw junk values.
-const KNOWN_LEAD_SOURCES = new Set(['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'Walk-in'])
+const KNOWN_LEAD_SOURCES = new Set(['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'WhatsApp', 'Walk-in'])
 
 // --- Animation variants ---
 

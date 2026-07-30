@@ -78,9 +78,12 @@ export default async function handler(req, res) {
       try {
         // form_name is not a field on the leadgen object itself (only
         // ad_name/campaign_name are) — the form's name has to come from a
-        // separate lookup on form_id.
+        // separate lookup on form_id. `platform` tells us whether the ad
+        // ran on Facebook or Instagram — not guaranteed present on every
+        // form/API version, so the source falls back to a generic "Meta
+        // Ads" label when Meta doesn't return it.
         const graphRes = await fetch(
-          `https://graph.facebook.com/${GRAPH_API_VERSION}/${leadgenId}?fields=field_data,ad_name&access_token=${integration.page_access_token}`
+          `https://graph.facebook.com/${GRAPH_API_VERSION}/${leadgenId}?fields=field_data,ad_name,platform&access_token=${integration.page_access_token}`
         )
         const leadData = await graphRes.json()
         if (leadData.error) {
@@ -100,12 +103,15 @@ export default async function handler(req, res) {
         for (const f of leadData.field_data || []) fields[f.name] = f.values?.[0]
         const name = fields.full_name || [fields.first_name, fields.last_name].filter(Boolean).join(' ')
 
+        const platform = String(leadData.platform || '').toLowerCase()
+        const source = platform.includes('instagram') ? 'Instagram' : platform.includes('facebook') ? 'Facebook' : 'Meta Ads'
+
         const outcome = await insertLead(admin, {
           name,
           email: fields.email,
           phone: fields.phone_number,
           course: formName || 'General Inquiry',
-          source: 'Meta Ads',
+          source,
           notes: `Imported from Meta Lead Ad${leadData.ad_name ? ` "${leadData.ad_name}"` : ''} (form: ${formName || formId || 'n/a'}, ad: ${adId || 'n/a'})`,
         })
         results.push({ leadgenId, ...outcome })
