@@ -66,6 +66,17 @@ const REPORT_TYPES = [
   { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
   { key: 'attendance', label: 'Team Attendance', icon: CalendarCheck },
   { key: 'performance', label: 'Sales Activity', icon: TrendingUp },
+  { key: 'funnel', label: 'Sales Funnel', icon: Target },
+]
+
+// Stage progression a lead can be tracked through — excludes "Lost" since
+// that's a terminal outcome, not a forward funnel stage.
+const FUNNEL_STAGES = [
+  { key: 'new', label: 'New' },
+  { key: 'contacted', label: 'Contacted' },
+  { key: 'qualified', label: 'Qualified' },
+  { key: 'negotiation', label: 'Negotiation' },
+  { key: 'enrolled', label: 'Enrolled' },
 ]
 
 function inReportDateRange(dateStr, from, to) {
@@ -293,7 +304,7 @@ function downloadCSV(filename, csv) {
 
 export default function Reports() {
   const { theme } = useTheme()
-  const { students, leads, invoices, installments, batches, teamMembers, followUps } = useData()
+  const { students, leads, invoices, installments, batches, teamMembers, followUps, leadActivities } = useData()
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [showDateMenu, setShowDateMenu] = useState(false)
   const [notification, setNotification] = useState(null)
@@ -428,6 +439,31 @@ export default function Reports() {
         rows,
       }
     }
+    if (reportType === 'funnel') {
+      const rangeLeads = leads.filter((l) => inReportDateRange(l.date, rbDateFrom, rbDateTo))
+      const stageIndex = Object.fromEntries(FUNNEL_STAGES.map((s, i) => [s.key, i]))
+      const leadIds = new Set(rangeLeads.map((l) => l.id))
+      const maxStageByLead = new Map(rangeLeads.map((l) => [l.id, stageIndex[l.status] ?? 0]))
+      leadActivities.forEach((a) => {
+        if (!leadIds.has(a.lead_id)) return
+        const idx = stageIndex[a.to_status]
+        if (idx == null) return
+        if (idx > (maxStageByLead.get(a.lead_id) ?? 0)) maxStageByLead.set(a.lead_id, idx)
+      })
+      const reached = [...maxStageByLead.values()]
+      let prevCount = null
+      const rows = FUNNEL_STAGES.map((s, i) => {
+        const count = reached.filter((v) => v >= i).length
+        const dropPct = prevCount != null && prevCount > 0 ? `${Math.round((count / prevCount) * 100)}%` : '—'
+        prevCount = count
+        return [s.label, count, dropPct]
+      })
+      return {
+        title: 'Sales Funnel Report',
+        columns: ['Stage', 'Leads Reached', '% of Previous Stage'],
+        rows,
+      }
+    }
     // attendance
     const rows = sessions.filter((s) =>
       inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
@@ -450,7 +486,7 @@ export default function Reports() {
         ]
       }),
     }
-  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps])
+  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps, leadActivities])
 
   const handleReportDownload = (format) => {
     const { title, columns, rows } = builtReport
@@ -568,6 +604,31 @@ export default function Reports() {
     () => monthlyMetrics.map((m) => ({ month: m.month, leads: m.leadsCount, enrollments: m.newStudents })),
     [monthlyMetrics]
   )
+
+  // ── Sales Funnel — how many leads (in range) ever reached each stage ──
+  // A lead's `status` is only its current stage, which would undercount a
+  // Lost lead that genuinely passed through Contacted/Qualified before
+  // falling out. The real activity log (lead_activities.to_status) already
+  // records every stage a lead has actually been through, so the funnel is
+  // built from the highest stage each lead reached historically, not just
+  // where it sits today.
+  const funnelData = useMemo(() => {
+    const stageIndex = Object.fromEntries(FUNNEL_STAGES.map((s, i) => [s.key, i]))
+    const leadIds = new Set(leadsInRange.map((l) => l.id))
+    const maxStageByLead = new Map(leadsInRange.map((l) => [l.id, stageIndex[l.status] ?? 0]))
+    leadActivities.forEach((a) => {
+      if (!leadIds.has(a.lead_id)) return
+      const idx = stageIndex[a.to_status]
+      if (idx == null) return
+      if (idx > (maxStageByLead.get(a.lead_id) ?? 0)) maxStageByLead.set(a.lead_id, idx)
+    })
+    const reached = [...maxStageByLead.values()]
+    return FUNNEL_STAGES.map((s, i) => {
+      const count = reached.filter((v) => v >= i).length
+      return { stage: s.label, count }
+    })
+  }, [leadsInRange, leadActivities])
+  const hasFunnelData = funnelData.some((f) => f.count > 0)
 
   // ── Per-KPI sparklines, derived from the same real monthly data ──
   const revenueSparkline = useMemo(() => monthlyMetrics.map((m) => ({ v: m.revenue })), [monthlyMetrics])
@@ -1028,6 +1089,69 @@ export default function Reports() {
           </GlassCard>
         </motion.div>
       </div>
+
+      {/* ============ Sales Funnel ============ */}
+      <motion.div variants={cardVariants}>
+        <GlassCard theme={theme}>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
+                Sales Funnel
+              </h2>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                How many leads (in this period) reached each stage, and the drop-off between stages
+              </p>
+            </div>
+            <div className={`p-2 rounded-lg ${isDark ? 'bg-violet-500/10' : 'bg-violet-50'}`}>
+              <Filter className="w-5 h-5 text-violet-500" />
+            </div>
+          </div>
+          {hasFunnelData ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={funnelData} layout="vertical" margin={{ top: 5, right: 30, bottom: 5, left: 5 }}>
+                    <defs>
+                      <linearGradient id="funnelGradient" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#8b5cf6" />
+                        <stop offset="100%" stopColor="#6366f1" />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fill: axisColor, fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="stage" tick={{ fill: axisColor, fontSize: 12 }} axisLine={false} tickLine={false} width={90} />
+                    <Tooltip content={<CustomTooltip theme={theme} />} />
+                    <Bar dataKey="count" name="Leads" fill="url(#funnelGradient)" radius={[0, 6, 6, 0]} barSize={22} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-2">
+                {funnelData.map((f, i) => {
+                  const prev = i > 0 ? funnelData[i - 1] : null
+                  const dropPct = prev && prev.count > 0 ? Math.round((f.count / prev.count) * 100) : null
+                  return (
+                    <div key={f.stage} className={`flex items-center justify-between px-4 py-2.5 rounded-xl ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                      <span className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{f.stage}</span>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{f.count}</span>
+                        {dropPct !== null && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isDark ? 'bg-dark-700 text-dark-400' : 'bg-dark-200 text-dark-500'}`}>
+                            {dropPct}% of {prev.stage}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className={`h-40 flex items-center justify-center text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              No leads in this period
+            </div>
+          )}
+        </GlassCard>
+      </motion.div>
 
       {/* ============ Report Builder Section ============ */}
       <motion.div variants={cardVariants}>
