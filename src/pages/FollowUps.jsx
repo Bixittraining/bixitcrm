@@ -621,14 +621,6 @@ export default function FollowUps() {
                                 {fu.time}
                               </span>
                             </div>
-
-                            <p
-                              className={`mt-1.5 text-sm truncate ${
-                                isDark ? 'text-dark-400' : 'text-dark-500'
-                              }`}
-                            >
-                              {fu.notes}
-                            </p>
                           </div>
                         </div>
 
