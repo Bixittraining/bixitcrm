@@ -12,6 +12,7 @@ import {
   GitBranch,
   BarChart3,
   MessageSquare,
+  ShieldCheck,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -34,6 +35,7 @@ const navItems = [
   { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/conversations', label: 'Conversations', icon: MessageSquare },
+  { to: '/team-activity', label: 'Team Activity', icon: ShieldCheck, adminOnly: true },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -70,7 +72,8 @@ function useIsDesktop() {
 
 export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate }) {
   const { theme, toggleTheme } = useTheme()
-  const { profile, initials } = useAuth()
+  const { profile, initials, isAdmin } = useAuth()
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin)
   const isDark = theme === 'dark'
   const isDesktop = useIsDesktop()
   // The icon-only collapsed look is a desktop-only affordance. On mobile the drawer
@@ -139,7 +142,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
           initial="hidden"
           animate="visible"
         >
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             return (
               <motion.li key={item.to} variants={itemVariants}>

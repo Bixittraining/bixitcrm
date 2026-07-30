@@ -9,10 +9,27 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profileRow, setProfileRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  // The open (not yet logged-out) user_sessions row for this browser tab —
+  // set on a real signIn(), or recovered on page load if the browser
+  // session was restored (so logout still closes the right row after a
+  // refresh, not just a fresh sign-in).
+  const [currentSessionId, setCurrentSessionId] = useState(null)
 
   const loadProfile = useCallback(async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
     setProfileRow(data ?? null)
+  }, [])
+
+  const recoverOpenSession = useCallback(async (userId) => {
+    const { data } = await supabase
+      .from('user_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .is('logout_at', null)
+      .order('login_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (data) setCurrentSessionId(data.id)
   }, [])
 
   useEffect(() => {
@@ -21,7 +38,10 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!active) return
       setSession(session)
-      if (session?.user) await loadProfile(session.user.id)
+      if (session?.user) {
+        await loadProfile(session.user.id)
+        await recoverOpenSession(session.user.id)
+      }
       setLoading(false)
     })
 
@@ -38,16 +58,31 @@ export function AuthProvider({ children }) {
       active = false
       subscription.unsubscribe()
     }
-  }, [loadProfile])
+  }, [loadProfile, recoverOpenSession])
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) console.error('signIn error', error)
-    else console.log('signIn success', data.user.email)
+    if (error) { console.error('signIn error', error); return { data, error } }
+    console.log('signIn success', data.user.email)
+    const { data: sessionRow, error: sessionErr } = await supabase
+      .from('user_sessions')
+      .insert({ user_id: data.user.id })
+      .select('id')
+      .single()
+    if (sessionErr) console.error('user_sessions insert error', sessionErr)
+    else setCurrentSessionId(sessionRow.id)
     return { data, error }
   }
 
   const signOut = async () => {
+    if (currentSessionId) {
+      const { error: sessionErr } = await supabase
+        .from('user_sessions')
+        .update({ logout_at: new Date().toISOString() })
+        .eq('id', currentSessionId)
+      if (sessionErr) console.error('user_sessions logout update error', sessionErr)
+      setCurrentSessionId(null)
+    }
     const { error } = await supabase.auth.signOut()
     if (error) console.error('signOut error', error)
     else console.log('signOut success')
