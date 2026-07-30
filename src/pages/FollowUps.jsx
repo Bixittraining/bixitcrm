@@ -212,6 +212,10 @@ export default function FollowUps() {
     if (bucketFilter === 'overdue' && !(fu.date < today && fu.status === 'pending')) return false
     if (bucketFilter === 'rnr' && !isRNR(fu)) return false
     if (bucketFilter === 'lost' && !isLostLead(fu)) return false
+    // The main list is meant for plain follow-ups only — RNR and Lost Lead
+    // each have their own dedicated bucket above, so entries belonging to
+    // those get filtered out here unless that specific bucket is selected.
+    if (bucketFilter === 'all' && (isRNR(fu) || isLostLead(fu))) return false
     if (dateFrom && fu.date < dateFrom) return false
     if (dateTo && fu.date > dateTo) return false
     return true
@@ -367,7 +371,7 @@ export default function FollowUps() {
         className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 gap-4"
       >
         {[
-          { key: 'all', label: 'All', value: localFollowUps.length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
+          { key: 'all', label: 'All', value: localFollowUps.filter((f) => !isRNR(f) && !isLostLead(f)).length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
           { key: 'today', label: 'Today', value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
           { key: 'pending', label: 'Pending', value: pendingCount, icon: Clock, colorClass: 'text-accent-500 bg-accent-500/10' },
           { key: 'completed', label: 'Completed', value: completedCount, icon: CheckCircle, colorClass: 'text-emerald-500 bg-emerald-500/10' },
