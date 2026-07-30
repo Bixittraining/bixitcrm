@@ -568,7 +568,7 @@ export default function FollowUps() {
                       }`}
                     />
 
-                    <div className="flex-1 p-4">
+                    <div className="flex-1 min-w-0 p-4">
                       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                         {/* Left: Info */}
                         <div className="flex items-start gap-3 flex-1 min-w-0">
