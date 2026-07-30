@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -76,12 +76,23 @@ function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, onClose
   const ref = useRef(null)
   const [customDate, setCustomDate] = useState('')
   const [customTime, setCustomTime] = useState('')
+  // Full menu (with reschedule inputs) is tall — if opening it downward
+  // would run past the viewport, open it upward instead so it lands fully
+  // on screen without the page needing to scroll to reach it.
+  const [openUpward, setOpenUpward] = useState(false)
 
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [onClose])
+
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.top
+    if (spaceBelow < ref.current.offsetHeight + 24) setOpenUpward(true)
+  }, [])
 
   const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
     isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
@@ -94,7 +105,7 @@ function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, onClose
 
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute right-0 z-30 mt-1 w-64 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+      className={`absolute right-0 z-30 w-64 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
       {closedStatus ? (
         <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>This lead is already {closedStatus} — pipeline actions are hidden.</p>

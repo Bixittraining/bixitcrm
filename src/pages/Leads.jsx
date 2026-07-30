@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -226,14 +226,21 @@ function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
 
 function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
   const ref = useRef(null)
+  const [openUpward, setOpenUpward] = useState(false)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [onClose])
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.top
+    if (spaceBelow < ref.current.offsetHeight + 24) setOpenUpward(true)
+  }, [])
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute z-30 mt-1 w-40 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+      className={`absolute z-30 w-40 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
       {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled').map(([key, cfg]) => (
         <button key={key} onClick={() => onSelect(key)}
@@ -259,11 +266,22 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
 function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onOpenEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const ref = useRef(null)
+  const [openUpward, setOpenUpward] = useState(false)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [onClose])
+
+  // A row near the bottom of the list would otherwise open this menu off
+  // the bottom of the viewport, forcing a scroll to reach it — flip it
+  // upward instead when there isn't enough room below.
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.top
+    if (spaceBelow < ref.current.offsetHeight + 24) setOpenUpward(true)
+  }, [])
 
   const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
     isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
@@ -288,7 +306,7 @@ function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, on
 
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute right-0 z-30 mt-1 w-56 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+      className={`absolute right-0 z-30 w-56 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
       {isClosed ? (
         isAdmin ? (
