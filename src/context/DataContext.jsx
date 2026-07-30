@@ -358,14 +358,22 @@ export function DataProvider({ children }) {
   // Builds the real per-installment schedule behind a payment plan: each
   // installment gets its own amount and due date (30 days apart), instead
   // of just a label with no rows tracking what's actually due and when.
-  const createInstallmentSchedule = useCallback(async (invoiceId, planLabel, totalAmount, startDate) => {
+  const createInstallmentSchedule = useCallback(async (invoiceId, planLabel, remainingAmount, startDate) => {
     const count = planLabel === '2 Installments' ? 2 : planLabel === '3 Installments' ? 3 : 1
-    if (count === 1) return
-    const base = Math.floor(totalAmount / count)
+    if (count === 1 || remainingAmount <= 0) return
+
+    // A plan can be (re)generated after some payments already exist (e.g.
+    // unlocked and re-picked) — clear out any stale pending rows first so
+    // we don't end up with two overlapping schedules for the same invoice.
+    const { error: delError } = await supabase.from('invoice_installments').delete().eq('invoice_id', invoiceId).eq('status', 'pending')
+    if (delError) { console.error('createInstallmentSchedule (cleanup) error', delError); return }
+    setInstallments((prev) => prev.filter((i) => !(i.invoice_id === invoiceId && i.status === 'pending')))
+
+    const base = Math.floor(remainingAmount / count)
     const rows = Array.from({ length: count }, (_, i) => ({
       invoice_id: invoiceId,
       seq: i + 1,
-      amount: i === count - 1 ? totalAmount - base * (count - 1) : base,
+      amount: i === count - 1 ? remainingAmount - base * (count - 1) : base,
       due_date: new Date(new Date(startDate).getTime() + i * 30 * 86400000).toISOString().slice(0, 10),
       status: 'pending',
     }))
@@ -393,7 +401,10 @@ export function DataProvider({ children }) {
       const mapped = mapInvoiceFromDb(data)
       setInvoices((prev) => prev.map((inv) => inv.id === mapped.id ? mapped : inv))
       syncStudentFee(lead.name, lead.course, mapped.paid, mapped.amount)
-      createInstallmentSchedule(mapped.id, planLabel, mapped.amount, mapped.date)
+      // Split what's actually still owed, not the original total — this
+      // invoice may already have payments recorded against it (e.g. from
+      // before a plan existed), and those shouldn't be re-billed.
+      createInstallmentSchedule(mapped.id, planLabel, mapped.balance, new Date().toISOString().slice(0, 10))
       return { invoice: mapped }
     }
     const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
