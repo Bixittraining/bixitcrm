@@ -164,11 +164,11 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
               </div>
               <div className="flex items-center gap-2">
                 <BookOpen size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
-                <select value={student.batch || 'Unassigned'} onChange={(e) => onBatchChange(student, e.target.value)}
+                <select value={student.batch_id || ''} onChange={(e) => onBatchChange(student, e.target.value ? Number(e.target.value) : null)}
                   className={`text-sm bg-transparent outline-none cursor-pointer rounded-lg -ml-1 px-1 py-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                  <option value="Unassigned">Unassigned</option>
+                  <option value="">Unassigned</option>
                   {(batches || []).filter((b) => b.course === student.course).map((b) => (
-                    <option key={b.id} value={b.name}>{b.name}</option>
+                    <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
               </div>
@@ -267,9 +267,11 @@ function Students() {
     showToast(student ? `${student.name} removed` : 'Student removed')
   }
 
-  const handleBatchChange = (student, batchName) => {
-    updateStudent(student.id, { batch: batchName })
-    setSelectedStudent((prev) => (prev && prev.id === student.id ? { ...prev, batch: batchName } : prev))
+  const handleBatchChange = (student, batchId) => {
+    const batch = batches.find((b) => b.id === batchId)
+    const batchName = batch?.name || 'Unassigned'
+    updateStudent(student.id, { batch_id: batchId, batch: batchName })
+    setSelectedStudent((prev) => (prev && prev.id === student.id ? { ...prev, batch_id: batchId, batch: batchName } : prev))
     showToast(`${student.name} moved to ${batchName}`)
   }
 

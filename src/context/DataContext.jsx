@@ -240,6 +240,24 @@ export function DataProvider({ children }) {
     const { data, error } = await supabase.from('batches').update(updates).eq('id', batchId).select().single()
     if (error) { console.error('updateBatch error', error); return }
     setBatches((prev) => prev.map((b) => b.id === batchId ? data : b))
+    // Students link to a batch by batch_id (the real relation), but also
+    // cache the batch's name in students.batch for display — renaming a
+    // batch needs to refresh that cache on every student pointing at it,
+    // or their card would keep showing the stale old name forever.
+    if (updates.name) {
+      const { data: updatedStudents, error: studErr } = await supabase
+        .from('students')
+        .update({ batch: updates.name })
+        .eq('batch_id', batchId)
+        .select()
+      if (studErr) console.error('updateBatch (student name sync) error', studErr)
+      else if (updatedStudents?.length) {
+        setStudents((prev) => prev.map((s) => {
+          const match = updatedStudents.find((u) => u.id === s.id)
+          return match ? mapStudentFromDb(match) : s
+        }))
+      }
+    }
   }, [])
 
   const deleteBatch = useCallback(async (batchId) => {
@@ -274,7 +292,7 @@ export function DataProvider({ children }) {
   }, [])
 
   // ── ENROLLMENT (lead -> student + invoice) ───────────────
-  const enrollLead = useCallback(async (lead, pkg, batchName) => {
+  const enrollLead = useCallback(async (lead, pkg, batchId) => {
     // 1. mark lead enrolled
     const { data: updatedLead, error: leadErr } = await supabase
       .from('leads')
@@ -290,6 +308,7 @@ export function DataProvider({ children }) {
     // 2. skip if student already exists with this email
     const existingStudent = students.find(s => s.email === lead.email)
     let newStudent = existingStudent
+    const batch = batches.find((b) => b.id === batchId)
 
     if (!existingStudent) {
       const { data: studentData, error: studentErr } = await supabase
@@ -299,7 +318,8 @@ export function DataProvider({ children }) {
           email: lead.email,
           phone: lead.phone,
           course: lead.course,
-          batch: batchName || 'Unassigned',
+          batch_id: batch?.id || null,
+          batch: batch?.name || 'Unassigned',
           enroll_date: new Date().toISOString().slice(0, 10),
           status: 'active',
           fee_paid: 0,
@@ -338,7 +358,7 @@ export function DataProvider({ children }) {
       if (invoiceErr) { console.error('enrollLead: invoice insert error', invoiceErr); return }
       setInvoices((prev) => [mapInvoiceFromDb(invoiceData), ...prev])
     }
-  }, [students, invoices, addActivity, closePendingFollowUps])
+  }, [students, invoices, addActivity, closePendingFollowUps, batches])
 
   // A student's Fee Progress (Students page) reads students.fee_paid /
   // fee_total directly — it has nothing to do with the invoices table on

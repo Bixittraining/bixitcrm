@@ -127,7 +127,7 @@ export default function Batches() {
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
-  const enrolledCountFor = (batchName) => students.filter((s) => s.batch === batchName).length
+  const enrolledCountFor = (batchId) => students.filter((s) => s.batch_id === batchId).length
 
   const stats = useMemo(() => ({
     total: batches.length,
@@ -150,7 +150,7 @@ export default function Batches() {
   }
 
   const handleDelete = (batch) => {
-    const enrolled = enrolledCountFor(batch.name)
+    const enrolled = enrolledCountFor(batch.id)
     if (enrolled > 0) {
       showToast(`Can't delete — ${enrolled} student${enrolled === 1 ? '' : 's'} still assigned to this batch`, 'error')
       setShowDeleteConfirm(null)
@@ -206,7 +206,7 @@ export default function Batches() {
       ) : (
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {batches.map((batch) => {
-            const enrolled = enrolledCountFor(batch.name)
+            const enrolled = enrolledCountFor(batch.id)
             const pctFull = batch.capacity > 0 ? Math.min(100, Math.round((enrolled / batch.capacity) * 100)) : 0
             const cfg = statusConfig[batch.status] || statusConfig.upcoming
             const StatusIcon = cfg.icon
