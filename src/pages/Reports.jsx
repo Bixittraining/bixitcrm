@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import * as XLSX from 'xlsx'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -8,10 +11,115 @@ import {
 import {
   TrendingUp, Users, Target, Wallet, ChevronDown, Download,
   FileText, DollarSign, Filter, UserCheck, CalendarCheck,
-  ArrowUpRight, ArrowDownRight, Sparkles,
+  ArrowUpRight, ArrowDownRight, Sparkles, Layers, FileSpreadsheet,
+  FileType2, AlertCircle, X,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { supabase } from '../lib/supabase'
+
+const REPORT_COURSE_OPTIONS = [
+  'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
+  'Cloud Computing', 'Cybersecurity', 'Mobile App Development', 'DevOps Engineering', 'Python Programming',
+]
+
+const LEAD_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'new', label: 'New' },
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'qualified', label: 'Qualified' },
+  { value: 'negotiation', label: 'Negotiation' },
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'lost', label: 'Lost' },
+]
+
+const STUDENT_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'active', label: 'Active' },
+  { value: 'completed', label: 'Completed' },
+]
+
+const BATCH_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'ongoing', label: 'Ongoing' },
+  { value: 'completed', label: 'Completed' },
+]
+
+const FEE_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'paid', label: 'Fully Paid' },
+  { value: 'due', label: 'Pending Dues' },
+]
+
+const PRIORITY_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Priorities' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+]
+
+const REPORT_TYPES = [
+  { key: 'leads', label: 'Leads', icon: Filter },
+  { key: 'students', label: 'Students', icon: UserCheck },
+  { key: 'batches', label: 'Batches', icon: Layers },
+  { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
+  { key: 'attendance', label: 'Team Attendance', icon: CalendarCheck },
+]
+
+function inReportDateRange(dateStr, from, to) {
+  if (!from && !to) return true
+  if (!dateStr) return false
+  const d = dateStr.slice(0, 10)
+  if (from && d < from) return false
+  if (to && d > to) return false
+  return true
+}
+
+function formatDuration(ms) {
+  if (ms < 0) return '—'
+  const totalMinutes = Math.round(ms / 60000)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function csvEscape(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
+
+function exportReportCSV(filename, columns, rows) {
+  const csv = [columns.map(csvEscape).join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportReportExcel(filename, sheetName, columns, rows) {
+  const ws = XLSX.utils.aoa_to_sheet([columns, ...rows])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
+  XLSX.writeFile(wb, filename)
+}
+
+function exportReportPDF(filename, title, columns, rows) {
+  const doc = new jsPDF({ orientation: columns.length > 6 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' })
+  doc.setFontSize(14)
+  doc.text(title, 40, 40)
+  doc.setFontSize(9)
+  doc.setTextColor(130)
+  doc.text(`Generated ${new Date().toLocaleString('en-IN')} · ${rows.length} record${rows.length === 1 ? '' : 's'}`, 40, 56)
+  autoTable(doc, {
+    head: [columns],
+    body: rows.map((r) => r.map((v) => String(v ?? ''))),
+    startY: 68,
+    styles: { fontSize: 8, cellPadding: 4 },
+    headStyles: { fillColor: [99, 102, 241] },
+    margin: { left: 40, right: 40 },
+  })
+  doc.save(filename)
+}
 
 // --- Date range helpers ---
 
@@ -183,13 +291,153 @@ function downloadCSV(filename, csv) {
 
 export default function Reports() {
   const { theme } = useTheme()
-  const { students, leads, invoices } = useData()
+  const { students, leads, invoices, installments, batches, teamMembers } = useData()
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [showDateMenu, setShowDateMenu] = useState(false)
   const [notification, setNotification] = useState(null)
   const dateMenuRef = useRef(null)
 
-  const showToast = (msg) => setNotification({ message: msg, type: 'success' })
+  const showToast = (msg, type = 'success') => setNotification({ message: msg, type })
+
+  // ── Report Builder state ──────────────────────────────────
+  const [reportType, setReportType] = useState('leads')
+  const [rbDateFrom, setRbDateFrom] = useState('')
+  const [rbDateTo, setRbDateTo] = useState('')
+  const [rbCourse, setRbCourse] = useState('all')
+  const [rbBatch, setRbBatch] = useState('all')
+  const [rbStatus, setRbStatus] = useState('all')
+  const [rbPriority, setRbPriority] = useState('all')
+  const [rbUser, setRbUser] = useState('all')
+  const [sessions, setSessions] = useState([])
+
+  useEffect(() => {
+    supabase.from('user_sessions').select('*').order('login_at', { ascending: false }).then(({ data, error }) => {
+      if (error) { console.error('user_sessions error', error); return }
+      setSessions(data || [])
+    })
+  }, [])
+
+  // Filters reset to a safe default whenever the report type changes, since
+  // e.g. a "Priority" or "Batch" filter from Leads doesn't mean anything on
+  // a Batches report and would silently produce an always-empty result.
+  useEffect(() => {
+    setRbStatus('all'); setRbCourse('all'); setRbBatch('all'); setRbPriority('all'); setRbUser('all')
+  }, [reportType])
+
+  const builtReport = useMemo(() => {
+    if (reportType === 'leads') {
+      const rows = leads.filter((l) =>
+        inReportDateRange(l.date, rbDateFrom, rbDateTo) &&
+        (rbCourse === 'all' || l.course === rbCourse) &&
+        (rbStatus === 'all' || l.status === rbStatus) &&
+        (rbPriority === 'all' || l.priority === rbPriority)
+      )
+      return {
+        title: 'Leads Report',
+        columns: ['Name', 'Email', 'Phone', 'Course', 'Source', 'Status', 'Priority', 'Assigned To', 'Date'],
+        rows: rows.map((l) => [
+          l.name, l.email, l.phone, l.course, l.source,
+          LEAD_STATUS_FILTER_OPTIONS.find((o) => o.value === l.status)?.label || l.status,
+          l.priority ? l.priority.charAt(0).toUpperCase() + l.priority.slice(1) : '—',
+          teamMembers.find((m) => m.id === l.assigned_to)?.name || 'Unassigned',
+          l.date || '—',
+        ]),
+      }
+    }
+    if (reportType === 'students') {
+      const rows = students.filter((s) =>
+        inReportDateRange(s.enrollDate, rbDateFrom, rbDateTo) &&
+        (rbCourse === 'all' || s.course === rbCourse) &&
+        (rbBatch === 'all' || String(s.batch_id) === rbBatch) &&
+        (rbStatus === 'all' || s.status === rbStatus)
+      )
+      return {
+        title: 'Students Report',
+        columns: ['Name', 'Email', 'Phone', 'Course', 'Batch', 'Enroll Date', 'Status', 'Fee Paid', 'Fee Total', 'Balance'],
+        rows: rows.map((s) => [
+          s.name, s.email, s.phone, s.course, s.batch || 'Unassigned', s.enrollDate || '—',
+          s.status ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : '—',
+          s.feePaid || 0, s.feeTotal || 0, Math.max((s.feeTotal || 0) - (s.feePaid || 0), 0),
+        ]),
+      }
+    }
+    if (reportType === 'batches') {
+      const rows = batches.filter((b) =>
+        inReportDateRange(b.start_date, rbDateFrom, rbDateTo) &&
+        (rbCourse === 'all' || b.course === rbCourse) &&
+        (rbStatus === 'all' || b.status === rbStatus)
+      )
+      return {
+        title: 'Batches Report',
+        columns: ['Batch Name', 'Course', 'Instructor', 'Start Date', 'End Date', 'Schedule', 'Enrolled', 'Capacity', 'Status'],
+        rows: rows.map((b) => {
+          const enrolled = students.filter((s) => s.batch_id === b.id).length
+          const instructor = teamMembers.find((m) => m.id === b.instructor_id)?.name || 'Unassigned'
+          const days = b.schedule_days?.length ? b.schedule_days.join(', ') : null
+          const time = b.start_time && b.end_time ? `${b.start_time} - ${b.end_time}` : null
+          const schedule = [days, time].filter(Boolean).join(' · ') || 'Not set'
+          return [
+            b.name, b.course, instructor, b.start_date || '—', b.end_date || '—', schedule,
+            enrolled, b.capacity, BATCH_STATUS_FILTER_OPTIONS.find((o) => o.value === b.status)?.label || b.status,
+          ]
+        }),
+      }
+    }
+    if (reportType === 'fees') {
+      const rows = invoices.filter((inv) =>
+        inReportDateRange(inv.date, rbDateFrom, rbDateTo) &&
+        (rbCourse === 'all' || inv.course === rbCourse) &&
+        (rbStatus === 'all' || (rbStatus === 'paid' ? inv.status === 'paid' : inv.status !== 'paid'))
+      )
+      return {
+        title: 'Fees & Billing Report',
+        columns: ['Invoice ID', 'Student', 'Course', 'Amount', 'Paid', 'Balance', 'Status', 'Plan', 'Invoice Date', 'Due Date'],
+        rows: rows.map((inv) => {
+          const invInstallments = installments.filter((i) => i.invoice_id === inv.id)
+          const plan = invInstallments.length
+            ? `${invInstallments.filter((i) => i.status === 'paid').length}/${invInstallments.length} installments paid`
+            : 'Full Payment'
+          return [
+            inv.id, inv.student, inv.course, inv.amount || 0, inv.paid || 0, inv.balance || 0,
+            inv.status === 'paid' ? 'Fully Paid' : 'Due', plan, inv.date || '—', inv.dueDate || '—',
+          ]
+        }),
+      }
+    }
+    // attendance
+    const rows = sessions.filter((s) =>
+      inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
+      (rbUser === 'all' || s.user_id === rbUser)
+    )
+    return {
+      title: 'Team Attendance Report',
+      columns: ['Team Member', 'Login Date', 'Login Time', 'Logout Date', 'Logout Time', 'Duration'],
+      rows: rows.map((s) => {
+        const name = teamMembers.find((m) => m.id === s.user_id)?.name || 'Unknown'
+        const loginD = new Date(s.login_at)
+        const logoutD = s.logout_at ? new Date(s.logout_at) : null
+        return [
+          name,
+          loginD.toLocaleDateString('en-IN'),
+          loginD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          logoutD ? logoutD.toLocaleDateString('en-IN') : '—',
+          logoutD ? logoutD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Still logged in',
+          logoutD ? formatDuration(logoutD - loginD) : '—',
+        ]
+      }),
+    }
+  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions])
+
+  const handleReportDownload = (format) => {
+    const { title, columns, rows } = builtReport
+    if (rows.length === 0) { showToast('No records match these filters', 'error'); return }
+    const stamp = new Date().toISOString().slice(0, 10)
+    const base = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${stamp}`
+    if (format === 'csv') exportReportCSV(`${base}.csv`, columns, rows)
+    else if (format === 'excel') exportReportExcel(`${base}.xlsx`, title, columns, rows)
+    else exportReportPDF(`${base}.pdf`, title, columns, rows)
+    showToast(`${title} exported as ${format.toUpperCase()} — ${rows.length} record${rows.length === 1 ? '' : 's'}`)
+  }
 
   useEffect(() => {
     function handleClick(e) {
@@ -387,60 +635,6 @@ export default function Reports() {
     },
   ]
 
-  const quickReports = [
-    {
-      title: 'Student Report',
-      description: 'Comprehensive student data including attendance, grades, and enrollment history.',
-      icon: UserCheck,
-      color: 'text-primary-500',
-      bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
-      onGenerate: () => {
-        const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Attendance\n' +
-          students.map(s => `"${s.name}","${s.email}","${s.phone}","${s.course}","${s.batch}","${s.enrollDate}","${s.status}",${s.feePaid},${s.feeTotal},${s.attendance}%`).join('\n')
-        downloadCSV('student-report.csv', csv)
-        showToast('Student Report downloaded')
-      },
-    },
-    {
-      title: 'Financial Report',
-      description: 'Detailed revenue, fee collection, pending payments, and financial projections.',
-      icon: DollarSign,
-      color: 'text-emerald-500',
-      bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
-      onGenerate: () => {
-        const csv = 'Invoice ID,Student,Course,Amount,Paid,Balance,Date,Due Date,Status,Payment Mode\n' +
-          invoices.map(inv => `"${inv.id}","${inv.student}","${inv.course}",${inv.amount},${inv.paid},${inv.balance},"${inv.date}","${inv.dueDate}","${inv.status}","${inv.paymentMode}"`).join('\n')
-        downloadCSV('financial-report.csv', csv)
-        showToast('Financial Report downloaded')
-      },
-    },
-    {
-      title: 'Lead Funnel Report',
-      description: 'Lead acquisition, conversion rates, source performance, and pipeline analysis.',
-      icon: Filter,
-      color: 'text-accent-500',
-      bg: isDark ? 'bg-accent-500/10' : 'bg-accent-50',
-      onGenerate: () => {
-        const csv = 'Name,Email,Phone,Course,Source,Status,Priority,Date,Notes\n' +
-          leads.map(l => `"${l.name}","${l.email}","${l.phone}","${l.course}","${l.source}","${l.status}","${l.priority}","${l.date}","${l.notes}"`).join('\n')
-        downloadCSV('lead-funnel-report.csv', csv)
-        showToast('Lead Funnel Report downloaded')
-      },
-    },
-    {
-      title: 'Attendance Report',
-      description: 'Daily and monthly attendance tracking, absentee alerts, and batch-wise stats.',
-      icon: CalendarCheck,
-      color: 'text-violet-500',
-      bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50',
-      onGenerate: () => {
-        const csv = 'Name,Course,Batch,Attendance %,Status\n' +
-          students.map(s => `"${s.name}","${s.course}","${s.batch}",${s.attendance}%,"${s.attendance >= 75 ? 'Good' : 'Low'}"`).join('\n')
-        downloadCSV('attendance-report.csv', csv)
-        showToast('Attendance Report downloaded')
-      },
-    },
-  ]
 
   return (
     <motion.div
@@ -811,60 +1005,140 @@ export default function Reports() {
         </motion.div>
       </div>
 
-      {/* ============ Quick Reports Section ============ */}
+      {/* ============ Report Builder Section ============ */}
       <motion.div variants={cardVariants}>
-        <div className="mb-4">
-          <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
-            Quick Reports
-          </h2>
-          <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-            Generate and download detailed reports instantly
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {quickReports.map((report) => (
-            <motion.div key={report.title} variants={cardVariants}>
-              <GlassCard theme={theme} className="flex flex-col h-full">
-                <div className={`p-3 rounded-xl w-fit ${report.bg}`}>
-                  <report.icon className={`w-6 h-6 ${report.color}`} />
-                </div>
-                <h3
-                  className={`text-sm font-semibold mt-4 ${
-                    isDark ? 'text-dark-100' : 'text-dark-800'
-                  }`}
-                >
-                  {report.title}
-                </h3>
-                <p
-                  className={`text-xs mt-1.5 leading-relaxed flex-1 ${
-                    isDark ? 'text-dark-400' : 'text-dark-500'
-                  }`}
-                >
-                  {report.description}
-                </p>
-                <button
-                  onClick={report.onGenerate}
-                  className={`mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium transition-all w-full justify-center ${
-                    isDark
-                      ? 'bg-dark-800 text-dark-200 border border-dark-700 hover:bg-dark-700 hover:text-dark-50'
-                      : 'bg-dark-50 text-dark-700 border border-dark-200 hover:bg-dark-100 hover:text-dark-900'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  Generate
-                </button>
-              </GlassCard>
-            </motion.div>
-          ))}
-        </div>
+        <GlassCard theme={theme}>
+          <div className="mb-5">
+            <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
+              Report Builder
+            </h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+              Pick a report type, filter it, then download as PDF, Excel or CSV — all three come from the exact same filtered data
+            </p>
+          </div>
+
+          {/* Report type tabs */}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {REPORT_TYPES.map((rt) => (
+              <button
+                key={rt.key}
+                onClick={() => setReportType(rt.key)}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                  reportType === rt.key
+                    ? isDark ? 'border-primary-500 bg-primary-500/15 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                    : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
+                }`}
+              >
+                <rt.icon className="w-3.5 h-3.5" />{rt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className={`rounded-xl p-4 mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <div>
+              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>From Date</label>
+              <input type="date" value={rbDateFrom} onChange={(e) => setRbDateFrom(e.target.value)}
+                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+            </div>
+            <div>
+              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>To Date</label>
+              <input type="date" value={rbDateTo} onChange={(e) => setRbDateTo(e.target.value)}
+                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+            </div>
+
+            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Course</label>
+                <select value={rbCourse} onChange={(e) => setRbCourse(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Courses</option>
+                  {REPORT_COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+
+            {reportType === 'students' && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Batch</label>
+                <select value={rbBatch} onChange={(e) => setRbBatch(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Batches</option>
+                  {batches.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {reportType === 'leads' && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Priority</label>
+                <select value={rbPriority} onChange={(e) => setRbPriority(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  {PRIORITY_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+
+            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Status</label>
+                <select value={rbStatus} onChange={(e) => setRbStatus(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  {(reportType === 'leads' ? LEAD_STATUS_FILTER_OPTIONS
+                    : reportType === 'students' ? STUDENT_STATUS_FILTER_OPTIONS
+                    : reportType === 'batches' ? BATCH_STATUS_FILTER_OPTIONS
+                    : FEE_STATUS_FILTER_OPTIONS
+                  ).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+
+            {reportType === 'attendance' && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Team Member</label>
+                <select value={rbUser} onChange={(e) => setRbUser(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Team Members</option>
+                  {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Preview + download */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              <span className={`font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>{builtReport.rows.length}</span> record{builtReport.rows.length === 1 ? '' : 's'} match{builtReport.rows.length === 1 ? 'es' : ''} the current filters
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => handleReportDownload('csv')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-dark-700 text-dark-200 hover:bg-dark-800' : 'border-dark-200 text-dark-700 hover:bg-dark-50'}`}>
+                <FileType2 className="w-4 h-4" />CSV
+              </button>
+              <button onClick={() => handleReportDownload('excel')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'}`}>
+                <FileSpreadsheet className="w-4 h-4" />Excel
+              </button>
+              <button onClick={() => handleReportDownload('pdf')}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
+                <FileText className="w-4 h-4" />PDF
+              </button>
+            </div>
+          </div>
+        </GlassCard>
       </motion.div>
 
       {notification && (
         <div className="fixed top-6 right-6 z-[100]">
-          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${
+            notification.type === 'error'
+              ? isDark ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
+              : isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+          }`}
             ref={el => { if (el) setTimeout(() => setNotification(null), 3000) }}>
-            <Sparkles className="w-5 h-5" />
+            {notification.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
             <span className="text-sm font-medium">{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-1 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
           </div>
         </div>
       )}
