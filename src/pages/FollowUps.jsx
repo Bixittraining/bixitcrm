@@ -355,11 +355,11 @@ export default function FollowUps() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4"
+        className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 gap-4"
       >
         {[
           { key: 'all', label: 'All', value: localFollowUps.length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
-          { key: 'today', label: "Today's Follow-ups", value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
+          { key: 'today', label: 'Today', value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
           { key: 'pending', label: 'Pending', value: pendingCount, icon: Clock, colorClass: 'text-accent-500 bg-accent-500/10' },
           { key: 'completed', label: 'Completed', value: completedCount, icon: CheckCircle, colorClass: 'text-emerald-500 bg-emerald-500/10' },
           { key: 'overdue', label: 'Overdue', value: overdueCount, icon: AlertCircle, colorClass: 'text-rose-500 bg-rose-500/10' },
@@ -375,17 +375,17 @@ export default function FollowUps() {
             whileHover={{ scale: 1.03, y: -2 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setBucketFilter(bucketFilter === stat.key ? 'all' : stat.key)}
-            className={`rounded-2xl p-4 text-left transition-all ${cardClass} ${
+            className={`min-w-0 rounded-2xl p-4 text-left transition-all ${cardClass} ${
               bucketFilter === stat.key ? 'ring-2 ring-primary-500 border-primary-500' : ''
             }`}
           >
-            <div className="flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${stat.colorClass}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`p-2.5 rounded-xl shrink-0 ${stat.colorClass}`}>
                 <stat.icon className="w-5 h-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p
-                  className={`text-sm ${
+                  className={`text-sm truncate ${
                     isDark ? 'text-dark-400' : 'text-dark-500'
                   }`}
                 >

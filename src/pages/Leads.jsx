@@ -1612,7 +1612,7 @@ function Leads() {
             </motion.div>
 
             {/* Status Overview — click a bucket to filter the table below */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
               {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
@@ -1639,13 +1639,13 @@ function Leads() {
                       initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
                       whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}
                       onClick={() => setStatusFilter(b.filterValue)}
-                      className={`rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all ${cardClass} ${
+                      className={`min-w-0 rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all ${cardClass} ${
                         isActive ? 'ring-2 ring-primary-500 border-primary-500' : ''
                       }`}
                     >
-                      <div className={`p-2 rounded-lg ${subtleBg[b.color] || subtleBg.slate}`}><Icon className={`w-4 h-4 ${iconColorMap[b.color] || countColor.slate}`} /></div>
-                      <div>
-                        <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
+                      <div className={`p-2 rounded-lg shrink-0 ${subtleBg[b.color] || subtleBg.slate}`}><Icon className={`w-4 h-4 ${iconColorMap[b.color] || countColor.slate}`} /></div>
+                      <div className="min-w-0">
+                        <p className={`text-xs font-medium truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
                         <p className={`text-lg font-bold ${countColor[b.color] || countColor.slate}`}>{b.count}</p>
                       </div>
                     </motion.button>
