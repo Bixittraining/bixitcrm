@@ -695,9 +695,11 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
+  const [addingDocCategory, setAddingDocCategory] = useState(null)
+  const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
     { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
@@ -708,6 +710,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
   const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
   const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
+  const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
   const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
@@ -1230,19 +1233,64 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                     emerald: 'border-l-emerald-500', primary: 'border-l-primary-500', sky: 'border-l-sky-500',
                     violet: 'border-l-violet-500', accent: 'border-l-accent-500', rose: 'border-l-rose-500',
                   }[cat.color]
+                  const catCount = leadDocs.filter((d) => d.category === cat.title).length
                   return (
-                    <motion.div key={cat.title} whileHover={{ y: -3 }}
-                      className={`rounded-xl p-4 border-l-4 ${borderColor} cursor-pointer transition-all ${isDark ? 'bg-dark-800 hover:bg-dark-800/80' : 'bg-dark-50 hover:bg-dark-100'}`}>
+                    <motion.button key={cat.title} type="button" whileHover={{ y: -3 }}
+                      onClick={() => { setAddingDocCategory(addingDocCategory === cat.title ? null : cat.title); setDocForm({ title: '', url: '' }) }}
+                      className={`text-left rounded-xl p-4 border-l-4 ${borderColor} cursor-pointer transition-all ${
+                        addingDocCategory === cat.title
+                          ? isDark ? 'bg-dark-800/80 ring-2 ring-primary-500' : 'bg-dark-100 ring-2 ring-primary-500'
+                          : isDark ? 'bg-dark-800 hover:bg-dark-800/80' : 'bg-dark-50 hover:bg-dark-100'
+                      }`}>
                       <CatIcon className={`w-5 h-5 mb-2 ${iconColorMap[cat.color]}`} />
                       <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{cat.title}</p>
-                      <span className={`text-xs font-medium ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>+ Add</span>
-                    </motion.div>
+                      <span className={`text-xs font-medium ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{catCount > 0 ? `${catCount} entr${catCount === 1 ? 'y' : 'ies'}` : '+ Add'}</span>
+                    </motion.button>
                   )
                 })}
               </div>
-              <div className={`rounded-lg p-4 text-center ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
-                <p className={`text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No entries yet. Pick a category above to add documents and links.</p>
-              </div>
+
+              {addingDocCategory && (
+                <div className={`rounded-lg p-4 mb-6 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                  <p className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Add to {addingDocCategory}</p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input type="text" placeholder="Title (e.g. Aadhaar Card)" value={docForm.title} onChange={(e) => setDocForm((p) => ({ ...p, title: e.target.value }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+                    <input type="url" placeholder="Link (Drive, Docs, etc.)" value={docForm.url} onChange={(e) => setDocForm((p) => ({ ...p, url: e.target.value }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+                    <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => {
+                        if (!docForm.title.trim() || !docForm.url.trim()) return
+                        onAddDocument(lead.id, addingDocCategory, docForm.title.trim(), docForm.url.trim())
+                        setDocForm({ title: '', url: '' })
+                        setAddingDocCategory(null)
+                      }}
+                      className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors whitespace-nowrap"
+                    >Add</motion.button>
+                  </div>
+                </div>
+              )}
+
+              {leadDocs.length === 0 ? (
+                <div className={`rounded-lg p-4 text-center ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                  <p className={`text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No entries yet. Pick a category above to add documents and links.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {leadDocs.map((doc) => (
+                    <div key={doc.id} className={`flex items-center justify-between gap-3 rounded-lg p-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                      <div className="min-w-0">
+                        <p className={`text-xs font-medium ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{doc.category}</p>
+                        <a href={doc.url} target="_blank" rel="noopener noreferrer" className={`text-sm font-medium truncate block hover:underline ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{doc.title}</a>
+                      </div>
+                      <motion.button type="button" whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => onDeleteDocument(doc.id)}
+                        className={`p-1.5 rounded-lg transition-colors shrink-0 ${isDark ? 'text-dark-500 hover:text-rose-400 hover:bg-rose-500/10' : 'text-dark-400 hover:text-rose-600 hover:bg-rose-50'}`}>
+                        <Trash2 className="w-4 h-4" />
+                      </motion.button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1283,7 +1331,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1541,6 +1589,9 @@ function Leads() {
             onEnroll={handleEnrollLead}
             onBatchTimingChange={handleBatchTimingChange}
             onGenerateFeeBill={generateFeeBill}
+            leadDocuments={leadDocuments}
+            onAddDocument={addLeadDocument}
+            onDeleteDocument={deleteLeadDocument}
             followUpsData={followUpsData}
             setFollowUpsData={setFollowUpsData}
             updateFollowUp={updateFollowUp}

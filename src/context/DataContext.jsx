@@ -11,13 +11,14 @@ export function DataProvider({ children }) {
   const [packages, setPackages] = useState([])
   const [invoices, setInvoices] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
+  const [leadDocuments, setLeadDocuments] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -25,6 +26,7 @@ export function DataProvider({ children }) {
         supabase.from('invoices').select('*').order('created_at', { ascending: false }),
         supabase.from('lead_activities').select('*').order('created_at', { ascending: false }),
         supabase.from('profiles').select('id, name, role'),
+        supabase.from('lead_documents').select('*').order('created_at', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -34,6 +36,7 @@ export function DataProvider({ children }) {
       if (invoicesRes.error) console.error('invoices error', invoicesRes.error)
       if (activitiesRes.error) console.error('lead_activities error', activitiesRes.error)
       if (profilesRes.error) console.error('profiles error', profilesRes.error)
+      if (documentsRes.error) console.error('lead_documents error', documentsRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -45,6 +48,7 @@ export function DataProvider({ children }) {
       setInvoices((invoicesRes.data || []).map(mapInvoiceFromDb))
       setLeadActivities(activitiesRes.data || [])
       setTeamMembers(profilesRes.data || [])
+      setLeadDocuments(documentsRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -180,6 +184,23 @@ export function DataProvider({ children }) {
     setFollowUps((prev) => prev.map((f) => f.id === followUpId ? mapFollowUpFromDb(data) : f))
   }, [])
 
+  // ── LEAD DOCUMENT VAULT ────────────────────────────────────
+  const addLeadDocument = useCallback(async (leadId, category, title, url) => {
+    const { data, error } = await supabase
+      .from('lead_documents')
+      .insert({ lead_id: leadId, category, title, url })
+      .select()
+      .single()
+    if (error) { console.error('addLeadDocument error', error); return }
+    setLeadDocuments((prev) => [data, ...prev])
+  }, [])
+
+  const deleteLeadDocument = useCallback(async (docId) => {
+    const { error } = await supabase.from('lead_documents').delete().eq('id', docId)
+    if (error) { console.error('deleteLeadDocument error', error); return }
+    setLeadDocuments((prev) => prev.filter((d) => d.id !== docId))
+  }, [])
+
   // ── PACKAGES ─────────────────────────────────────────────
   const addPackage = useCallback(async (pkg) => {
     const { id, ...pkgData } = pkg
@@ -295,6 +316,7 @@ export function DataProvider({ children }) {
       packages, setPackages, addPackage,
       invoices, setInvoices,
       teamMembers,
+      leadDocuments, addLeadDocument, deleteLeadDocument,
       loading,
     }}>
       {children}
