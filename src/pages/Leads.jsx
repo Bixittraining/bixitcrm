@@ -695,8 +695,9 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers }) {
   const navigate = useNavigate()
+  const [feePlan, setFeePlan] = useState(0)
   const [profileNoteText, setProfileNoteText] = useState('')
   const [profileNotes, setProfileNotes] = useState([
     { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
@@ -963,11 +964,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                 <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Preferred Batch Timing</h4>
                 <div className="flex flex-wrap gap-2 mb-5">
                   {['Morning', 'Afternoon', 'Evening', 'Weekend'].map((t) => (
-                    <span key={t} className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                      (t === 'Weekend' && lead.notes?.toLowerCase().includes('weekend')) || (t === 'Evening' && lead.notes?.toLowerCase().includes('evening'))
+                    <button key={t} type="button" onClick={() => onBatchTimingChange(lead, t)} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      lead.batch_timing === t
                         ? isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
-                        : isDark ? 'border-dark-700 text-dark-400' : 'border-dark-200 text-dark-500'
-                    }`}>{t}</span>
+                        : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
+                    }`}>{t}</button>
                   ))}
                 </div>
                 <h4 className={`text-xs font-semibold mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Budget Range</h4>
@@ -980,21 +981,6 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                   <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Special Requirements</h3>
                   <div className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-50 text-dark-600'}`}>
                     {lead.notes || 'No special requirements noted.'}
-                  </div>
-                </div>
-                <div className={`rounded-xl p-5 ${cardClass}`}>
-                  <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Background</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Previous Education</p>
-                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>Bachelor's Degree</p>
-                    </div>
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Work Experience</p>
-                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>
-                        {lead.notes?.toLowerCase().includes('professional') || lead.notes?.toLowerCase().includes('upskill') ? 'Working Professional' : 'Fresher'}
-                      </p>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1195,25 +1181,26 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
                   <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Plan</h4>
                   <div className="grid grid-cols-3 gap-3 mb-5">
                     {['Full Payment', '2 Installments', '3 Installments'].map((plan, i) => (
-                      <div key={plan} className={`rounded-lg p-3 text-center border cursor-pointer transition-all ${
-                        i === 0
+                      <button key={plan} type="button" onClick={() => setFeePlan(i)} className={`rounded-lg p-3 text-center border cursor-pointer transition-all ${
+                        feePlan === i
                           ? isDark ? 'border-primary-500 bg-primary-500/10' : 'border-primary-500 bg-primary-50'
-                          : isDark ? 'border-dark-700' : 'border-dark-200'
+                          : isDark ? 'border-dark-700 hover:border-dark-600' : 'border-dark-200 hover:border-dark-300'
                       }`}>
-                        <p className={`text-xs font-semibold ${i === 0 ? isDark ? 'text-primary-400' : 'text-primary-600' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>{plan}</p>
+                        <p className={`text-xs font-semibold ${feePlan === i ? isDark ? 'text-primary-400' : 'text-primary-600' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>{plan}</p>
                         <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
                           {i === 0 ? formatINR(Math.round(matchingPackage.price * 1.18)) : i === 1 ? `${formatINR(Math.round(matchingPackage.price * 1.18 / 2))} x 2` : `${formatINR(Math.round(matchingPackage.price * 1.18 / 3))} x 3`}
                         </p>
-                      </div>
+                      </button>
                     ))}
                   </div>
                   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    onClick={() => {
+                    onClick={async () => {
                       if (lead.status !== 'enrolled') {
                         showNotification('Please enroll the student first before generating a fee bill', 'error')
-                      } else {
-                        showNotification(`Fee bill generated for ${lead.name} — ${formatINR(Math.round(matchingPackage.price * 1.18))}`)
+                        return
                       }
+                      const invoice = await onGenerateFeeBill(lead, matchingPackage)
+                      if (invoice) showNotification(`Fee bill ${invoice.id} ready for ${lead.name} — ${formatINR(invoice.amount)} (see Fees & Billing)`)
                     }}
                     className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400' : 'bg-dark-600 cursor-not-allowed opacity-60'}`}>
                     Generate Fee Bill
@@ -1296,7 +1283,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onDelete, o
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, packages, teamMembers } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1490,6 +1477,12 @@ function Leads() {
     showNotification(`You've taken over ${lead.name}`)
   }
 
+  const handleBatchTimingChange = (lead, timing) => {
+    const newTiming = lead.batch_timing === timing ? null : timing
+    updateLead({ ...lead, batch_timing: newTiming })
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, batch_timing: newTiming } : prev))
+  }
+
   const handleEnrollLead = (lead) => {
     const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
     enrollLead(lead, pkg)
@@ -1546,6 +1539,8 @@ function Leads() {
             onDelete={(lead) => setShowDeleteConfirm(lead)}
             onStatusChange={handleStatusChange}
             onEnroll={handleEnrollLead}
+            onBatchTimingChange={handleBatchTimingChange}
+            onGenerateFeeBill={generateFeeBill}
             followUpsData={followUpsData}
             setFollowUpsData={setFollowUpsData}
             updateFollowUp={updateFollowUp}

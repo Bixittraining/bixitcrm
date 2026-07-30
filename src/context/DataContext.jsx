@@ -233,6 +233,7 @@ export function DataProvider({ children }) {
     // 3. skip if invoice already exists for this student+course
     const existingInvoice = invoices.find(inv => inv.student === lead.name && inv.course === lead.course)
     if (!existingInvoice) {
+      const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
       const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
       const { data: invoiceData, error: invoiceErr } = await supabase
         .from('invoices')
@@ -240,9 +241,9 @@ export function DataProvider({ children }) {
           id: invoiceId,
           student: lead.name,
           course: lead.course,
-          amount: pkg?.price || 0,
+          amount: totalWithGst,
           paid: 0,
-          balance: pkg?.price || 0,
+          balance: totalWithGst,
           date: new Date().toISOString().slice(0, 10),
           due_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
           status: 'partial',
@@ -255,12 +256,42 @@ export function DataProvider({ children }) {
     }
   }, [students, invoices, addActivity, closePendingFollowUps])
 
+  // Ensures a fee bill (invoice) exists for an enrolled lead, matching the
+  // package price shown on the Fee Bill tab (GST-inclusive). Safe to call
+  // even if enrollLead already created one — it's a no-op in that case.
+  const generateFeeBill = useCallback(async (lead, pkg) => {
+    const existingInvoice = invoices.find((inv) => inv.student === lead.name && inv.course === lead.course)
+    if (existingInvoice) return existingInvoice
+    const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
+    const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
+    const { data, error } = await supabase
+      .from('invoices')
+      .insert({
+        id: invoiceId,
+        student: lead.name,
+        course: lead.course,
+        amount: totalWithGst,
+        paid: 0,
+        balance: totalWithGst,
+        date: new Date().toISOString().slice(0, 10),
+        due_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+        status: 'partial',
+        payment_mode: 'UPI',
+      })
+      .select()
+      .single()
+    if (error) { console.error('generateFeeBill error', error); return null }
+    const mapped = mapInvoiceFromDb(data)
+    setInvoices((prev) => [mapped, ...prev])
+    return mapped
+  }, [invoices])
+
   return (
     <DataContext.Provider value={{
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
       followUps, setFollowUps, addFollowUp, updateFollowUp,
       leadActivities, addActivity,
-      students, setStudents, enrollLead,
+      students, setStudents, enrollLead, generateFeeBill,
       packages, setPackages, addPackage,
       invoices, setInvoices,
       teamMembers,
