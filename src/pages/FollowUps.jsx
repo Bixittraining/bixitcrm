@@ -182,7 +182,7 @@ export default function FollowUps() {
   const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers, takeOverLead } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers, takeOverLead, packages } = useData()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
@@ -298,7 +298,7 @@ export default function FollowUps() {
       showToast(`${fu.lead} is already enrolled as a student`, 'error')
       return
     }
-    const pkg = null
+    const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
     enrollLead(lead, pkg)
     updateFollowUp(fu.id, { status: 'completed' })
     showToast(`${fu.lead} has been enrolled as a student`)

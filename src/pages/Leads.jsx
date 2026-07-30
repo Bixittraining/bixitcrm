@@ -257,7 +257,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
+function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onOpenEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const ref = useRef(null)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
@@ -301,7 +301,7 @@ function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, on
           {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
           {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
           {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
-          {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+          {item(<GraduationCap className="w-3.5 h-3.5" />, 'Enroll — Assign Package & Batch', () => onOpenEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
           {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
           <div className={dividerCls} />
           {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
@@ -1611,6 +1611,7 @@ function Leads() {
       addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
     }
     addActivity(lead.id, lead.status, lead.status, `${form.type.toUpperCase()} follow-up scheduled for ${form.date} ${timeStr}`)
+    if (!lead.assigned_to) takeOverLead(lead.id)
     setShowTransferModal(null)
     showNotification(`Follow-up scheduled for ${lead.name}`)
   }
@@ -1643,6 +1644,7 @@ function Leads() {
       addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
     }
     addActivity(lead.id, lead.status, lead.status, `CALL follow-up marked NOT_ATTEMPT — next attempt ${form.date} ${timeStr}`)
+    if (!lead.assigned_to) takeOverLead(lead.id)
     setShowRNRModal(null)
     showNotification(`Marked RNR — next attempt scheduled for ${lead.name}`)
   }
@@ -1888,7 +1890,7 @@ function Leads() {
                                       onScheduleFollowUp={(l) => { setTransferModalType('call'); setShowTransferModal(l) }}
                                       onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}
                                       onRNR={(l) => setShowRNRModal(l)}
-                                      onEnroll={handleEnrollLead}
+                                      onOpenEnroll={(l) => { setSelectedLead(l); setActiveProfileTab('package') }}
                                       onLost={(l) => setShowLostModal(l)}
                                       onTakeOver={handleTakeOver}
                                       onEdit={(l) => setEditingLead(l)}
