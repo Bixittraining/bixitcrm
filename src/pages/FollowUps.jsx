@@ -23,6 +23,9 @@ import {
   CheckCircle2,
   PhoneMissed,
   UserX,
+  UserCheck,
+  History,
+  CalendarClock,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
@@ -179,7 +182,7 @@ export default function FollowUps() {
   const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers } = useData()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
@@ -197,6 +200,14 @@ export default function FollowUps() {
   })
 
   const getLeadFor = (fu) => leads.find((l) => l.name === fu.lead)
+  const getLeadFollowUpHistory = (leadName) => {
+    const all = localFollowUps.filter((f) => f.lead === leadName)
+    const completed = all.filter((f) => f.status === 'completed')
+    const pending = all.filter((f) => f.status === 'pending')
+    const last = completed.length ? completed.reduce((a, b) => (a.date > b.date ? a : b)) : null
+    const next = pending.length ? pending.reduce((a, b) => (a.date < b.date ? a : b)) : null
+    return { last, next }
+  }
   const isRNR = (fu) => fu.notes?.toLowerCase().startsWith('ring no response')
   const isLostLead = (fu) => getLeadFor(fu)?.status === 'lost'
   const goToLead = (fu) => {
@@ -579,6 +590,9 @@ export default function FollowUps() {
               const prioInfo = priorityConfig[fu.priority]
               const statInfo = statusConfig[fu.status]
               const isOverdue = fu.date < today && fu.status === 'pending'
+              const fuLead = getLeadFor(fu)
+              const assignedName = teamMembers.find((m) => m.id === fuLead?.assigned_to)?.name
+              const { last: lastFollowUp, next: nextFollowUp } = getLeadFollowUpHistory(fu.lead)
 
               return (
                 <motion.div
@@ -652,6 +666,29 @@ export default function FollowUps() {
                               <span className="flex items-center gap-1">
                                 <Clock className="w-3.5 h-3.5" />
                                 {fu.time}
+                              </span>
+                            </div>
+
+                            <div
+                              className={`flex items-center gap-4 mt-1.5 text-xs flex-wrap ${
+                                isDark ? 'text-dark-500' : 'text-dark-400'
+                              }`}
+                            >
+                              <span className="flex items-center gap-1">
+                                <UserCheck className="w-3.5 h-3.5" />
+                                {assignedName || 'Unassigned'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Phone className="w-3.5 h-3.5" />
+                                {fuLead?.phone || '—'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <History className="w-3.5 h-3.5" />
+                                Last: {lastFollowUp ? lastFollowUp.date : '—'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <CalendarClock className="w-3.5 h-3.5" />
+                                Next: {nextFollowUp ? nextFollowUp.date : '—'}
                               </span>
                             </div>
                           </div>
