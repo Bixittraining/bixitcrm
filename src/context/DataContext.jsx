@@ -61,6 +61,22 @@ export function DataProvider({ children }) {
           .then(({ error }) => { if (error) console.error('reconcile stale follow_ups error', error) })
         setFollowUps((prev) => prev.map((f) => staleIds.includes(f.id) ? { ...f, status: 'completed' } : f))
       }
+
+      // Only one follow-up per lead is meant to exist at a time. Leftover
+      // duplicates from before that rule was enforced (e.g. an RNR and a
+      // separate schedule both creating their own row) get collapsed down
+      // to just the newest one per lead.
+      const seenLeadNames = new Set()
+      const duplicateIds = []
+      for (const f of followUpsList) { // already newest-first
+        if (seenLeadNames.has(f.lead)) duplicateIds.push(f.id)
+        else seenLeadNames.add(f.lead)
+      }
+      if (duplicateIds.length > 0) {
+        supabase.from('follow_ups').delete().in('id', duplicateIds)
+          .then(({ error }) => { if (error) console.error('reconcile duplicate follow_ups error', error) })
+        setFollowUps((prev) => prev.filter((f) => !duplicateIds.includes(f.id)))
+      }
     }
     loadAll()
   }, [])

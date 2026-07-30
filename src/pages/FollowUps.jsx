@@ -237,16 +237,21 @@ export default function FollowUps() {
 
   const handleScheduleSubmit = (e) => {
     e.preventDefault()
-    addFollowUp({
-      id: Date.now(),
-      lead: formData.lead,
-      type: formData.type,
-      date: formData.date,
-      time: formData.time,
-      notes: formData.notes,
-      status: 'pending',
-      priority: formData.priority,
-    })
+    const existing = localFollowUps.find((f) => f.lead === formData.lead)
+    if (existing) {
+      updateFollowUp(existing.id, { type: formData.type, date: formData.date, time: formData.time, notes: formData.notes, priority: formData.priority, status: 'pending' })
+    } else {
+      addFollowUp({
+        id: Date.now(),
+        lead: formData.lead,
+        type: formData.type,
+        date: formData.date,
+        time: formData.time,
+        notes: formData.notes,
+        status: 'pending',
+        priority: formData.priority,
+      })
+    }
     setFormData({ lead: '', type: 'call', date: '', time: '', priority: 'medium', notes: '' })
     setShowModal(false)
   }
