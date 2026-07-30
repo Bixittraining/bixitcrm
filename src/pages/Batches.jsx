@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Layers, Plus, X, Users, Calendar, Clock, Pencil, Trash2,
+  Layers, Plus, X, Users, Calendar, Clock, Pencil, Trash2, User,
   CheckCircle2, AlertCircle, PlayCircle, Hourglass, GraduationCap,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
@@ -11,6 +11,11 @@ import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
   'Cloud Computing', 'Cybersecurity', 'Mobile App Development', 'DevOps Engineering', 'Python Programming',
+]
+
+const weekdays = [
+  { key: 'Mon', label: 'Mon' }, { key: 'Tue', label: 'Tue' }, { key: 'Wed', label: 'Wed' },
+  { key: 'Thu', label: 'Thu' }, { key: 'Fri', label: 'Fri' }, { key: 'Sat', label: 'Sat' }, { key: 'Sun', label: 'Sun' },
 ]
 
 const statusConfig = {
@@ -28,12 +33,31 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 }
 
-function BatchFormModal({ batch, isDark, onClose, onSubmit }) {
+function formatTime12h(t) {
+  if (!t) return null
+  const [h, m] = t.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+function formatSchedule(batch) {
+  const days = batch.schedule_days?.length ? batch.schedule_days.join(', ') : null
+  const time = batch.start_time && batch.end_time ? `${formatTime12h(batch.start_time)} - ${formatTime12h(batch.end_time)}` : null
+  if (!days && !time) return null
+  return [days, time].filter(Boolean).join(' · ')
+}
+
+function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
   const [form, setForm] = useState({
     name: batch?.name || '',
     course: batch?.course || '',
+    instructor_id: batch?.instructor_id || '',
     start_date: batch?.start_date || '',
-    schedule: batch?.schedule || '',
+    end_date: batch?.end_date || '',
+    schedule_days: batch?.schedule_days || [],
+    start_time: batch?.start_time || '',
+    end_time: batch?.end_time || '',
     capacity: batch?.capacity ?? 30,
     status: batch?.status || 'upcoming',
   })
@@ -41,13 +65,17 @@ function BatchFormModal({ batch, isDark, onClose, onSubmit }) {
     ? 'bg-dark-800 border-dark-700 text-dark-100 placeholder-dark-500 focus:border-primary-500 focus:ring-primary-500/20'
     : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400 focus:border-primary-500 focus:ring-primary-500/20'
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
+  const toggleDay = (day) => setForm((prev) => ({
+    ...prev,
+    schedule_days: prev.schedule_days.includes(day) ? prev.schedule_days.filter((d) => d !== day) : [...prev.schedule_days, day],
+  }))
   const handleSubmit = (e) => { e.preventDefault(); onSubmit(form) }
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
       <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
       <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
-        className={`relative w-full max-w-lg rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+        className={`relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
       >
         <div className="flex items-center justify-between mb-6">
           <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{batch ? 'Edit Batch' : 'Create Batch'}</h2>
@@ -61,18 +89,33 @@ function BatchFormModal({ batch, isDark, onClose, onSubmit }) {
             <input type="text" required value={form.name} onChange={(e) => handleChange('name', e.target.value)} placeholder="e.g. Batch 2026-A"
               className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
           </div>
-          <div>
-            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
-            <select required value={form.course} onChange={(e) => handleChange('course', e.target.value)}
-              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
-              <option value="">Select course</option>
-              {courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
+              <select required value={form.course} onChange={(e) => handleChange('course', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+                <option value="">Select course</option>
+                {courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Instructor</label>
+              <select value={form.instructor_id} onChange={(e) => handleChange('instructor_id', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Start Date</label>
               <input type="date" value={form.start_date} onChange={(e) => handleChange('start_date', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>End Date</label>
+              <input type="date" min={form.start_date || undefined} value={form.end_date} onChange={(e) => handleChange('end_date', e.target.value)}
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
             <div>
@@ -82,9 +125,29 @@ function BatchFormModal({ batch, isDark, onClose, onSubmit }) {
             </div>
           </div>
           <div>
-            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Schedule</label>
-            <input type="text" value={form.schedule} onChange={(e) => handleChange('schedule', e.target.value)} placeholder="e.g. Mon/Wed/Fri, 10:00 AM - 1:00 PM"
-              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Class Days</label>
+            <div className="flex flex-wrap gap-1.5">
+              {weekdays.map((d) => (
+                <button key={d.key} type="button" onClick={() => toggleDay(d.key)}
+                  className={`w-11 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                    form.schedule_days.includes(d.key)
+                      ? isDark ? 'border-primary-500 bg-primary-500/15 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                      : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
+                  }`}>{d.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Class Start Time</label>
+              <input type="time" value={form.start_time} onChange={(e) => handleChange('start_time', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Class End Time</label>
+              <input type="time" value={form.end_time} onChange={(e) => handleChange('end_time', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
           </div>
           <div>
             <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Status</label>
@@ -116,18 +179,20 @@ function BatchFormModal({ batch, isDark, onClose, onSubmit }) {
 export default function Batches() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { batches, addBatch, updateBatch, deleteBatch, students } = useData()
+  const { batches, addBatch, updateBatch, deleteBatch, students, teamMembers } = useData()
 
   const [showFormModal, setShowFormModal] = useState(false)
   const [editingBatch, setEditingBatch] = useState(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
   const [notification, setNotification] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
   const enrolledCountFor = (batchId) => students.filter((s) => s.batch_id === batchId).length
+  const instructorName = (batch) => teamMembers.find((m) => m.id === batch.instructor_id)?.name
 
   const stats = useMemo(() => ({
     total: batches.length,
@@ -136,8 +201,18 @@ export default function Batches() {
     completed: batches.filter((b) => b.status === 'completed').length,
   }), [batches])
 
+  const filteredBatches = statusFilter === 'all' ? batches : batches.filter((b) => b.status === statusFilter)
+
   const handleSubmit = (form) => {
-    const payload = { ...form, capacity: Number(form.capacity) || 30, start_date: form.start_date || null }
+    const payload = {
+      ...form,
+      capacity: Number(form.capacity) || 30,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      instructor_id: form.instructor_id || null,
+      start_time: form.start_time || null,
+      end_time: form.end_time || null,
+    }
     if (editingBatch) {
       updateBatch(editingBatch.id, payload)
       showToast(`${form.name} updated`)
@@ -161,6 +236,18 @@ export default function Batches() {
     showToast(`${batch.name} deleted`)
   }
 
+  const buckets = [
+    { key: 'all', label: 'Total Batches', value: stats.total, icon: Layers, color: 'primary' },
+    { key: 'ongoing', label: 'Ongoing', value: stats.ongoing, icon: PlayCircle, color: 'emerald' },
+    { key: 'upcoming', label: 'Upcoming', value: stats.upcoming, icon: Hourglass, color: 'sky' },
+    { key: 'completed', label: 'Completed', value: stats.completed, icon: CheckCircle2, color: 'violet' },
+  ]
+  const bucketBg = {
+    primary: isDark ? 'bg-primary-500/10' : 'bg-primary-50', emerald: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
+    sky: isDark ? 'bg-sky-500/10' : 'bg-sky-50', violet: isDark ? 'bg-violet-500/10' : 'bg-violet-50',
+  }
+  const bucketColor = { primary: 'text-primary-500', emerald: 'text-emerald-500', sky: 'text-sky-500', violet: 'text-violet-500' }
+
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
@@ -176,36 +263,37 @@ export default function Batches() {
       </motion.div>
 
       <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Batches', value: stats.total, icon: Layers, color: 'text-primary-500', bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50' },
-          { label: 'Ongoing', value: stats.ongoing, icon: PlayCircle, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
-          { label: 'Upcoming', value: stats.upcoming, icon: Hourglass, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50' },
-          { label: 'Completed', value: stats.completed, icon: CheckCircle2, color: 'text-violet-500', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
-        ].map((stat) => (
-          <motion.div key={stat.label} variants={itemVariants} className={`rounded-2xl p-5 ${cardClass}`}>
+        {buckets.map((b) => (
+          <motion.button key={b.key} type="button" variants={itemVariants} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }}
+            onClick={() => setStatusFilter(b.key)}
+            className={`rounded-2xl p-5 text-left transition-all ${cardClass} ${statusFilter === b.key ? 'ring-2 ring-primary-500 border-primary-500' : ''}`}>
             <div className="flex items-center justify-between">
               <div>
-                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{stat.label}</p>
-                <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>{stat.value}</p>
+                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.label}</p>
+                <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>{b.value}</p>
               </div>
-              <div className={`p-3 rounded-xl ${stat.bg}`}><stat.icon size={22} className={stat.color} /></div>
+              <div className={`p-3 rounded-xl ${bucketBg[b.color]}`}><b.icon size={22} className={bucketColor[b.color]} /></div>
             </div>
-          </motion.div>
+          </motion.button>
         ))}
       </motion.div>
 
-      {batches.length === 0 ? (
+      {filteredBatches.length === 0 ? (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`rounded-2xl p-12 text-center ${cardClass}`}>
           <Layers className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-          <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No batches yet</p>
-          <button onClick={() => { setEditingBatch(null); setShowFormModal(true) }}
-            className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
-            <Plus className="w-3.5 h-3.5" />Create your first batch
-          </button>
+          <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+            {batches.length === 0 ? 'No batches yet' : 'No batches in this status'}
+          </p>
+          {batches.length === 0 && (
+            <button onClick={() => { setEditingBatch(null); setShowFormModal(true) }}
+              className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+              <Plus className="w-3.5 h-3.5" />Create your first batch
+            </button>
+          )}
         </motion.div>
       ) : (
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {batches.map((batch) => {
+          {filteredBatches.map((batch) => {
             const enrolled = enrolledCountFor(batch.id)
             const pctFull = batch.capacity > 0 ? Math.min(100, Math.round((enrolled / batch.capacity) * 100)) : 0
             const cfg = statusConfig[batch.status] || statusConfig.upcoming
@@ -215,6 +303,11 @@ export default function Batches() {
               emerald: isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600',
               violet: isDark ? 'bg-violet-500/15 text-violet-400' : 'bg-violet-50 text-violet-600',
             }[cfg.color]
+            const instructor = instructorName(batch)
+            const scheduleText = formatSchedule(batch)
+            const dateRange = batch.start_date
+              ? `${new Date(batch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}${batch.end_date ? ` – ${new Date(batch.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`
+              : 'Dates not set'
             return (
               <motion.div key={batch.id} variants={itemVariants} className={`rounded-2xl p-6 ${cardClass}`}>
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -229,12 +322,16 @@ export default function Batches() {
 
                 <div className={`space-y-2 mb-4 text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
                   <div className="flex items-center gap-2">
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    {instructor || 'No instructor assigned'}
+                  </div>
+                  <div className="flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 shrink-0" />
-                    {batch.start_date ? new Date(batch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Start date not set'}
+                    {dateRange}
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5 shrink-0" />
-                    {batch.schedule || 'Schedule not set'}
+                    {scheduleText || 'Schedule not set'}
                   </div>
                 </div>
 
@@ -273,6 +370,7 @@ export default function Batches() {
             key={editingBatch ? `edit-${editingBatch.id}` : 'create'}
             batch={editingBatch}
             isDark={isDark}
+            teamMembers={teamMembers}
             onClose={() => { setShowFormModal(false); setEditingBatch(null) }}
             onSubmit={handleSubmit}
           />
