@@ -363,7 +363,11 @@ export function DataProvider({ children }) {
           enroll_date: new Date().toISOString().slice(0, 10),
           status: 'active',
           fee_paid: 0,
-          fee_total: pkg?.price || 0,
+          // Must match the invoice amount below (package price + 18% GST) —
+          // this used to store the pre-GST price, so every new enrollment's
+          // "Fee Progress" understated the real total by 18% until a
+          // separate Generate Fee Bill run happened to overwrite it.
+          fee_total: Math.round((pkg?.price || 0) * 1.18),
           avatar: lead.avatar,
           attendance: 0,
         })
