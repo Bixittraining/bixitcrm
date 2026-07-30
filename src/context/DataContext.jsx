@@ -13,13 +13,14 @@ export function DataProvider({ children }) {
   const [teamMembers, setTeamMembers] = useState([])
   const [leadDocuments, setLeadDocuments] = useState([])
   const [batches, setBatches] = useState([])
+  const [installments, setInstallments] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -29,6 +30,7 @@ export function DataProvider({ children }) {
         supabase.from('profiles').select('id, name, role'),
         supabase.from('lead_documents').select('*').order('created_at', { ascending: false }),
         supabase.from('batches').select('*').order('created_at', { ascending: false }),
+        supabase.from('invoice_installments').select('*').order('seq', { ascending: true }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -40,6 +42,7 @@ export function DataProvider({ children }) {
       if (profilesRes.error) console.error('profiles error', profilesRes.error)
       if (documentsRes.error) console.error('lead_documents error', documentsRes.error)
       if (batchesRes.error) console.error('batches error', batchesRes.error)
+      if (installmentsRes.error) console.error('invoice_installments error', installmentsRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -53,6 +56,7 @@ export function DataProvider({ children }) {
       setTeamMembers(profilesRes.data || [])
       setLeadDocuments(documentsRes.data || [])
       setBatches(batchesRes.data || [])
+      setInstallments(installmentsRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -336,6 +340,40 @@ export function DataProvider({ children }) {
     }
   }, [students, invoices, addActivity, closePendingFollowUps])
 
+  // A student's Fee Progress (Students page) reads students.fee_paid /
+  // fee_total directly — it has nothing to do with the invoices table on
+  // its own, so a payment recorded against an invoice never showed up
+  // there. This keeps the student record in sync every time an invoice's
+  // paid/total amount changes.
+  const syncStudentFee = useCallback(async (studentName, course, feePaid, feeTotal) => {
+    const student = students.find((s) => s.name === studentName && s.course === course)
+    if (!student) return
+    const updates = { fee_paid: feePaid }
+    if (feeTotal != null) updates.fee_total = feeTotal
+    const { data, error } = await supabase.from('students').update(updates).eq('id', student.id).select().single()
+    if (error) { console.error('syncStudentFee error', error); return }
+    setStudents((prev) => prev.map((s) => s.id === student.id ? mapStudentFromDb(data) : s))
+  }, [students])
+
+  // Builds the real per-installment schedule behind a payment plan: each
+  // installment gets its own amount and due date (30 days apart), instead
+  // of just a label with no rows tracking what's actually due and when.
+  const createInstallmentSchedule = useCallback(async (invoiceId, planLabel, totalAmount, startDate) => {
+    const count = planLabel === '2 Installments' ? 2 : planLabel === '3 Installments' ? 3 : 1
+    if (count === 1) return
+    const base = Math.floor(totalAmount / count)
+    const rows = Array.from({ length: count }, (_, i) => ({
+      invoice_id: invoiceId,
+      seq: i + 1,
+      amount: i === count - 1 ? totalAmount - base * (count - 1) : base,
+      due_date: new Date(new Date(startDate).getTime() + i * 30 * 86400000).toISOString().slice(0, 10),
+      status: 'pending',
+    }))
+    const { data, error } = await supabase.from('invoice_installments').insert(rows).select()
+    if (error) { console.error('createInstallmentSchedule error', error); return }
+    setInstallments((prev) => [...prev, ...data].sort((a, b) => a.seq - b.seq))
+  }, [])
+
   // Ensures a fee bill (invoice) exists for an enrolled lead with the chosen
   // payment plan (GST-inclusive amount), matching the Fee Bill tab. Once a
   // plan is set this way the invoice locks — a second call returns
@@ -354,10 +392,13 @@ export function DataProvider({ children }) {
       if (error) { console.error('generateFeeBill (lock existing) error', error); return null }
       const mapped = mapInvoiceFromDb(data)
       setInvoices((prev) => prev.map((inv) => inv.id === mapped.id ? mapped : inv))
+      syncStudentFee(lead.name, lead.course, mapped.paid, mapped.amount)
+      createInstallmentSchedule(mapped.id, planLabel, mapped.amount, mapped.date)
       return { invoice: mapped }
     }
     const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
     const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
+    const invoiceDate = new Date().toISOString().slice(0, 10)
     const { data, error } = await supabase
       .from('invoices')
       .insert({
@@ -367,7 +408,7 @@ export function DataProvider({ children }) {
         amount: totalWithGst,
         paid: 0,
         balance: totalWithGst,
-        date: new Date().toISOString().slice(0, 10),
+        date: invoiceDate,
         due_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
         status: 'partial',
         payment_mode: 'UPI',
@@ -379,8 +420,10 @@ export function DataProvider({ children }) {
     if (error) { console.error('generateFeeBill error', error); return null }
     const mapped = mapInvoiceFromDb(data)
     setInvoices((prev) => [mapped, ...prev])
+    syncStudentFee(lead.name, lead.course, 0, totalWithGst)
+    createInstallmentSchedule(mapped.id, planLabel, totalWithGst, invoiceDate)
     return { invoice: mapped }
-  }, [invoices])
+  }, [invoices, syncStudentFee, createInstallmentSchedule])
 
   // Admin-only escape hatch to re-open a locked fee bill so its plan can be
   // changed via generateFeeBill again.
@@ -405,7 +448,41 @@ export function DataProvider({ children }) {
     if (error) { console.error('recordPayment error', error); return }
     const mapped = mapInvoiceFromDb(data)
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
-  }, [invoices])
+    syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
+  }, [invoices, syncStudentFee])
+
+  // Pays one specific installment: marks it paid, applies the amount to the
+  // parent invoice's running total, and syncs the student record — the
+  // single write path that keeps installment schedule, invoice, and student
+  // fee progress all pointing at the same numbers.
+  const payInstallment = useCallback(async (installmentId, paymentMode, date) => {
+    const installment = installments.find((i) => i.id === installmentId)
+    if (!installment) return
+    const invoice = invoices.find((inv) => inv.id === installment.invoice_id)
+    if (!invoice) return
+
+    const { data: instData, error: instErr } = await supabase
+      .from('invoice_installments')
+      .update({ status: 'paid', paid_date: date || new Date().toISOString().slice(0, 10) })
+      .eq('id', installmentId)
+      .select()
+      .single()
+    if (instErr) { console.error('payInstallment (installment) error', instErr); return }
+    setInstallments((prev) => prev.map((i) => i.id === installmentId ? instData : i))
+
+    const newPaid = invoice.paid + Number(installment.amount)
+    const newBalance = invoice.amount - newPaid
+    const { data: invData, error: invErr } = await supabase
+      .from('invoices')
+      .update({ paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial', payment_mode: paymentMode || invoice.paymentMode, date: date || invoice.date })
+      .eq('id', invoice.id)
+      .select()
+      .single()
+    if (invErr) { console.error('payInstallment (invoice) error', invErr); return }
+    const mapped = mapInvoiceFromDb(invData)
+    setInvoices((prev) => prev.map((inv) => inv.id === invoice.id ? mapped : inv))
+    syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
+  }, [installments, invoices, syncStudentFee])
 
   const createInvoice = useCallback(async (invoiceData) => {
     const { data, error } = await supabase.from('invoices').insert(invoiceData).select().single()
@@ -423,6 +500,7 @@ export function DataProvider({ children }) {
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage,
       invoices, setInvoices, recordPayment, createInvoice,
+      installments, payInstallment,
       teamMembers,
       leadDocuments, addLeadDocument, deleteLeadDocument,
       batches, addBatch, updateBatch, deleteBatch,

@@ -53,7 +53,7 @@ const itemVariants = {
 export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, invoices: invoicesData, recordPayment, createInvoice } = useData()
+  const { students, invoices: invoicesData, recordPayment, createInvoice, installments, payInstallment } = useData()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
@@ -71,7 +71,19 @@ export default function Billing() {
 
   const showToast = (msg, type = 'success') => { setToast({ message: msg, type }); setTimeout(() => setToast(null), 3000) }
 
+  const getSchedule = (invoiceId) => installments.filter((i) => i.invoice_id === invoiceId).sort((a, b) => a.seq - b.seq)
+  const getNextPending = (invoiceId) => getSchedule(invoiceId).find((i) => i.status === 'pending')
+
   const handleConfirmPayment = () => {
+    const schedule = getSchedule(selectedInvoice.id)
+    if (schedule.length > 0) {
+      const next = getNextPending(selectedInvoice.id)
+      if (!next) { showToast('All installments are already paid', 'error'); return }
+      payInstallment(next.id, paymentForm.paymentMode, paymentForm.date)
+      showToast(`Installment ${next.seq} of ${schedule.length} (${formatINR(next.amount)}) recorded for ${selectedInvoice.student}`)
+      closeModal()
+      return
+    }
     const amt = Number(paymentForm.amount)
     if (!amt || amt <= 0 || amt > selectedInvoice.balance) { showToast('Enter a valid payment amount', 'error'); return }
     recordPayment(selectedInvoice.id, amt, paymentForm.paymentMode, paymentForm.date)
@@ -240,8 +252,9 @@ export default function Billing() {
     setSelectedInvoice(invoice)
     setModalMode(mode)
     if (mode === 'payment') {
+      const next = getNextPending(invoice.id)
       setPaymentForm({
-        amount: invoice.balance.toString(),
+        amount: (next ? next.amount : invoice.balance).toString(),
         paymentMode: invoice.paymentMode || 'UPI',
         date: new Date().toISOString().split('T')[0],
         reference: '',
@@ -703,10 +716,46 @@ export default function Billing() {
                   </div>
                 </div>
 
+                {/* Installment Schedule */}
+                {modalMode === 'payment' && getSchedule(selectedInvoice.id).length > 0 && (
+                  <div>
+                    <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>Installment Schedule</h3>
+                    <div className="space-y-2">
+                      {getSchedule(selectedInvoice.id).map((inst) => {
+                        const isNext = inst.status === 'pending' && inst.id === getNextPending(selectedInvoice.id)?.id
+                        return (
+                          <div key={inst.id} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
+                            inst.status === 'paid'
+                              ? isDark ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+                              : isNext
+                                ? isDark ? 'bg-accent-500/10 border-accent-500/40' : 'bg-amber-50 border-amber-300'
+                                : isDark ? 'bg-dark-800/40 border-dark-700/40' : 'bg-dark-50 border-dark-200/40'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`p-1.5 rounded-lg ${inst.status === 'paid' ? (isDark ? 'bg-emerald-500/15' : 'bg-emerald-100') : (isDark ? 'bg-dark-700' : 'bg-dark-200')}`}>
+                                {inst.status === 'paid' ? <CheckCircle2 size={14} className="text-emerald-500" /> : <Clock size={14} className={isDark ? 'text-dark-400' : 'text-dark-500'} />}
+                              </div>
+                              <div>
+                                <p className={`text-sm font-medium ${textPrimary}`}>Installment {inst.seq} &middot; {formatINR(inst.amount)}</p>
+                                <p className={`text-xs ${textMuted}`}>
+                                  {inst.status === 'paid' ? `Paid on ${inst.paid_date}` : `Due ${inst.due_date}`}
+                                </p>
+                              </div>
+                            </div>
+                            {isNext && <span className="text-xs font-semibold text-accent-500">Pay this next</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Record Payment Form */}
                 {(modalMode === 'payment' && selectedInvoice.status !== 'paid') && (
                   <div>
-                    <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>Record New Payment</h3>
+                    <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>
+                      {getSchedule(selectedInvoice.id).length > 0 ? `Record Payment — Installment ${getNextPending(selectedInvoice.id)?.seq}` : 'Record New Payment'}
+                    </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className={`block text-xs font-medium mb-1.5 ${textSecondary}`}>
@@ -715,9 +764,10 @@ export default function Billing() {
                         <input
                           type="number"
                           value={paymentForm.amount}
+                          disabled={getSchedule(selectedInvoice.id).length > 0}
                           onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
                           max={selectedInvoice.balance}
-                          className={`w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors ${
+                          className={`w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                             isDark
                               ? 'bg-dark-800 border border-dark-600 text-white focus:border-primary-500'
                               : 'bg-white border border-dark-200 text-dark-900 focus:border-primary-500'
