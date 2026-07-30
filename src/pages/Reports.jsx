@@ -790,6 +790,129 @@ export default function Reports() {
         </div>
       </motion.div>
 
+      {/* ============ Report Builder Section ============ */}
+      <motion.div variants={cardVariants}>
+        <GlassCard theme={theme}>
+          <div className="mb-5">
+            <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
+              Report Builder
+            </h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+              Pick a report type, filter it, then download as PDF, Excel or CSV — all three come from the exact same filtered data
+            </p>
+          </div>
+
+          {/* Report type tabs */}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {REPORT_TYPES.map((rt) => (
+              <button
+                key={rt.key}
+                onClick={() => setReportType(rt.key)}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                  reportType === rt.key
+                    ? isDark ? 'border-primary-500 bg-primary-500/15 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                    : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
+                }`}
+              >
+                <rt.icon className="w-3.5 h-3.5" />{rt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className={`rounded-xl p-4 mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <div>
+              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>From Date</label>
+              <input type="date" value={rbDateFrom} onChange={(e) => setRbDateFrom(e.target.value)}
+                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+            </div>
+            <div>
+              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>To Date</label>
+              <input type="date" value={rbDateTo} onChange={(e) => setRbDateTo(e.target.value)}
+                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+            </div>
+
+            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Course</label>
+                <select value={rbCourse} onChange={(e) => setRbCourse(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Courses</option>
+                  {REPORT_COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+
+            {reportType === 'students' && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Batch</label>
+                <select value={rbBatch} onChange={(e) => setRbBatch(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Batches</option>
+                  {batches.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {reportType === 'leads' && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Priority</label>
+                <select value={rbPriority} onChange={(e) => setRbPriority(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  {PRIORITY_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+
+            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Status</label>
+                <select value={rbStatus} onChange={(e) => setRbStatus(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  {(reportType === 'leads' ? LEAD_STATUS_FILTER_OPTIONS
+                    : reportType === 'students' ? STUDENT_STATUS_FILTER_OPTIONS
+                    : reportType === 'batches' ? BATCH_STATUS_FILTER_OPTIONS
+                    : FEE_STATUS_FILTER_OPTIONS
+                  ).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+
+            {(reportType === 'attendance' || reportType === 'performance') && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Team Member</label>
+                <select value={rbUser} onChange={(e) => setRbUser(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  <option value="all">All Team Members</option>
+                  {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Preview + download */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              <span className={`font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>{builtReport.rows.length}</span> record{builtReport.rows.length === 1 ? '' : 's'} match{builtReport.rows.length === 1 ? 'es' : ''} the current filters
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => handleReportDownload('csv')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-dark-700 text-dark-200 hover:bg-dark-800' : 'border-dark-200 text-dark-700 hover:bg-dark-50'}`}>
+                <FileType2 className="w-4 h-4" />CSV
+              </button>
+              <button onClick={() => handleReportDownload('excel')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'}`}>
+                <FileSpreadsheet className="w-4 h-4" />Excel
+              </button>
+              <button onClick={() => handleReportDownload('pdf')}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
+                <FileText className="w-4 h-4" />PDF
+              </button>
+            </div>
+          </div>
+        </GlassCard>
+      </motion.div>
+
       {/* ============ KPI Summary Row ============ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => (
@@ -1150,129 +1273,6 @@ export default function Reports() {
               No leads in this period
             </div>
           )}
-        </GlassCard>
-      </motion.div>
-
-      {/* ============ Report Builder Section ============ */}
-      <motion.div variants={cardVariants}>
-        <GlassCard theme={theme}>
-          <div className="mb-5">
-            <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
-              Report Builder
-            </h2>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-              Pick a report type, filter it, then download as PDF, Excel or CSV — all three come from the exact same filtered data
-            </p>
-          </div>
-
-          {/* Report type tabs */}
-          <div className="flex flex-wrap gap-2 mb-5">
-            {REPORT_TYPES.map((rt) => (
-              <button
-                key={rt.key}
-                onClick={() => setReportType(rt.key)}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                  reportType === rt.key
-                    ? isDark ? 'border-primary-500 bg-primary-500/15 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
-                    : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
-                }`}
-              >
-                <rt.icon className="w-3.5 h-3.5" />{rt.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Filters */}
-          <div className={`rounded-xl p-4 mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>From Date</label>
-              <input type="date" value={rbDateFrom} onChange={(e) => setRbDateFrom(e.target.value)}
-                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
-            </div>
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>To Date</label>
-              <input type="date" value={rbDateTo} onChange={(e) => setRbDateTo(e.target.value)}
-                className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
-            </div>
-
-            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
-              <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Course</label>
-                <select value={rbCourse} onChange={(e) => setRbCourse(e.target.value)}
-                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  <option value="all">All Courses</option>
-                  {REPORT_COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            )}
-
-            {reportType === 'students' && (
-              <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Batch</label>
-                <select value={rbBatch} onChange={(e) => setRbBatch(e.target.value)}
-                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  <option value="all">All Batches</option>
-                  {batches.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
-                </select>
-              </div>
-            )}
-
-            {reportType === 'leads' && (
-              <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Priority</label>
-                <select value={rbPriority} onChange={(e) => setRbPriority(e.target.value)}
-                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  {PRIORITY_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            )}
-
-            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
-              <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Status</label>
-                <select value={rbStatus} onChange={(e) => setRbStatus(e.target.value)}
-                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  {(reportType === 'leads' ? LEAD_STATUS_FILTER_OPTIONS
-                    : reportType === 'students' ? STUDENT_STATUS_FILTER_OPTIONS
-                    : reportType === 'batches' ? BATCH_STATUS_FILTER_OPTIONS
-                    : FEE_STATUS_FILTER_OPTIONS
-                  ).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            )}
-
-            {(reportType === 'attendance' || reportType === 'performance') && (
-              <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Team Member</label>
-                <select value={rbUser} onChange={(e) => setRbUser(e.target.value)}
-                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  <option value="all">All Team Members</option>
-                  {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* Preview + download */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              <span className={`font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>{builtReport.rows.length}</span> record{builtReport.rows.length === 1 ? '' : 's'} match{builtReport.rows.length === 1 ? 'es' : ''} the current filters
-            </p>
-            <div className="flex items-center gap-2">
-              <button onClick={() => handleReportDownload('csv')}
-                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-dark-700 text-dark-200 hover:bg-dark-800' : 'border-dark-200 text-dark-700 hover:bg-dark-50'}`}>
-                <FileType2 className="w-4 h-4" />CSV
-              </button>
-              <button onClick={() => handleReportDownload('excel')}
-                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all border ${isDark ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'}`}>
-                <FileSpreadsheet className="w-4 h-4" />Excel
-              </button>
-              <button onClick={() => handleReportDownload('pdf')}
-                className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
-                <FileText className="w-4 h-4" />PDF
-              </button>
-            </div>
-          </div>
         </GlassCard>
       </motion.div>
 
