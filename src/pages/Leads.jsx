@@ -13,6 +13,7 @@ import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import AnchoredMenu from '../components/AnchoredMenu'
+import { supabase } from '../lib/supabase'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 const statusConfig = {
@@ -741,6 +742,22 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
   const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
   const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
+
+  // WhatsApp messages used to only be viewable on a separate Conversations
+  // page — pulling them in here gives one real chronological communication
+  // timeline (status changes + WhatsApp) instead of two disconnected views.
+  const [whatsappMessages, setWhatsappMessages] = useState([])
+  useEffect(() => {
+    supabase.from('whatsapp_messages').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).then(({ data, error }) => {
+      if (error) { console.error('whatsapp_messages fetch error', error); return }
+      setWhatsappMessages(data || [])
+    })
+  }, [lead.id])
+
+  const combinedTimeline = [
+    ...leadTimeline.map((a) => ({ type: 'activity', at: a.created_at, data: a })),
+    ...whatsappMessages.map((m) => ({ type: 'whatsapp', at: m.created_at, data: m })),
+  ].sort((a, b) => new Date(b.at) - new Date(a.at))
   const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
   const isLeadClosed = lead.status === 'enrolled' || lead.status === 'lost'
   const { user: currentUser } = useAuth()
@@ -974,14 +991,33 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               <h3 className={`text-sm font-semibold mb-5 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
                 <Activity className="w-4 h-4" />Lead Timeline
               </h3>
-              {leadTimeline.length === 0 ? (
+              {combinedTimeline.length === 0 ? (
                 <div className="text-center py-8">
                   <Activity className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
                   <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No activity recorded yet</p>
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {leadTimeline.map((a) => {
+                  {combinedTimeline.map((item) => {
+                    if (item.type === 'whatsapp') {
+                      const m = item.data
+                      const isOutbound = m.direction === 'outbound'
+                      return (
+                        <div key={`wa-${m.id}`} className="flex items-start gap-3">
+                          <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${isOutbound ? 'bg-primary-500' : 'bg-emerald-500'}`} />
+                          <div className="min-w-0">
+                            <p className={`text-sm font-semibold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                              <MessageCircle className="w-3.5 h-3.5" />{isOutbound ? 'WhatsApp sent' : 'WhatsApp received'}
+                            </p>
+                            <p className={`text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.body}</p>
+                            <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              {new Date(m.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    }
+                    const a = item.data
                     const color = a.to_status === 'lost' ? 'rose' : getStatusColor(a.to_status || a.from_status || 'new')
                     const fromLabel = (statusConfig[a.from_status]?.label || a.from_status || '—').toUpperCase()
                     const toLabel = (statusConfig[a.to_status]?.label || a.to_status || '—').toUpperCase()
