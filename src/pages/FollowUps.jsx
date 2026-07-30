@@ -172,6 +172,8 @@ export default function FollowUps() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity } = useData()
@@ -210,6 +212,8 @@ export default function FollowUps() {
     if (bucketFilter === 'overdue' && !(fu.date < today && fu.status === 'pending')) return false
     if (bucketFilter === 'rnr' && !isRNR(fu)) return false
     if (bucketFilter === 'lost' && !isLostLead(fu)) return false
+    if (dateFrom && fu.date < dateFrom) return false
+    if (dateTo && fu.date > dateTo) return false
     return true
   })
 
@@ -537,6 +541,23 @@ export default function FollowUps() {
                 }`}
               />
             </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>From</span>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                className={`px-2.5 py-2 rounded-lg text-sm border transition-all duration-200 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-300' : 'bg-white border-dark-200 text-dark-700'}`} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>To</span>
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                className={`px-2.5 py-2 rounded-lg text-sm border transition-all duration-200 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-300' : 'bg-white border-dark-200 text-dark-700'}`} />
+            </div>
+            {(typeFilter !== 'all' || priorityFilter !== 'all' || statusFilter !== 'all' || dateFrom || dateTo) && (
+              <button type="button" onClick={() => { setTypeFilter('all'); setPriorityFilter('all'); setStatusFilter('all'); setDateFrom(''); setDateTo('') }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
+                <X className="w-3.5 h-3.5" />Clear
+              </button>
+            )}
           </div>
         </div>
       </motion.div>
