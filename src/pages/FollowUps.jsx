@@ -744,6 +744,19 @@ export default function FollowUps() {
                             {isOverdue ? 'Overdue' : statInfo.label}
                           </span>
 
+                          {/* Lead outcome badge — surfaces enrolled/lost right on
+                              the card instead of only inside the Action menu */}
+                          {fuLead?.status === 'enrolled' && (
+                            <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600'}`}>
+                              <GraduationCap className="w-3 h-3" />Enrolled
+                            </span>
+                          )}
+                          {fuLead?.status === 'lost' && (
+                            <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600'}`}>
+                              <UserX className="w-3 h-3" />Lost
+                            </span>
+                          )}
+
                           {/* Action Dropdown */}
                           <div className="relative ml-2">
                             <motion.button
