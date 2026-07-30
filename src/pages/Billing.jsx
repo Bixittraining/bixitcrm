@@ -9,7 +9,6 @@ import {
   Plus,
   CreditCard,
   Download,
-  Eye,
   X,
   ArrowUpDown,
   Search,
@@ -368,7 +367,7 @@ export default function Billing() {
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
-            onClick={() => showToast('Select an invoice from the table and click the payment icon to record a payment', 'error')}
+            onClick={() => showToast('Click any invoice row below to view details and record a payment', 'error')}
             className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
               isDark
                 ? 'border-dark-600 text-dark-300 hover:bg-dark-800 hover:text-white'
@@ -477,9 +476,6 @@ export default function Billing() {
                     </span>
                   </th>
                 ))}
-                <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-center ${textMuted}`}>
-                  Actions
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -489,12 +485,13 @@ export default function Billing() {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.04 }}
+                  onClick={() => openModal(invoice)}
                   whileHover={{
                     backgroundColor: isDark
                       ? invoice.status === 'overdue' ? 'rgba(244,63,94,0.08)' : 'rgba(255,255,255,0.03)'
                       : invoice.status === 'overdue' ? 'rgba(244,63,94,0.04)' : 'rgba(0,0,0,0.02)',
                   }}
-                  className={`border-b transition-colors ${
+                  className={`border-b cursor-pointer transition-colors ${
                     isDark ? 'border-dark-800' : 'border-dark-100'
                   } ${
                     invoice.status === 'overdue'
@@ -537,45 +534,6 @@ export default function Billing() {
                     }`}>
                       {invoice.paymentMode}
                     </span>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center justify-center gap-1">
-                      <motion.button
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => openModal(invoice, 'view')}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isDark ? 'hover:bg-dark-700 text-dark-400 hover:text-sky-400' : 'hover:bg-dark-100 text-dark-400 hover:text-sky-600'
-                        }`}
-                        title="View Invoice"
-                      >
-                        <Eye size={15} />
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.9 }}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isDark ? 'hover:bg-dark-700 text-dark-400 hover:text-violet-400' : 'hover:bg-dark-100 text-dark-400 hover:text-violet-600'
-                        }`}
-                        title="Download Invoice"
-                        onClick={() => handleDownloadInvoice(invoice)}
-                      >
-                        <Download size={15} />
-                      </motion.button>
-                      {invoice.status !== 'paid' && (
-                        <motion.button
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => openModal(invoice, 'payment')}
-                          className={`p-1.5 rounded-lg transition-colors ${
-                            isDark ? 'hover:bg-dark-700 text-dark-400 hover:text-emerald-400' : 'hover:bg-dark-100 text-dark-400 hover:text-emerald-600'
-                          }`}
-                          title="Record Payment"
-                        >
-                          <CreditCard size={15} />
-                        </motion.button>
-                      )}
-                    </div>
                   </td>
                 </motion.tr>
               ))}
