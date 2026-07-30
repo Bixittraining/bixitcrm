@@ -205,16 +205,31 @@ export default function Billing() {
     doc.save(`${inv.id}.pdf`)
   }
 
+  // "Overdue" used to mean "status literally equals the string 'overdue'" —
+  // but no code path ever sets that; only one old seed row happened to have
+  // it. Every other unpaid invoice past its due date was invisible to this
+  // metric. Overdue is now computed the same way everywhere: unpaid balance
+  // + due date in the past, regardless of what the stored status says.
+  const today = new Date().toISOString().slice(0, 10)
+  const isInvoiceOverdue = (inv) => inv.balance > 0 && !!inv.dueDate && inv.dueDate < today
+  const displayStatus = (inv) => (isInvoiceOverdue(inv) ? 'overdue' : inv.status)
+
   // Financial calculations
   const totalRevenue = useMemo(() => invoicesData.reduce((sum, inv) => sum + inv.paid, 0), [invoicesData])
   const pendingFees = useMemo(() => invoicesData.reduce((sum, inv) => sum + inv.balance, 0), [invoicesData])
   const paidCount = useMemo(() => invoicesData.filter((inv) => inv.status === 'paid').length, [invoicesData])
-  const overdueInvoices = useMemo(() => invoicesData.filter((inv) => inv.status === 'overdue'), [invoicesData])
+  const overdueInvoices = useMemo(() => invoicesData.filter(isInvoiceOverdue), [invoicesData, today])
   const overdueTotal = useMemo(() => overdueInvoices.reduce((sum, inv) => sum + inv.balance, 0), [overdueInvoices])
+
+  const [bucketFilter, setBucketFilter] = useState('all')
 
   // Sorting and filtering
   const filteredInvoices = useMemo(() => {
     let result = [...invoicesData]
+
+    if (bucketFilter === 'pending') result = result.filter((inv) => inv.balance > 0)
+    else if (bucketFilter === 'paid') result = result.filter((inv) => inv.status === 'paid')
+    else if (bucketFilter === 'overdue') result = result.filter(isInvoiceOverdue)
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -223,7 +238,7 @@ export default function Billing() {
           inv.id.toLowerCase().includes(q) ||
           inv.student.toLowerCase().includes(q) ||
           inv.course.toLowerCase().includes(q) ||
-          inv.status.toLowerCase().includes(q)
+          displayStatus(inv).toLowerCase().includes(q)
       )
     }
 
@@ -238,7 +253,7 @@ export default function Billing() {
     })
 
     return result
-  }, [invoicesData, searchQuery, sortField, sortDirection])
+  }, [invoicesData, searchQuery, sortField, sortDirection, bucketFilter, today])
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -303,6 +318,7 @@ export default function Billing() {
 
   const overviewCards = [
     {
+      key: 'all',
       title: 'Total Revenue',
       value: formatLakhs(totalRevenue),
       subtitle: `${formatINR(totalRevenue)} collected`,
@@ -311,6 +327,7 @@ export default function Billing() {
       bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50',
     },
     {
+      key: 'pending',
       title: 'Pending Fees',
       value: formatLakhs(pendingFees),
       subtitle: `${formatINR(pendingFees)} outstanding`,
@@ -319,6 +336,7 @@ export default function Billing() {
       bg: isDark ? 'bg-accent-500/10' : 'bg-amber-50',
     },
     {
+      key: 'paid',
       title: 'Paid Invoices',
       value: paidCount,
       subtitle: `of ${invoicesData.length} total invoices`,
@@ -327,6 +345,7 @@ export default function Billing() {
       bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50',
     },
     {
+      key: 'overdue',
       title: 'Overdue',
       value: overdueInvoices.length,
       subtitle: `${formatINR(overdueTotal)} overdue`,
@@ -406,11 +425,16 @@ export default function Billing() {
       {/* Financial Overview Cards */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {overviewCards.map((item, i) => (
-          <motion.div
-            key={item.title}
+          <motion.button
+            key={item.key}
+            type="button"
             variants={itemVariants}
             whileHover={{ y: -2, scale: 1.01 }}
-            className={`rounded-2xl p-5 transition-all duration-200 ${card} ${cardHover}`}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setBucketFilter(bucketFilter === item.key ? 'all' : item.key)}
+            className={`rounded-2xl p-5 text-left transition-all duration-200 ${card} ${cardHover} ${
+              bucketFilter === item.key ? 'ring-2 ring-primary-500 border-primary-500' : ''
+            }`}
           >
             <div className="flex items-start justify-between">
               <div className="space-y-2">
@@ -429,7 +453,7 @@ export default function Billing() {
                 <item.icon size={20} className={item.color} />
               </div>
             </div>
-          </motion.div>
+          </motion.button>
         ))}
       </motion.div>
 
@@ -447,6 +471,12 @@ export default function Billing() {
             }`}>
               {filteredInvoices.length}
             </span>
+            {bucketFilter !== 'all' && (
+              <button onClick={() => setBucketFilter('all')}
+                className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium transition-colors ${isDark ? 'bg-primary-500/15 text-primary-400 hover:bg-primary-500/25' : 'bg-primary-50 text-primary-600 hover:bg-primary-100'}`}>
+                {overviewCards.find((c) => c.key === bucketFilter)?.title} filter <X size={12} />
+              </button>
+            )}
           </div>
           <div className="relative">
             <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted}`} />
@@ -498,13 +528,13 @@ export default function Billing() {
                   onClick={() => openModal(invoice)}
                   whileHover={{
                     backgroundColor: isDark
-                      ? invoice.status === 'overdue' ? 'rgba(244,63,94,0.08)' : 'rgba(255,255,255,0.03)'
-                      : invoice.status === 'overdue' ? 'rgba(244,63,94,0.04)' : 'rgba(0,0,0,0.02)',
+                      ? isInvoiceOverdue(invoice) ? 'rgba(244,63,94,0.08)' : 'rgba(255,255,255,0.03)'
+                      : isInvoiceOverdue(invoice) ? 'rgba(244,63,94,0.04)' : 'rgba(0,0,0,0.02)',
                   }}
                   className={`border-b cursor-pointer transition-colors ${
                     isDark ? 'border-dark-800' : 'border-dark-100'
                   } ${
-                    invoice.status === 'overdue'
+                    isInvoiceOverdue(invoice)
                       ? isDark ? 'bg-rose-500/[0.03]' : 'bg-rose-50/40'
                       : i % 2 === 1
                         ? isDark ? 'bg-dark-800/20' : 'bg-dark-50/40'
@@ -530,7 +560,7 @@ export default function Billing() {
                     {formatINR(invoice.balance)}
                   </td>
                   <td className={`px-4 py-3.5 text-sm ${textSecondary}`}>{invoice.dueDate}</td>
-                  <td className="px-4 py-3.5">{getStatusBadge(invoice.status)}</td>
+                  <td className="px-4 py-3.5">{getStatusBadge(displayStatus(invoice))}</td>
                   <td className={`px-4 py-3.5 text-sm ${textSecondary}`}>
                     {invoice.payment_plan ? (
                       <span className="inline-flex items-center gap-1">
@@ -633,7 +663,7 @@ export default function Billing() {
                   </div>
                   <div>
                     <p className={`text-xs font-medium uppercase tracking-wider ${textMuted}`}>Status</p>
-                    <div className="mt-1">{getStatusBadge(selectedInvoice.status)}</div>
+                    <div className="mt-1">{getStatusBadge(displayStatus(selectedInvoice))}</div>
                   </div>
                 </div>
 
