@@ -336,12 +336,26 @@ export function DataProvider({ children }) {
     }
   }, [students, invoices, addActivity, closePendingFollowUps])
 
-  // Ensures a fee bill (invoice) exists for an enrolled lead, matching the
-  // package price shown on the Fee Bill tab (GST-inclusive). Safe to call
-  // even if enrollLead already created one — it's a no-op in that case.
-  const generateFeeBill = useCallback(async (lead, pkg) => {
+  // Ensures a fee bill (invoice) exists for an enrolled lead with the chosen
+  // payment plan (GST-inclusive amount), matching the Fee Bill tab. Once a
+  // plan is set this way the invoice locks — a second call returns
+  // { blocked: true } instead of silently changing the plan, since only an
+  // admin should be able to reopen and re-pick it (see unlockInvoice).
+  const generateFeeBill = useCallback(async (lead, pkg, planLabel) => {
     const existingInvoice = invoices.find((inv) => inv.student === lead.name && inv.course === lead.course)
-    if (existingInvoice) return existingInvoice
+    if (existingInvoice) {
+      if (existingInvoice.locked) return { blocked: true, invoice: existingInvoice }
+      const { data, error } = await supabase
+        .from('invoices')
+        .update({ payment_plan: planLabel, locked: true })
+        .eq('id', existingInvoice.id)
+        .select()
+        .single()
+      if (error) { console.error('generateFeeBill (lock existing) error', error); return null }
+      const mapped = mapInvoiceFromDb(data)
+      setInvoices((prev) => prev.map((inv) => inv.id === mapped.id ? mapped : inv))
+      return { invoice: mapped }
+    }
     const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
     const invoiceId = `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`
     const { data, error } = await supabase
@@ -357,23 +371,58 @@ export function DataProvider({ children }) {
         due_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
         status: 'partial',
         payment_mode: 'UPI',
+        payment_plan: planLabel,
+        locked: true,
       })
       .select()
       .single()
     if (error) { console.error('generateFeeBill error', error); return null }
     const mapped = mapInvoiceFromDb(data)
     setInvoices((prev) => [mapped, ...prev])
-    return mapped
+    return { invoice: mapped }
   }, [invoices])
+
+  // Admin-only escape hatch to re-open a locked fee bill so its plan can be
+  // changed via generateFeeBill again.
+  const unlockInvoice = useCallback(async (invoiceId) => {
+    const { data, error } = await supabase.from('invoices').update({ locked: false }).eq('id', invoiceId).select().single()
+    if (error) { console.error('unlockInvoice error', error); return }
+    const mapped = mapInvoiceFromDb(data)
+    setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
+  }, [])
+
+  const recordPayment = useCallback(async (invoiceId, amount, paymentMode, date) => {
+    const invoice = invoices.find((inv) => inv.id === invoiceId)
+    if (!invoice) return
+    const newPaid = invoice.paid + amount
+    const newBalance = invoice.amount - newPaid
+    const { data, error } = await supabase
+      .from('invoices')
+      .update({ paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial', payment_mode: paymentMode || invoice.paymentMode, date: date || invoice.date })
+      .eq('id', invoiceId)
+      .select()
+      .single()
+    if (error) { console.error('recordPayment error', error); return }
+    const mapped = mapInvoiceFromDb(data)
+    setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
+  }, [invoices])
+
+  const createInvoice = useCallback(async (invoiceData) => {
+    const { data, error } = await supabase.from('invoices').insert(invoiceData).select().single()
+    if (error) { console.error('createInvoice error', error); return null }
+    const mapped = mapInvoiceFromDb(data)
+    setInvoices((prev) => [mapped, ...prev])
+    return mapped
+  }, [])
 
   return (
     <DataContext.Provider value={{
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
       followUps, setFollowUps, addFollowUp, updateFollowUp,
       leadActivities, addActivity,
-      students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill,
+      students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage,
-      invoices, setInvoices,
+      invoices, setInvoices, recordPayment, createInvoice,
       teamMembers,
       leadDocuments, addLeadDocument, deleteLeadDocument,
       batches, addBatch, updateBatch, deleteBatch,

@@ -52,7 +52,7 @@ const itemVariants = {
 export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, invoices: invoicesData, setInvoices: setInvoicesData } = useData()
+  const { students, invoices: invoicesData, recordPayment, createInvoice } = useData()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
@@ -73,12 +73,7 @@ export default function Billing() {
   const handleConfirmPayment = () => {
     const amt = Number(paymentForm.amount)
     if (!amt || amt <= 0 || amt > selectedInvoice.balance) { showToast('Enter a valid payment amount', 'error'); return }
-    setInvoicesData(prev => prev.map(inv => {
-      if (inv.id !== selectedInvoice.id) return inv
-      const newPaid = inv.paid + amt
-      const newBalance = inv.amount - newPaid
-      return { ...inv, paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial' }
-    }))
+    recordPayment(selectedInvoice.id, amt, paymentForm.paymentMode, paymentForm.date)
     showToast(`Payment of ${formatINR(amt)} recorded for ${selectedInvoice.student}`)
     closeModal()
   }
@@ -86,8 +81,12 @@ export default function Billing() {
   const handleCreateBill = (e) => {
     e.preventDefault()
     const id = `INV-${new Date().getFullYear()}-${String(invoicesData.length + 1).padStart(3, '0')}`
-    const newInv = { id, student: createForm.student, course: createForm.course, amount: Number(createForm.amount), paid: 0, balance: Number(createForm.amount), date: new Date().toISOString().split('T')[0], dueDate: createForm.dueDate, status: 'partial', paymentMode: 'UPI' }
-    setInvoicesData(prev => [newInv, ...prev])
+    createInvoice({
+      id, student: createForm.student, course: createForm.course,
+      amount: Number(createForm.amount), paid: 0, balance: Number(createForm.amount),
+      date: new Date().toISOString().split('T')[0], due_date: createForm.dueDate,
+      status: 'partial', payment_mode: 'UPI',
+    })
     setShowCreateBill(false)
     setCreateForm({ student: '', course: '', amount: '', dueDate: '' })
     showToast(`Fee bill ${id} created for ${createForm.student}`)
@@ -168,26 +167,6 @@ export default function Billing() {
     setModalMode(null)
   }
 
-  // Mock payment history for modal
-  const getPaymentHistory = (invoice) => {
-    if (invoice.status === 'paid') {
-      return [
-        { date: invoice.date, amount: invoice.amount, mode: invoice.paymentMode, ref: 'TXN' + invoice.id.slice(-3) + '001' },
-      ]
-    }
-    if (invoice.paid > 0) {
-      return [
-        { date: invoice.date, amount: Math.round(invoice.paid * 0.6), mode: invoice.paymentMode, ref: 'TXN' + invoice.id.slice(-3) + '001' },
-        {
-          date: new Date(new Date(invoice.date).getTime() + 15 * 86400000).toISOString().split('T')[0],
-          amount: invoice.paid - Math.round(invoice.paid * 0.6),
-          mode: invoice.paymentMode,
-          ref: 'TXN' + invoice.id.slice(-3) + '002',
-        },
-      ]
-    }
-    return []
-  }
 
   const getStatusBadge = (status) => {
     const styles = {
@@ -263,6 +242,7 @@ export default function Billing() {
     { key: 'balance', label: 'Balance', align: 'right' },
     { key: 'dueDate', label: 'Due Date' },
     { key: 'status', label: 'Status' },
+    { key: 'payment_plan', label: 'Payment Plan' },
     { key: 'paymentMode', label: 'Payment Mode' },
   ]
 
@@ -451,6 +431,13 @@ export default function Billing() {
                   <td className={`px-4 py-3.5 text-sm ${textSecondary}`}>{invoice.dueDate}</td>
                   <td className="px-4 py-3.5">{getStatusBadge(invoice.status)}</td>
                   <td className={`px-4 py-3.5 text-sm ${textSecondary}`}>
+                    {invoice.payment_plan ? (
+                      <span className="inline-flex items-center gap-1">
+                        {invoice.payment_plan}{invoice.locked && <span title="Locked — admin only to change">🔒</span>}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className={`px-4 py-3.5 text-sm ${textSecondary}`}>
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-medium ${
                       isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-100 text-dark-600'
                     }`}>
@@ -596,9 +583,19 @@ export default function Billing() {
                   <div className={`rounded-xl overflow-hidden border ${
                     isDark ? 'border-dark-700/60' : 'border-dark-200/60'
                   }`}>
-                    <div className={`flex items-center justify-between px-4 py-3 ${
-                      isDark ? 'bg-dark-800/30' : 'bg-dark-50/50'
-                    }`}>
+                    {selectedInvoice.payment_plan && (
+                      <div className={`flex items-center justify-between px-4 py-3 ${
+                        isDark ? 'bg-dark-800/30' : 'bg-dark-50/50'
+                      }`}>
+                        <span className={`text-sm ${textSecondary}`}>Payment Plan</span>
+                        <span className={`text-sm font-semibold ${textPrimary}`}>
+                          {selectedInvoice.payment_plan}{selectedInvoice.locked ? ' 🔒' : ''}
+                        </span>
+                      </div>
+                    )}
+                    <div className={`flex items-center justify-between px-4 py-3 border-t ${
+                      isDark ? 'border-dark-700/40' : 'border-dark-100'
+                    } ${!selectedInvoice.payment_plan ? '!border-t-0' : ''}`}>
                       <span className={`text-sm ${textSecondary}`}>Total Fee</span>
                       <span className={`text-sm font-semibold ${textPrimary}`}>{formatINR(selectedInvoice.amount)}</span>
                     </div>
@@ -616,38 +613,6 @@ export default function Billing() {
                         {formatINR(selectedInvoice.balance)}
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Payment History */}
-                <div>
-                  <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>Payment History</h3>
-                  <div className="space-y-2">
-                    {getPaymentHistory(selectedInvoice).map((payment, idx) => (
-                      <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        className={`flex items-center justify-between px-4 py-3 rounded-xl ${
-                          isDark ? 'bg-dark-800/40 border border-dark-700/40' : 'bg-dark-50 border border-dark-200/40'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
-                            <CheckCircle2 size={14} className="text-emerald-500" />
-                          </div>
-                          <div>
-                            <p className={`text-sm font-medium ${textPrimary}`}>{formatINR(payment.amount)}</p>
-                            <p className={`text-xs ${textMuted}`}>{payment.date} via {payment.mode}</p>
-                          </div>
-                        </div>
-                        <span className={`text-xs font-mono ${textMuted}`}>{payment.ref}</span>
-                      </motion.div>
-                    ))}
-                    {getPaymentHistory(selectedInvoice).length === 0 && (
-                      <p className={`text-sm text-center py-4 ${textMuted}`}>No payments recorded yet.</p>
-                    )}
                   </div>
                 </div>
 

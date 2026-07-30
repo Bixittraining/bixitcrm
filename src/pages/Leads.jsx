@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
@@ -696,7 +697,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
   const [selectedBatchName, setSelectedBatchName] = useState('')
@@ -713,6 +714,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
   const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
   const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
+  const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
   const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
@@ -1198,36 +1200,62 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       <span className={`text-lg font-bold ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{formatINR(Math.round(matchingPackage.price * 1.18))}</span>
                     </div>
                   </div>
-                  <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Plan</h4>
-                  <div className="grid grid-cols-3 gap-3 mb-5">
-                    {['Full Payment', '2 Installments', '3 Installments'].map((plan, i) => (
-                      <button key={plan} type="button" onClick={() => setFeePlan(i)} className={`rounded-lg p-3 text-center border cursor-pointer transition-all ${
-                        feePlan === i
-                          ? isDark ? 'border-primary-500 bg-primary-500/10' : 'border-primary-500 bg-primary-50'
-                          : isDark ? 'border-dark-700 hover:border-dark-600' : 'border-dark-200 hover:border-dark-300'
-                      }`}>
-                        <p className={`text-xs font-semibold ${feePlan === i ? isDark ? 'text-primary-400' : 'text-primary-600' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>{plan}</p>
-                        <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                          {i === 0 ? formatINR(Math.round(matchingPackage.price * 1.18)) : i === 1 ? `${formatINR(Math.round(matchingPackage.price * 1.18 / 2))} x 2` : `${formatINR(Math.round(matchingPackage.price * 1.18 / 3))} x 3`}
+                  {feeInvoice?.locked ? (
+                    <div className={`rounded-lg p-4 flex items-start gap-3 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                      <Key className={`w-5 h-5 mt-0.5 shrink-0 ${isDark ? 'text-accent-400' : 'text-accent-600'}`} />
+                      <div className="flex-1">
+                        <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Fee bill locked — {feeInvoice.payment_plan || 'plan finalized'}</p>
+                        <p className={`text-xs mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                          Invoice {feeInvoice.id} &middot; {formatINR(feeInvoice.amount)} total. The payment plan can't be changed unless an admin unlocks it.
                         </p>
-                      </button>
-                    ))}
-                  </div>
-                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    onClick={async () => {
-                      if (lead.status !== 'enrolled') {
-                        showNotification('Please enroll the student first before generating a fee bill', 'error')
-                        return
-                      }
-                      const invoice = await onGenerateFeeBill(lead, matchingPackage)
-                      if (invoice) showNotification(`Fee bill ${invoice.id} ready for ${lead.name} — ${formatINR(invoice.amount)} (see Fees & Billing)`)
-                    }}
-                    className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400' : 'bg-dark-600 cursor-not-allowed opacity-60'}`}>
-                    Generate Fee Bill
-                  </motion.button>
-                  <p className={`text-xs text-center mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                    {lead.status === 'enrolled' ? 'Student is enrolled — fee bill ready to generate' : 'Fee bill can be generated once the student is enrolled'}
-                  </p>
+                        {isAdmin && (
+                          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => { onUnlockInvoice(feeInvoice.id); showNotification('Fee bill unlocked — plan can be changed') }}
+                            className={`mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-700 text-white hover:bg-dark-600' : 'bg-dark-200 text-dark-800 hover:bg-dark-300'}`}>
+                            <Key className="w-3.5 h-3.5" />Unlock to Edit
+                          </motion.button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Plan</h4>
+                      <div className="grid grid-cols-3 gap-3 mb-5">
+                        {['Full Payment', '2 Installments', '3 Installments'].map((plan, i) => (
+                          <button key={plan} type="button" onClick={() => setFeePlan(i)} className={`rounded-lg p-3 text-center border cursor-pointer transition-all ${
+                            feePlan === i
+                              ? isDark ? 'border-primary-500 bg-primary-500/10' : 'border-primary-500 bg-primary-50'
+                              : isDark ? 'border-dark-700 hover:border-dark-600' : 'border-dark-200 hover:border-dark-300'
+                          }`}>
+                            <p className={`text-xs font-semibold ${feePlan === i ? isDark ? 'text-primary-400' : 'text-primary-600' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>{plan}</p>
+                            <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              {i === 0 ? formatINR(Math.round(matchingPackage.price * 1.18)) : i === 1 ? `${formatINR(Math.round(matchingPackage.price * 1.18 / 2))} x 2` : `${formatINR(Math.round(matchingPackage.price * 1.18 / 3))} x 3`}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                        onClick={async () => {
+                          if (lead.status !== 'enrolled') {
+                            showNotification('Please enroll the student first before generating a fee bill', 'error')
+                            return
+                          }
+                          const planLabel = ['Full Payment', '2 Installments', '3 Installments'][feePlan]
+                          const result = await onGenerateFeeBill(lead, matchingPackage, planLabel)
+                          if (result?.blocked) {
+                            showNotification('This fee bill is already locked — ask an admin to unlock it first', 'error')
+                          } else if (result?.invoice) {
+                            showNotification(`Fee bill ${result.invoice.id} locked in with ${planLabel} — ${formatINR(result.invoice.amount)} (see Fees & Billing)`)
+                          }
+                        }}
+                        className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400' : 'bg-dark-600 cursor-not-allowed opacity-60'}`}>
+                        Generate Fee Bill
+                      </motion.button>
+                      <p className={`text-xs text-center mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                        {lead.status === 'enrolled' ? 'Student is enrolled — fee bill ready to generate' : 'Fee bill can be generated once the student is enrolled'}
+                      </p>
+                    </>
+                  )}
                 </>
               ) : (
                 <div className="text-center py-6">
@@ -1348,7 +1376,8 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches } = useData()
+  const { isAdmin } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1615,6 +1644,9 @@ function Leads() {
             onEnroll={handleEnrollLead}
             onBatchTimingChange={handleBatchTimingChange}
             onGenerateFeeBill={generateFeeBill}
+            onUnlockInvoice={unlockInvoice}
+            isAdmin={isAdmin}
+            invoices={invoices}
             leadDocuments={leadDocuments}
             onAddDocument={addLeadDocument}
             onDeleteDocument={deleteLeadDocument}
