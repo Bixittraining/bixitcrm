@@ -200,6 +200,20 @@ export function DataProvider({ children }) {
     setFollowUps((prev) => prev.map((f) => f.id === followUpId ? mapFollowUpFromDb(data) : f))
   }, [])
 
+  // ── STUDENTS ─────────────────────────────────────────────
+  const addStudent = useCallback(async (student) => {
+    const { id, ...studentData } = student
+    const { data, error } = await supabase.from('students').insert(studentData).select().single()
+    if (error) { console.error('addStudent error', error); return }
+    setStudents((prev) => [mapStudentFromDb(data), ...prev])
+  }, [])
+
+  const deleteStudent = useCallback(async (studentId) => {
+    const { error } = await supabase.from('students').delete().eq('id', studentId)
+    if (error) { console.error('deleteStudent error', error); return }
+    setStudents((prev) => prev.filter((s) => s.id !== studentId))
+  }, [])
+
   // ── LEAD DOCUMENT VAULT ────────────────────────────────────
   const addLeadDocument = useCallback(async (leadId, category, title, url) => {
     const { data, error } = await supabase
@@ -328,7 +342,7 @@ export function DataProvider({ children }) {
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
       followUps, setFollowUps, addFollowUp, updateFollowUp,
       leadActivities, addActivity,
-      students, setStudents, enrollLead, generateFeeBill,
+      students, setStudents, addStudent, deleteStudent, enrollLead, generateFeeBill,
       packages, setPackages, addPackage,
       invoices, setInvoices,
       teamMembers,

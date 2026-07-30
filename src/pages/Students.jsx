@@ -62,7 +62,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
   if (!student) return null
 
   const isDark = theme === 'dark'
-  const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+  const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
   const feeRemaining = student.feeTotal - student.feePaid
 
   return createPortal(
@@ -213,61 +213,6 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             </p>
           </div>
 
-          {/* Attendance */}
-          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              Attendance
-            </h3>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                  <motion.div
-                    className={`h-full rounded-full ${
-                      student.attendance >= 90
-                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                        : student.attendance >= 75
-                        ? 'bg-gradient-to-r from-sky-500 to-sky-400'
-                        : 'bg-gradient-to-r from-accent-500 to-accent-400'
-                    }`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${student.attendance}%` }}
-                    transition={{ duration: 0.8, ease: 'easeOut', delay: 0.2 }}
-                  />
-                </div>
-              </div>
-              <span className={`text-lg font-bold min-w-[48px] text-right ${
-                student.attendance >= 90
-                  ? 'text-emerald-500'
-                  : student.attendance >= 75
-                  ? 'text-sky-500'
-                  : 'text-accent-500'
-              }`}>
-                {student.attendance}%
-              </span>
-            </div>
-          </div>
-
-          {/* Course Progress */}
-          <div className={`rounded-xl p-4 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              Course Progress
-            </h3>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                  <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-primary-500 to-violet-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${student.status === 'completed' ? 100 : Math.round(student.attendance * 0.7)}%` }}
-                    transition={{ duration: 0.8, ease: 'easeOut', delay: 0.4 }}
-                  />
-                </div>
-              </div>
-              <span className={`text-lg font-bold min-w-[48px] text-right text-primary-500`}>
-                {student.status === 'completed' ? 100 : Math.round(student.attendance * 0.7)}%
-              </span>
-            </div>
-          </div>
         </motion.div>
       </motion.div>,
     document.body
@@ -277,9 +222,11 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, setStudents } = useData()
+  const { students, addStudent, deleteStudent } = useData()
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [courseFilter, setCourseFilter] = useState('All')
+  const [batchFilter, setBatchFilter] = useState('All')
   const [viewMode, setViewMode] = useState('grid')
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
@@ -289,25 +236,27 @@ function Students() {
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
+  const courseOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.course).filter(Boolean))], [students])
+  const batchOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.batch).filter(Boolean))], [students])
+
   const handleAddStudent = (e) => {
     e.preventDefault()
     const nameParts = addForm.name.trim().split(' ')
     const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : addForm.name.trim().slice(0, 2).toUpperCase()
-    const newStudent = {
-      id: Date.now(), name: addForm.name, email: addForm.email, phone: addForm.phone,
+    addStudent({
+      name: addForm.name, email: addForm.email, phone: addForm.phone,
       course: addForm.course, batch: addForm.batch || `Batch ${new Date().getFullYear()}-A`,
-      enrollDate: new Date().toISOString().slice(0, 10), status: 'active',
-      feePaid: 0, feeTotal: Number(addForm.feeTotal) || 0, avatar, attendance: 0,
-    }
-    setStudents((prev) => [newStudent, ...prev])
+      enroll_date: new Date().toISOString().slice(0, 10), status: 'active',
+      fee_paid: 0, fee_total: Number(addForm.feeTotal) || 0, avatar, attendance: 0,
+    })
     setShowAddModal(false)
     setAddForm({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
-    showToast(`${newStudent.name} added as a student`)
+    showToast(`${addForm.name} added as a student`)
   }
 
   const handleDeleteStudent = (id) => {
     const student = students.find(s => s.id === id)
-    setStudents((prev) => prev.filter((s) => s.id !== id))
+    deleteStudent(id)
     setSelectedStudent(null)
     showToast(student ? `${student.name} removed` : 'Student removed')
   }
@@ -336,6 +285,8 @@ function Students() {
         s.batch.toLowerCase().includes(q)
       )
     })
+    if (courseFilter !== 'All') result = result.filter((s) => s.course === courseFilter)
+    if (batchFilter !== 'All') result = result.filter((s) => s.batch === batchFilter)
 
     if (sortConfig.key) {
       result = [...result].sort((a, b) => {
@@ -350,15 +301,15 @@ function Students() {
     }
 
     return result
-  }, [students, searchQuery, sortConfig])
+  }, [students, searchQuery, courseFilter, batchFilter, sortConfig])
 
   // Stats
   const stats = useMemo(() => {
     const total = students.length
     const active = students.filter(s => s.status === 'active').length
     const completed = students.filter(s => s.status === 'completed').length
-    const avgAttendance = Math.round(students.reduce((sum, s) => sum + s.attendance, 0) / total)
-    return { total, active, completed, avgAttendance }
+    const feesCollected = students.reduce((sum, s) => sum + (s.feePaid || 0), 0)
+    return { total, active, completed, feesCollected }
   }, [students])
 
   const handleSort = (key) => {
@@ -385,7 +336,7 @@ function Students() {
     { label: 'Total Students', value: stats.total, icon: Users, color: 'text-primary-500', bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50' },
     { label: 'Active Students', value: stats.active, icon: UserCheck, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
     { label: 'Completed', value: stats.completed, icon: GraduationCap, color: 'text-violet-500', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
-    { label: 'Avg Attendance', value: `${stats.avgAttendance}%`, icon: BarChart3, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50' },
+    { label: 'Fees Collected', value: stats.feesCollected.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }), icon: BarChart3, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50' },
   ]
 
   return (
@@ -408,8 +359,8 @@ function Students() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Attendance\n' +
-                students.map(s => `${s.name},${s.email},${s.phone},${s.course},${s.batch},${s.enrollDate},${s.status},${s.feePaid},${s.feeTotal},${s.attendance}%`).join('\n')
+              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total\n' +
+                students.map(s => `${s.name},${s.email},${s.phone},${s.course},${s.batch},${s.enrollDate},${s.status},${s.feePaid},${s.feeTotal}`).join('\n')
               const blob = new Blob([csv], { type: 'text/csv' })
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a'); a.href = url; a.download = 'students-export.csv'; a.click(); URL.revokeObjectURL(url)
@@ -430,25 +381,41 @@ function Students() {
         </div>
       </motion.div>
 
-      {/* Search Bar */}
+      {/* Search & Filter Bar */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05 }}
-        className={`relative`}
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap"
       >
-        <Search size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-        <input
-          type="text"
-          placeholder="Search students by name, email, course, or batch..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 ${
-            isDark
-              ? 'bg-dark-900 border-dark-700/60 text-white placeholder:text-dark-500'
-              : 'bg-white border-dark-200/60 text-dark-900 placeholder:text-dark-400'
-          }`}
-        />
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+          <input
+            type="text"
+            placeholder="Search students by name, email, course, or batch..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 ${
+              isDark
+                ? 'bg-dark-900 border-dark-700/60 text-white placeholder:text-dark-500'
+                : 'bg-white border-dark-200/60 text-dark-900 placeholder:text-dark-400'
+            }`}
+          />
+        </div>
+        <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}
+          className={`px-3 py-3 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`}>
+          {courseOptions.map((c) => <option key={c} value={c}>{c === 'All' ? 'All Courses' : c}</option>)}
+        </select>
+        <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)}
+          className={`px-3 py-3 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`}>
+          {batchOptions.map((b) => <option key={b} value={b}>{b === 'All' ? 'All Batches' : b}</option>)}
+        </select>
+        {(courseFilter !== 'All' || batchFilter !== 'All' || searchQuery) && (
+          <button type="button" onClick={() => { setCourseFilter('All'); setBatchFilter('All'); setSearchQuery('') }}
+            className={`inline-flex items-center gap-1.5 px-3 py-3 rounded-xl text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
+            <X size={14} />Clear
+          </button>
+        )}
       </motion.div>
 
       {/* Stats Row */}
@@ -532,7 +499,7 @@ function Students() {
           className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"
         >
           {filteredStudents.map((student) => {
-            const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+            const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
             return (
               <motion.div
                 key={student.id}
@@ -600,38 +567,6 @@ function Students() {
                   </p>
                 </div>
 
-                {/* Attendance */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                      Attendance
-                    </span>
-                    <span className={`text-xs font-semibold ${
-                      student.attendance >= 90
-                        ? 'text-emerald-500'
-                        : student.attendance >= 75
-                        ? 'text-sky-500'
-                        : 'text-accent-500'
-                    }`}>
-                      {student.attendance}%
-                    </span>
-                  </div>
-                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                    <motion.div
-                      className={`h-full rounded-full ${
-                        student.attendance >= 90
-                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                          : student.attendance >= 75
-                          ? 'bg-gradient-to-r from-sky-500 to-sky-400'
-                          : 'bg-gradient-to-r from-accent-500 to-accent-400'
-                      }`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${student.attendance}%` }}
-                      transition={{ duration: 0.8, ease: 'easeOut', delay: 0.4 }}
-                    />
-                  </div>
-                </div>
-
                 {/* Action Buttons */}
                 <div className={`flex items-center gap-2 pt-4 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
                   <button
@@ -683,14 +618,13 @@ function Students() {
           className={`rounded-2xl overflow-hidden ${cardClass}`}
         >
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed min-w-[1230px]">
+            <table className="w-full table-fixed min-w-[1100px]">
               <colgroup>
                 <col className="w-[225px]" />
                 <col className="w-[150px]" />
                 <col className="w-[200px]" />
                 <col className="w-[120px]" />
                 <col className="w-[185px]" />
-                <col className="w-[85px]" />
                 <col className="w-[120px]" />
                 <col className="w-[145px]" />
               </colgroup>
@@ -702,7 +636,6 @@ function Students() {
                     { key: 'course', label: 'Course' },
                     { key: 'batch', label: 'Batch' },
                     { key: 'feePaid', label: 'Fee Status' },
-                    { key: 'attendance', label: 'Attendance' },
                     { key: 'status', label: 'Status' },
                     { key: null, label: 'Actions' },
                   ].map((col) => (
@@ -723,7 +656,7 @@ function Students() {
               </thead>
               <tbody className={`divide-y ${isDark ? 'divide-dark-700/40' : 'divide-dark-200/60'}`}>
                 {filteredStudents.map((student, index) => {
-                  const feePercent = Math.round((student.feePaid / student.feeTotal) * 100)
+                  const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
                   return (
                     <motion.tr
                       key={student.id}
@@ -783,19 +716,6 @@ function Students() {
                             {feePercent}% paid
                           </p>
                         </div>
-                      </td>
-
-                      {/* Attendance */}
-                      <td className="px-5 py-4">
-                        <span className={`text-sm font-semibold ${
-                          student.attendance >= 90
-                            ? 'text-emerald-500'
-                            : student.attendance >= 75
-                            ? 'text-sky-500'
-                            : 'text-accent-500'
-                        }`}>
-                          {student.attendance}%
-                        </span>
                       </td>
 
                       {/* Status */}
