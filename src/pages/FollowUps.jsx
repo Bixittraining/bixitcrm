@@ -30,6 +30,7 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { useData } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 
 const typeConfig = {
   call: { icon: Phone, color: 'sky', label: 'Call' },
@@ -71,7 +72,7 @@ function getWeekDates() {
 }
 
 // ─── ACTION DROPDOWN (per follow-up card) ──────────────────────────────
-function FollowUpActionMenu({ fu, isDark, closedStatus, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
+function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
   const ref = useRef(null)
   const [customDate, setCustomDate] = useState('')
   const [customTime, setCustomTime] = useState('')
@@ -95,33 +96,40 @@ function FollowUpActionMenu({ fu, isDark, closedStatus, onClose, onMarkComplete,
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
       className={`absolute right-0 z-30 mt-1 w-64 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
-      {fu.status === 'pending' && item(<Check className="w-3.5 h-3.5" />, 'Mark Completed', onMarkComplete, isDark ? 'text-emerald-400' : 'text-emerald-600')}
-      {!closedStatus && item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', onRNR)}
-      {!closedStatus && item(<GraduationCap className="w-3.5 h-3.5" />, 'Transfer to Student', onTransferToStudent, isDark ? 'text-primary-400' : 'text-primary-600')}
-      {!closedStatus && item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', onLost, isDark ? 'text-rose-400' : 'text-rose-600')}
-      {closedStatus && (
+      {closedStatus ? (
         <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>This lead is already {closedStatus} — pipeline actions are hidden.</p>
+      ) : isLockedToOther ? (
+        <p className={`px-3 py-2 text-xs leading-relaxed ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+          This lead is already being handled by another team member — only they or an admin can update it.
+        </p>
+      ) : (
+        <>
+          {fu.status === 'pending' && item(<Check className="w-3.5 h-3.5" />, 'Mark Completed', onMarkComplete, isDark ? 'text-emerald-400' : 'text-emerald-600')}
+          {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', onRNR)}
+          {item(<GraduationCap className="w-3.5 h-3.5" />, 'Transfer to Student', onTransferToStudent, isDark ? 'text-primary-400' : 'text-primary-600')}
+          {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', onLost, isDark ? 'text-rose-400' : 'text-rose-600')}
+          <div className={dividerCls} />
+          <p className={sectionLabelCls}>Reschedule</p>
+          {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 1 day', () => onPresetReschedule(1))}
+          {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 3 days', () => onPresetReschedule(3))}
+          {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 7 days', () => onPresetReschedule(7))}
+          <div className="px-3 py-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)}
+              className={`flex-1 min-w-0 px-2 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+            <input type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)}
+              className={`w-[4.7rem] px-1.5 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+            <button
+              type="button"
+              disabled={!customDate}
+              onClick={() => { if (!customDate) return; onCustomReschedule(customDate, customTime); onClose() }}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-40 transition-colors"
+            >Set</button>
+          </div>
+          <div className={dividerCls} />
+          {item(<Phone className="w-3.5 h-3.5" />, 'Call Now', onCallNow)}
+          {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete', onDelete, isDark ? 'text-rose-400' : 'text-rose-600')}
+        </>
       )}
-      <div className={dividerCls} />
-      <p className={sectionLabelCls}>Reschedule</p>
-      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 1 day', () => onPresetReschedule(1))}
-      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 3 days', () => onPresetReschedule(3))}
-      {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 7 days', () => onPresetReschedule(7))}
-      <div className="px-3 py-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)}
-          className={`flex-1 min-w-0 px-2 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
-        <input type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)}
-          className={`w-[4.7rem] px-1.5 py-1.5 rounded-lg border text-xs outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
-        <button
-          type="button"
-          disabled={!customDate}
-          onClick={() => { if (!customDate) return; onCustomReschedule(customDate, customTime); onClose() }}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-40 transition-colors"
-        >Set</button>
-      </div>
-      <div className={dividerCls} />
-      {item(<Phone className="w-3.5 h-3.5" />, 'Call Now', onCallNow)}
-      {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete', onDelete, isDark ? 'text-rose-400' : 'text-rose-600')}
     </motion.div>
   )
 }
@@ -183,6 +191,7 @@ export default function FollowUps() {
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers, takeOverLead, packages } = useData()
+  const { isAdmin, user } = useAuth()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
@@ -751,6 +760,7 @@ export default function FollowUps() {
                                   fu={fu}
                                   isDark={isDark}
                                   closedStatus={['enrolled', 'lost'].includes(getLeadFor(fu)?.status) ? getLeadFor(fu).status : null}
+                                  isLockedToOther={!!fuLead?.assigned_to && fuLead.assigned_to !== user?.id && !isAdmin}
                                   onClose={() => setActionMenuId(null)}
                                   onMarkComplete={() => handleMarkComplete(fu.id)}
                                   onRNR={() => handleRNR(fu)}

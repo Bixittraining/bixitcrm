@@ -280,9 +280,15 @@ function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, on
   // sense anymore. Only an admin can still correct the record from here.
   const isClosed = lead.status === 'enrolled' || lead.status === 'lost'
 
+  // Once a lead is assigned to someone, only that person (or an admin) can
+  // keep working it — otherwise two reps calling the same lead at once is
+  // exactly what causes duplicate/confused follow-ups.
+  const { user } = useAuth()
+  const isLockedToOther = !!lead.assigned_to && lead.assigned_to !== user?.id && !isAdmin
+
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute right-0 z-30 mt-1 w-52 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
+      className={`absolute right-0 z-30 mt-1 w-56 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
       {isClosed ? (
         isAdmin ? (
@@ -295,6 +301,10 @@ function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, on
             {lead.status === 'enrolled' ? 'Enrolled' : 'Lost'} — only an admin can edit this lead.
           </p>
         )
+      ) : isLockedToOther ? (
+        <p className={`px-3 py-2 text-xs leading-relaxed ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+          This lead is already being handled by another team member — only they or an admin can update it.
+        </p>
       ) : (
         <>
           {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
@@ -745,6 +755,8 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
   const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
   const isLeadClosed = lead.status === 'enrolled' || lead.status === 'lost'
+  const { user: currentUser } = useAuth()
+  const isLockedToOther = !!lead.assigned_to && lead.assigned_to !== currentUser?.id && !isAdmin
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
   const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
@@ -819,19 +831,19 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all">
               <MessageCircle className="w-4 h-4" />WhatsApp
             </motion.button>
-            {(!isLeadClosed || isAdmin) && (
+            {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onTransfer(lead)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                 <Clock className="w-4 h-4" />Reminder
               </motion.button>
             )}
-            {(!isLeadClosed || isAdmin) && (
+            {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onEdit(lead)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                 <Pencil className="w-4 h-4" />Edit
               </motion.button>
             )}
-            {(!isLeadClosed || isAdmin) && (
+            {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onDelete(lead)}
                 className={`p-2.5 rounded-lg transition-colors ${isDark ? 'text-rose-400 hover:bg-rose-500/10' : 'text-rose-500 hover:bg-rose-50'}`}>
                 <Trash2 className="w-4 h-4" />
@@ -841,6 +853,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
           {isLeadClosed && !isAdmin && (
             <p className={`text-xs mt-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
               This lead is {lead.status} — only an admin can edit or delete it.
+            </p>
+          )}
+          {!isLeadClosed && isLockedToOther && (
+            <p className={`text-xs mt-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              This lead is already being handled by another team member — only they or an admin can update it.
             </p>
           )}
         </div>
@@ -1418,7 +1435,8 @@ function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches } = useData()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
+  const isLockedForMe = (lead) => !!lead.assigned_to && lead.assigned_to !== user?.id && !isAdmin
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1863,7 +1881,7 @@ function Leads() {
                             <td className={`px-4 py-3.5 text-xs font-medium ${lead.assigned_to ? (isDark ? 'text-dark-200' : 'text-dark-700') : (isDark ? 'text-dark-600' : 'text-dark-400')}`}>{agentName(lead)}</td>
                             <td className="px-4 py-3.5">
                               <div className="relative">
-                                <StatusBadge status={lead.status} isDark={isDark} onClick={() => setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id)} />
+                                <StatusBadge status={lead.status} isDark={isDark} onClick={isLockedForMe(lead) ? undefined : () => setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id)} />
                                 <AnimatePresence>
                                   {statusDropdownId === lead.id && (
                                     <InlineStatusDropdown currentStatus={lead.status} onSelect={(s) => handleStatusChange(lead.id, s)} onClose={() => setStatusDropdownId(null)} isDark={isDark} />
