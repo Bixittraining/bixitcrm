@@ -443,7 +443,7 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-              <input type="tel" required value={form.phone} onChange={(e) => handleChange('phone', e.target.value)} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+              <input type="tel" inputMode="numeric" maxLength={10} required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -661,7 +661,7 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-              <input type="tel" required value={form.phone} onChange={(e) => handleChange('phone', e.target.value)} placeholder="+91 98765 43210"
+              <input type="tel" inputMode="numeric" maxLength={10} required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="98765 43210"
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
           </div>

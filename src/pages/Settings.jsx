@@ -663,7 +663,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone</label>
-                    <input type="tel" value={draftProfile.phone} onChange={handleProfileChange('phone')} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="tel" inputMode="numeric" maxLength={10} value={draftProfile.phone} onChange={(e) => handleProfileChange('phone')({ target: { value: e.target.value.replace(/\D/g, '').slice(0, 10) } })} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Role</label>
@@ -713,7 +713,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone</label>
-                    <input type="tel" value={teamForm.phone} onChange={handleTeamFormChange('phone')} placeholder="+91 98765 43210" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
+                    <input type="tel" inputMode="numeric" maxLength={10} value={teamForm.phone} onChange={(e) => handleTeamFormChange('phone')({ target: { value: e.target.value.replace(/\D/g, '').slice(0, 10) } })} placeholder="98765 43210" className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50`} />
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Temporary Password</label>
@@ -856,7 +856,7 @@ export default function Settings() {
                     </div>
                     <div>
                       <label className={`block text-xs font-medium mb-1.5 ${textSecondary}`}>Phone</label>
-                      <input type="tel" value={memberEditForm.phone} onChange={(e) => setMemberEditForm((p) => ({ ...p, phone: e.target.value }))}
+                      <input type="tel" inputMode="numeric" maxLength={10} value={memberEditForm.phone} onChange={(e) => setMemberEditForm((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
                         className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
                     </div>
                     <div>
@@ -941,7 +941,7 @@ export default function Settings() {
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Phone Number</label>
                       <div className="relative">
                         <Phone size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textSecondary}`} />
-                        <input type="tel" value={academyForm.phone} onChange={handleAcademyChange('phone')} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                        <input type="tel" inputMode="numeric" maxLength={10} value={academyForm.phone} onChange={(e) => handleAcademyChange('phone')({ target: { value: e.target.value.replace(/\D/g, '').slice(0, 10) } })} disabled={!canManageTeam} className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
                       </div>
                     </div>
                     <div>

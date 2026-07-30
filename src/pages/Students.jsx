@@ -887,7 +887,7 @@ function Students() {
                   </div>
                   <div>
                     <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-                    <input type="tel" required value={addForm.phone} onChange={(e) => setAddForm(p => ({ ...p, phone: e.target.value }))} placeholder="+91 98765 43210"
+                    <input type="tel" inputMode="numeric" maxLength={10} required value={addForm.phone} onChange={(e) => setAddForm(p => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="98765 43210"
                       className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
                   </div>
                 </div>
