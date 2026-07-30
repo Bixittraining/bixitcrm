@@ -100,22 +100,31 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
       <div className={`flex items-center ${showCollapsed ? 'justify-center' : 'px-5'} h-16 shrink-0 border-b
         ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
         <NavLink to="/" onClick={onNavigate} className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
-          <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-primary-500 to-accent-500 bg-clip-text text-transparent select-none">
-            BIX
-          </span>
+          {showCollapsed ? (
+            <div className="w-9 h-9 overflow-hidden rounded-md shrink-0">
+              <img src="/logo.png" alt="BIX" className="w-full h-full object-cover object-left" />
+            </div>
+          ) : (
+            <motion.img
+              key="full-logo"
+              src="/logo.png"
+              alt="BIX Academy"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
+              className="h-9 w-auto shrink-0"
+            />
+          )}
           <AnimatePresence mode="wait">
             {!showCollapsed && (
               <motion.span
-                key="academy-label"
+                key="crm-label"
                 initial={{ opacity: 0, width: 0 }}
                 animate={{ opacity: 1, width: 'auto' }}
                 exit={{ opacity: 0, width: 0 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
+                className="flex items-center overflow-hidden whitespace-nowrap"
               >
-                <span className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-500'}`}>
-                  Academy
-                </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary-600/15 text-primary-400">
                   CRM
                 </span>

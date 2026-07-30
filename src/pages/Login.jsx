@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight, Sparkles, AlertCircle } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Sparkles, AlertCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
@@ -35,19 +35,15 @@ export default function Login() {
         className="w-full max-w-md relative"
       >
         <div className="text-center mb-8">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
+          <motion.img
+            src="/logo.png"
+            alt="BIX Academy"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 shadow-2xl shadow-primary-500/30 mb-4"
-          >
-            <GraduationCap size={32} className="text-white" />
-          </motion.div>
+            className="h-16 w-auto mx-auto mb-4"
+          />
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <h1 className="text-3xl font-bold text-white mb-1">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary-400 via-primary-300 to-accent-400">BIX</span>
-              <span className="text-white"> Academy</span>
-            </h1>
             <div className="flex items-center justify-center gap-2 text-dark-400">
               <Sparkles size={14} className="text-accent-500" />
               <span className="text-sm">Education CRM Platform</span>
