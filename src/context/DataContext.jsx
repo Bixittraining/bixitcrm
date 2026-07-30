@@ -356,31 +356,65 @@ export function DataProvider({ children }) {
   }, [students])
 
   // Builds the real per-installment schedule behind a payment plan: each
-  // installment gets its own amount and due date (30 days apart), instead
-  // of just a label with no rows tracking what's actually due and when.
-  const createInstallmentSchedule = useCallback(async (invoiceId, planLabel, remainingAmount, startDate) => {
+  // installment gets its own share of the full invoice total and a due
+  // date (30 days apart). Splits the total, not "whatever's left" — the
+  // plan describes the whole bill; prior payments get applied against it
+  // afterward through applyPaymentToSchedule's waterfall, same as any other
+  // payment, rather than being carved out of the schedule up front.
+  const createInstallmentSchedule = useCallback(async (invoiceId, planLabel, totalAmount, startDate) => {
     const count = planLabel === '2 Installments' ? 2 : planLabel === '3 Installments' ? 3 : 1
-    if (count === 1 || remainingAmount <= 0) return
+    if (count === 1 || totalAmount <= 0) return
 
     // A plan can be (re)generated after some payments already exist (e.g.
-    // unlocked and re-picked) — clear out any stale pending rows first so
-    // we don't end up with two overlapping schedules for the same invoice.
-    const { error: delError } = await supabase.from('invoice_installments').delete().eq('invoice_id', invoiceId).eq('status', 'pending')
+    // unlocked and re-picked) — clear out any stale pending/partial rows
+    // first so we don't end up with two overlapping schedules.
+    const { error: delError } = await supabase.from('invoice_installments').delete().eq('invoice_id', invoiceId).neq('status', 'paid')
     if (delError) { console.error('createInstallmentSchedule (cleanup) error', delError); return }
-    setInstallments((prev) => prev.filter((i) => !(i.invoice_id === invoiceId && i.status === 'pending')))
+    setInstallments((prev) => prev.filter((i) => !(i.invoice_id === invoiceId && i.status !== 'paid')))
 
-    const base = Math.floor(remainingAmount / count)
+    const base = Math.floor(totalAmount / count)
     const rows = Array.from({ length: count }, (_, i) => ({
       invoice_id: invoiceId,
       seq: i + 1,
-      amount: i === count - 1 ? remainingAmount - base * (count - 1) : base,
+      amount: i === count - 1 ? totalAmount - base * (count - 1) : base,
+      paid_amount: 0,
       due_date: new Date(new Date(startDate).getTime() + i * 30 * 86400000).toISOString().slice(0, 10),
       status: 'pending',
     }))
     const { data, error } = await supabase.from('invoice_installments').insert(rows).select()
     if (error) { console.error('createInstallmentSchedule error', error); return }
     setInstallments((prev) => [...prev, ...data].sort((a, b) => a.seq - b.seq))
+    return data
   }, [])
+
+  // Applies `amount` against an invoice's installment rows in sequence
+  // (installment 1 first, then 2, etc.) without touching the invoice or
+  // student totals — used both for normal payments and for backfilling a
+  // pre-existing paid amount onto a freshly generated schedule. A payment
+  // can be less than an installment (leaves it "partial"), exactly cover
+  // it ("paid"), or overshoot into the next installment(s) — someone
+  // paying everything off in one go just rolls straight through.
+  const applyPaymentToSchedule = useCallback(async (invoiceId, amount) => {
+    let leftover = amount
+    const schedule = installments.filter((i) => i.invoice_id === invoiceId).sort((a, b) => a.seq - b.seq)
+    for (const inst of schedule) {
+      if (leftover <= 0) break
+      const remaining = Number(inst.amount) - Number(inst.paid_amount)
+      if (remaining <= 0) continue
+      const applied = Math.min(remaining, leftover)
+      const newPaidAmount = Number(inst.paid_amount) + applied
+      const newStatus = newPaidAmount >= Number(inst.amount) ? 'paid' : 'partial'
+      const { data, error } = await supabase
+        .from('invoice_installments')
+        .update({ paid_amount: newPaidAmount, status: newStatus, paid_date: newStatus === 'paid' ? new Date().toISOString().slice(0, 10) : inst.paid_date })
+        .eq('id', inst.id)
+        .select()
+        .single()
+      if (error) { console.error('applyPaymentToSchedule error', error); continue }
+      setInstallments((prev) => prev.map((i) => i.id === inst.id ? data : i))
+      leftover -= applied
+    }
+  }, [installments])
 
   // Ensures a fee bill (invoice) exists for an enrolled lead with the chosen
   // payment plan (GST-inclusive amount), matching the Fee Bill tab. Once a
@@ -401,10 +435,10 @@ export function DataProvider({ children }) {
       const mapped = mapInvoiceFromDb(data)
       setInvoices((prev) => prev.map((inv) => inv.id === mapped.id ? mapped : inv))
       syncStudentFee(lead.name, lead.course, mapped.paid, mapped.amount)
-      // Split what's actually still owed, not the original total — this
-      // invoice may already have payments recorded against it (e.g. from
-      // before a plan existed), and those shouldn't be re-billed.
-      createInstallmentSchedule(mapped.id, planLabel, mapped.balance, new Date().toISOString().slice(0, 10))
+      const schedule = await createInstallmentSchedule(mapped.id, planLabel, mapped.amount, new Date().toISOString().slice(0, 10))
+      // Any payment already on this invoice predates the plan — apply it
+      // against the fresh schedule now instead of leaving it un-tracked.
+      if (schedule && mapped.paid > 0) await applyPaymentToSchedule(mapped.id, mapped.paid)
       return { invoice: mapped }
     }
     const totalWithGst = Math.round((pkg?.price || 0) * 1.18)
@@ -434,7 +468,7 @@ export function DataProvider({ children }) {
     syncStudentFee(lead.name, lead.course, 0, totalWithGst)
     createInstallmentSchedule(mapped.id, planLabel, totalWithGst, invoiceDate)
     return { invoice: mapped }
-  }, [invoices, syncStudentFee, createInstallmentSchedule])
+  }, [invoices, syncStudentFee, createInstallmentSchedule, applyPaymentToSchedule])
 
   // Admin-only escape hatch to re-open a locked fee bill so its plan can be
   // changed via generateFeeBill again.
@@ -460,40 +494,8 @@ export function DataProvider({ children }) {
     const mapped = mapInvoiceFromDb(data)
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
     syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
-  }, [invoices, syncStudentFee])
-
-  // Pays one specific installment: marks it paid, applies the amount to the
-  // parent invoice's running total, and syncs the student record — the
-  // single write path that keeps installment schedule, invoice, and student
-  // fee progress all pointing at the same numbers.
-  const payInstallment = useCallback(async (installmentId, paymentMode, date) => {
-    const installment = installments.find((i) => i.id === installmentId)
-    if (!installment) return
-    const invoice = invoices.find((inv) => inv.id === installment.invoice_id)
-    if (!invoice) return
-
-    const { data: instData, error: instErr } = await supabase
-      .from('invoice_installments')
-      .update({ status: 'paid', paid_date: date || new Date().toISOString().slice(0, 10) })
-      .eq('id', installmentId)
-      .select()
-      .single()
-    if (instErr) { console.error('payInstallment (installment) error', instErr); return }
-    setInstallments((prev) => prev.map((i) => i.id === installmentId ? instData : i))
-
-    const newPaid = invoice.paid + Number(installment.amount)
-    const newBalance = invoice.amount - newPaid
-    const { data: invData, error: invErr } = await supabase
-      .from('invoices')
-      .update({ paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial', payment_mode: paymentMode || invoice.paymentMode, date: date || invoice.date })
-      .eq('id', invoice.id)
-      .select()
-      .single()
-    if (invErr) { console.error('payInstallment (invoice) error', invErr); return }
-    const mapped = mapInvoiceFromDb(invData)
-    setInvoices((prev) => prev.map((inv) => inv.id === invoice.id ? mapped : inv))
-    syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
-  }, [installments, invoices, syncStudentFee])
+    if (installments.some((i) => i.invoice_id === invoiceId)) await applyPaymentToSchedule(invoiceId, amount)
+  }, [invoices, syncStudentFee, installments, applyPaymentToSchedule])
 
   const createInvoice = useCallback(async (invoiceData) => {
     const { data, error } = await supabase.from('invoices').insert(invoiceData).select().single()
@@ -511,7 +513,7 @@ export function DataProvider({ children }) {
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage,
       invoices, setInvoices, recordPayment, createInvoice,
-      installments, payInstallment,
+      installments,
       teamMembers,
       leadDocuments, addLeadDocument, deleteLeadDocument,
       batches, addBatch, updateBatch, deleteBatch,

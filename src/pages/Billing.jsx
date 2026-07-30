@@ -53,7 +53,7 @@ const itemVariants = {
 export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, invoices: invoicesData, recordPayment, createInvoice, installments, payInstallment } = useData()
+  const { students, invoices: invoicesData, recordPayment, createInvoice, installments } = useData()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
@@ -71,18 +71,11 @@ export default function Billing() {
   const showToast = (msg, type = 'success') => { setToast({ message: msg, type }); setTimeout(() => setToast(null), 3000) }
 
   const getSchedule = (invoiceId) => installments.filter((i) => i.invoice_id === invoiceId).sort((a, b) => a.seq - b.seq)
-  const getNextPending = (invoiceId) => getSchedule(invoiceId).find((i) => i.status === 'pending')
+  // First installment that isn't fully paid yet — a "partial" one (paid
+  // less than its amount) still counts as next, not just untouched ones.
+  const getNextPending = (invoiceId) => getSchedule(invoiceId).find((i) => i.status !== 'paid')
 
   const handleConfirmPayment = () => {
-    const schedule = getSchedule(selectedInvoice.id)
-    if (schedule.length > 0) {
-      const next = getNextPending(selectedInvoice.id)
-      if (!next) { showToast('All installments are already paid', 'error'); return }
-      payInstallment(next.id, paymentForm.paymentMode, paymentForm.date)
-      showToast(`Installment ${next.seq} of ${schedule.length} (${formatINR(next.amount)}) recorded for ${selectedInvoice.student}`)
-      closeModal()
-      return
-    }
     const amt = Number(paymentForm.amount)
     if (!amt || amt <= 0 || amt > selectedInvoice.balance) { showToast('Enter a valid payment amount', 'error'); return }
     recordPayment(selectedInvoice.id, amt, paymentForm.paymentMode, paymentForm.date)
@@ -255,8 +248,9 @@ export default function Billing() {
   const openModal = (invoice) => {
     setSelectedInvoice(invoice)
     const next = getNextPending(invoice.id)
+    const suggested = next ? Number(next.amount) - Number(next.paid_amount) : invoice.balance
     setPaymentForm({
-      amount: (next ? next.amount : invoice.balance).toString(),
+      amount: suggested.toString(),
       paymentMode: invoice.paymentMode || 'UPI',
       date: new Date().toISOString().split('T')[0],
       reference: '',
@@ -720,7 +714,8 @@ export default function Billing() {
                     <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>Installment Schedule</h3>
                     <div className="space-y-2">
                       {getSchedule(selectedInvoice.id).map((inst) => {
-                        const isNext = inst.status === 'pending' && inst.id === getNextPending(selectedInvoice.id)?.id
+                        const isNext = inst.status !== 'paid' && inst.id === getNextPending(selectedInvoice.id)?.id
+                        const remaining = Number(inst.amount) - Number(inst.paid_amount)
                         return (
                           <div key={inst.id} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
                             inst.status === 'paid'
@@ -734,7 +729,10 @@ export default function Billing() {
                                 {inst.status === 'paid' ? <CheckCircle2 size={14} className="text-emerald-500" /> : <Clock size={14} className={isDark ? 'text-dark-400' : 'text-dark-500'} />}
                               </div>
                               <div>
-                                <p className={`text-sm font-medium ${textPrimary}`}>Installment {inst.seq} &middot; {formatINR(inst.amount)}</p>
+                                <p className={`text-sm font-medium ${textPrimary}`}>
+                                  Installment {inst.seq} &middot; {formatINR(inst.amount)}
+                                  {inst.status === 'partial' && <span className={textMuted}> ({formatINR(Number(inst.paid_amount))} paid, {formatINR(remaining)} left)</span>}
+                                </p>
                                 <p className={`text-xs ${textMuted}`}>
                                   {inst.status === 'paid' ? `Paid on ${inst.paid_date}` : `Due ${inst.due_date}`}
                                 </p>
@@ -754,6 +752,9 @@ export default function Billing() {
                     <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>
                       {getSchedule(selectedInvoice.id).length > 0 ? `Record Payment — Installment ${getNextPending(selectedInvoice.id)?.seq}` : 'Record New Payment'}
                     </h3>
+                    {getSchedule(selectedInvoice.id).length > 0 && (
+                      <p className={`text-xs mb-3 ${textMuted}`}>Suggested amount is the next installment's remaining balance — pay more to roll into later installments, or less to leave it partial.</p>
+                    )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className={`block text-xs font-medium mb-1.5 ${textSecondary}`}>
@@ -762,10 +763,9 @@ export default function Billing() {
                         <input
                           type="number"
                           value={paymentForm.amount}
-                          disabled={getSchedule(selectedInvoice.id).length > 0}
                           onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
                           max={selectedInvoice.balance}
-                          className={`w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                          className={`w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors ${
                             isDark
                               ? 'bg-dark-800 border border-dark-600 text-white focus:border-primary-500'
                               : 'bg-white border border-dark-200 text-dark-900 focus:border-primary-500'
