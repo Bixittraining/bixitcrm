@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { jsPDF } from 'jspdf'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   IndianRupee,
@@ -100,9 +101,95 @@ export default function Billing() {
   }
 
   const handleDownloadInvoice = (inv) => {
-    const txt = `INVOICE: ${inv.id}\nStudent: ${inv.student}\nCourse: ${inv.course}\nTotal: ${formatINR(inv.amount)}\nPaid: ${formatINR(inv.paid)}\nBalance: ${formatINR(inv.balance)}\nDue: ${inv.dueDate}\nStatus: ${inv.status}`
-    const blob = new Blob([txt], { type: 'text/plain' }); const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `${inv.id}.txt`; a.click(); URL.revokeObjectURL(url)
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 48
+    let y = 60
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(20)
+    doc.setTextColor(79, 70, 229)
+    doc.text('BIX Academy', margin, y)
+    doc.setFontSize(11)
+    doc.setTextColor(100)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Education CRM', margin, y + 16)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.setTextColor(20)
+    doc.text('TAX INVOICE', pageWidth - margin, y, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(100)
+    doc.text(inv.id, pageWidth - margin, y + 16, { align: 'right' })
+
+    y += 50
+    doc.setDrawColor(220)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 30
+
+    doc.setFontSize(10)
+    doc.setTextColor(120)
+    doc.text('BILLED TO', margin, y)
+    doc.text('INVOICE DETAILS', pageWidth / 2 + 10, y)
+    y += 16
+
+    doc.setFontSize(12)
+    doc.setTextColor(20)
+    doc.setFont('helvetica', 'bold')
+    doc.text(inv.student, margin, y)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(`Course: ${inv.course}`, margin, y + 16)
+
+    doc.setFontSize(10)
+    doc.text(`Invoice Date: ${inv.date || '-'}`, pageWidth / 2 + 10, y)
+    doc.text(`Due Date: ${inv.dueDate || '-'}`, pageWidth / 2 + 10, y + 16)
+    doc.text(`Status: ${inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}`, pageWidth / 2 + 10, y + 32)
+    if (inv.payment_plan) doc.text(`Payment Plan: ${inv.payment_plan}`, pageWidth / 2 + 10, y + 48)
+
+    y += 80
+    const rowH = 26
+    doc.setFillColor(79, 70, 229)
+    doc.rect(margin, y, pageWidth - margin * 2, rowH, 'F')
+    doc.setTextColor(255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text('DESCRIPTION', margin + 10, y + 17)
+    doc.text('AMOUNT', pageWidth - margin - 10, y + 17, { align: 'right' })
+    y += rowH
+
+    const rows = [
+      ['Course Fee (incl. GST)', formatINR(inv.amount)],
+      ['Amount Paid', `- ${formatINR(inv.paid)}`],
+    ]
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(40)
+    rows.forEach(([label, val], i) => {
+      if (i % 2 === 1) { doc.setFillColor(245, 245, 250); doc.rect(margin, y, pageWidth - margin * 2, rowH, 'F') }
+      doc.text(label, margin + 10, y + 17)
+      doc.text(val, pageWidth - margin - 10, y + 17, { align: 'right' })
+      y += rowH
+    })
+
+    doc.setDrawColor(220)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 24
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.setTextColor(20)
+    doc.text('Balance Due', margin, y)
+    doc.setTextColor(inv.balance > 0 ? 220 : 22, inv.balance > 0 ? 38 : 163, inv.balance > 0 ? 38 : 74)
+    doc.text(formatINR(inv.balance), pageWidth - margin, y, { align: 'right' })
+
+    y += 50
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(140)
+    doc.text('This is a computer-generated invoice from BIX Academy CRM.', margin, y)
+
+    doc.save(`${inv.id}.pdf`)
   }
 
   // Financial calculations
