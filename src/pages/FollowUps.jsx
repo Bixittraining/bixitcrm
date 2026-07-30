@@ -68,7 +68,7 @@ function getWeekDates() {
 }
 
 // ─── ACTION DROPDOWN (per follow-up card) ──────────────────────────────
-function FollowUpActionMenu({ fu, isDark, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
+function FollowUpActionMenu({ fu, isDark, closedStatus, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
   const ref = useRef(null)
   const [customDate, setCustomDate] = useState('')
   const [customTime, setCustomTime] = useState('')
@@ -93,9 +93,12 @@ function FollowUpActionMenu({ fu, isDark, onClose, onMarkComplete, onRNR, onLost
       className={`absolute right-0 z-30 mt-1 w-64 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
       {fu.status === 'pending' && item(<Check className="w-3.5 h-3.5" />, 'Mark Completed', onMarkComplete, isDark ? 'text-emerald-400' : 'text-emerald-600')}
-      {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', onRNR)}
-      {item(<GraduationCap className="w-3.5 h-3.5" />, 'Transfer to Student', onTransferToStudent, isDark ? 'text-primary-400' : 'text-primary-600')}
-      {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', onLost, isDark ? 'text-rose-400' : 'text-rose-600')}
+      {!closedStatus && item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', onRNR)}
+      {!closedStatus && item(<GraduationCap className="w-3.5 h-3.5" />, 'Transfer to Student', onTransferToStudent, isDark ? 'text-primary-400' : 'text-primary-600')}
+      {!closedStatus && item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', onLost, isDark ? 'text-rose-400' : 'text-rose-600')}
+      {closedStatus && (
+        <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>This lead is already {closedStatus} — pipeline actions are hidden.</p>
+      )}
       <div className={dividerCls} />
       <p className={sectionLabelCls}>Reschedule</p>
       {item(<Clock className="w-3.5 h-3.5" />, 'Follow up again in 1 day', () => onPresetReschedule(1))}
@@ -697,6 +700,7 @@ export default function FollowUps() {
                                 <FollowUpActionMenu
                                   fu={fu}
                                   isDark={isDark}
+                                  closedStatus={['enrolled', 'lost'].includes(getLeadFor(fu)?.status) ? getLeadFor(fu).status : null}
                                   onClose={() => setActionMenuId(null)}
                                   onMarkComplete={() => handleMarkComplete(fu.id)}
                                   onRNR={() => handleRNR(fu)}

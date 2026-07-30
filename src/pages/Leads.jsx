@@ -252,7 +252,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
+function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const ref = useRef(null)
   useEffect(() => {
     function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
@@ -270,19 +270,39 @@ function LeadActionMenu({ lead, isDark, onClose, onScheduleFollowUp, onScheduleM
     </button>
   )
 
+  // A lead that's already Enrolled or Lost is a closed deal — none of the
+  // pipeline actions (take over, follow-up, RNR, re-enroll/re-lose) make
+  // sense anymore. Only an admin can still correct the record from here.
+  const isClosed = lead.status === 'enrolled' || lead.status === 'lost'
+
   return (
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
       className={`absolute right-0 z-30 mt-1 w-52 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
-      {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
-      {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
-      {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
-      {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
-      {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
-      {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
-      <div className={dividerCls} />
-      {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
-      {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+      {isClosed ? (
+        isAdmin ? (
+          <>
+            {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
+            {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+          </>
+        ) : (
+          <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+            {lead.status === 'enrolled' ? 'Enrolled' : 'Lost'} — only an admin can edit this lead.
+          </p>
+        )
+      ) : (
+        <>
+          {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
+          {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
+          {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
+          {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
+          {item(<GraduationCap className="w-3.5 h-3.5" />, 'Mark Enrolled', () => onEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+          {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+          <div className={dividerCls} />
+          {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
+          {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+        </>
+      )}
     </motion.div>
   )
 }
@@ -715,6 +735,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
   const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
   const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
+  const isLeadClosed = lead.status === 'enrolled' || lead.status === 'lost'
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
   const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
@@ -789,19 +810,30 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all">
               <MessageCircle className="w-4 h-4" />WhatsApp
             </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onTransfer(lead)}
-              className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-              <Clock className="w-4 h-4" />Reminder
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onEdit(lead)}
-              className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-              <Pencil className="w-4 h-4" />Edit
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onDelete(lead)}
-              className={`p-2.5 rounded-lg transition-colors ${isDark ? 'text-rose-400 hover:bg-rose-500/10' : 'text-rose-500 hover:bg-rose-50'}`}>
-              <Trash2 className="w-4 h-4" />
-            </motion.button>
+            {(!isLeadClosed || isAdmin) && (
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onTransfer(lead)}
+                className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+                <Clock className="w-4 h-4" />Reminder
+              </motion.button>
+            )}
+            {(!isLeadClosed || isAdmin) && (
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onEdit(lead)}
+                className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+                <Pencil className="w-4 h-4" />Edit
+              </motion.button>
+            )}
+            {(!isLeadClosed || isAdmin) && (
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onDelete(lead)}
+                className={`p-2.5 rounded-lg transition-colors ${isDark ? 'text-rose-400 hover:bg-rose-500/10' : 'text-rose-500 hover:bg-rose-50'}`}>
+                <Trash2 className="w-4 h-4" />
+              </motion.button>
+            )}
           </div>
+          {isLeadClosed && !isAdmin && (
+            <p className={`text-xs mt-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              This lead is {lead.status} — only an admin can edit or delete it.
+            </p>
+          )}
         </div>
       </motion.div>
 
@@ -1842,6 +1874,7 @@ function Leads() {
                                     <LeadActionMenu
                                       lead={lead}
                                       isDark={isDark}
+                                      isAdmin={isAdmin}
                                       onClose={() => setActionMenuId(null)}
                                       onScheduleFollowUp={(l) => { setTransferModalType('call'); setShowTransferModal(l) }}
                                       onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}
