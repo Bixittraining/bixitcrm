@@ -20,6 +20,12 @@ export function AuthProvider({ children }) {
     setProfileRow(data ?? null)
   }, [])
 
+  // Recovers the open session row for a browser reload, or — if the
+  // browser was already authenticated from before this feature existed (or
+  // any other reason no open row is found) — starts one now. Being
+  // authenticated with no open session is effectively "logged in" for
+  // activity-tracking purposes, so it shouldn't just sit there as a
+  // permanent "Offline" in Team Activity.
   const recoverOpenSession = useCallback(async (userId) => {
     const { data } = await supabase
       .from('user_sessions')
@@ -29,7 +35,10 @@ export function AuthProvider({ children }) {
       .order('login_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (data) setCurrentSessionId(data.id)
+    if (data) { setCurrentSessionId(data.id); return }
+    const { data: created, error } = await supabase.from('user_sessions').insert({ user_id: userId }).select('id').single()
+    if (error) console.error('recoverOpenSession insert error', error)
+    else setCurrentSessionId(created.id)
   }, [])
 
   useEffect(() => {

@@ -16,6 +16,19 @@ function formatDateTime(iso) {
   return new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function formatTime(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDayLabel(dateStr) {
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  if (dateStr === today) return 'Today'
+  if (dateStr === yesterday) return 'Yesterday'
+  return new Date(dateStr).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 function formatDuration(loginAt, logoutAt) {
   if (!logoutAt) return '—'
   const ms = new Date(logoutAt) - new Date(loginAt)
@@ -25,8 +38,21 @@ function formatDuration(loginAt, logoutAt) {
   return `${hrs}h ${mins % 60}m`
 }
 
+// Attendance-style view: one row per calendar day, listing every
+// login/logout pair that happened that day (someone can log in and out
+// more than once in a day, e.g. a lunch break).
 function SessionHistoryModal({ member, sessions, isDark, onClose }) {
   const memberSessions = sessions.filter((s) => s.user_id === member.id).sort((a, b) => new Date(b.login_at) - new Date(a.login_at))
+
+  const byDay = useMemo(() => {
+    const map = new Map()
+    for (const s of memberSessions) {
+      const day = s.login_at.slice(0, 10)
+      if (!map.has(day)) map.set(day, [])
+      map.get(day).push(s)
+    }
+    return [...map.entries()]
+  }, [memberSessions])
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -35,40 +61,75 @@ function SessionHistoryModal({ member, sessions, isDark, onClose }) {
         className={`relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}>
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{member.name}'s Sessions</h2>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{memberSessions.length} session{memberSessions.length === 1 ? '' : 's'} recorded</p>
+            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{member.name}'s Attendance</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{byDay.length} day{byDay.length === 1 ? '' : 's'} logged &middot; {memberSessions.length} session{memberSessions.length === 1 ? '' : 's'}</p>
           </div>
           <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
             className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}>
             <X className="w-5 h-5" />
           </motion.button>
         </div>
-        {memberSessions.length === 0 ? (
+        {byDay.length === 0 ? (
           <p className={`text-sm text-center py-8 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No sessions recorded yet.</p>
         ) : (
-          <div className="space-y-2">
-            {memberSessions.map((s) => (
-              <div key={s.id} className={`rounded-xl p-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <LogIn className={`w-3.5 h-3.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                    <span className={`text-xs font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{formatDateTime(s.login_at)}</span>
-                  </div>
-                  {!s.logout_at && (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-500">
-                      <Circle className="w-2 h-2 fill-emerald-500" />Online
-                    </span>
-                  )}
+          <div className="space-y-3">
+            {byDay.map(([day, daySessions]) => (
+              <div key={day} className={`rounded-xl p-3.5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar className={`w-3.5 h-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} />
+                  <p className={`text-xs font-semibold ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{formatDayLabel(day)}</p>
                 </div>
-                {s.logout_at && (
-                  <div className="flex items-center justify-between mt-1.5">
-                    <div className="flex items-center gap-2">
-                      <LogOut className={`w-3.5 h-3.5 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />
-                      <span className={`text-xs font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{formatDateTime(s.logout_at)}</span>
+                <div className="space-y-1.5">
+                  {daySessions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between pl-5.5">
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className={`inline-flex items-center gap-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}><LogIn className="w-3 h-3" />{formatTime(s.login_at)}</span>
+                        {s.logout_at ? (
+                          <span className={`inline-flex items-center gap-1 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}><LogOut className="w-3 h-3" />{formatTime(s.logout_at)}</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-semibold text-emerald-500"><Circle className="w-2 h-2 fill-emerald-500" />Still online</span>
+                        )}
+                      </div>
+                      <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{formatDuration(s.login_at, s.logout_at)}</span>
                     </div>
-                    <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{formatDuration(s.login_at, s.logout_at)}</span>
-                  </div>
-                )}
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  )
+}
+
+function LeadsHandlingModal({ member, memberLeads, isDark, onClose }) {
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+        className={`relative w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}>
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Leads handled by {member.name}</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{memberLeads.length} lead{memberLeads.length === 1 ? '' : 's'} currently assigned</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}>
+            <X className="w-5 h-5" />
+          </motion.button>
+        </div>
+        {memberLeads.length === 0 ? (
+          <p className={`text-sm text-center py-8 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No leads assigned to this member yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {memberLeads.map((lead) => (
+              <div key={lead.id} className={`flex items-center justify-between rounded-xl p-3 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{lead.name}</p>
+                  <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.course}</p>
+                </div>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${isDark ? 'bg-dark-700 text-dark-300' : 'bg-dark-100 text-dark-600'}`}>{lead.status}</span>
               </div>
             ))}
           </div>
@@ -87,6 +148,7 @@ export default function TeamActivity() {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedMember, setSelectedMember] = useState(null)
+  const [leadsMember, setLeadsMember] = useState(null)
 
   useEffect(() => {
     if (!isAdmin) { setLoading(false); return }
@@ -192,9 +254,14 @@ export default function TeamActivity() {
                   <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatDateTime(latest?.login_at)}</td>
                   <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatDateTime(lastLogout?.logout_at)}</td>
                   <td className={`px-4 py-3.5`}>
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-medium ${isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'}`}>
+                    <button onClick={() => setLeadsMember(member)} disabled={leadCount === 0}
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+                        leadCount === 0
+                          ? isDark ? 'bg-dark-800 text-dark-500' : 'bg-dark-100 text-dark-400'
+                          : isDark ? 'bg-primary-500/10 text-primary-400 hover:bg-primary-500/20' : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                      }`}>
                       <UserCheck className="w-3 h-3" />{leadCount} lead{leadCount === 1 ? '' : 's'}
-                    </span>
+                    </button>
                   </td>
                   <td className="px-4 py-3.5 text-right">
                     <button onClick={() => setSelectedMember(member)} disabled={sessionCount === 0}
@@ -218,6 +285,12 @@ export default function TeamActivity() {
       <AnimatePresence>
         {selectedMember && (
           <SessionHistoryModal member={selectedMember} sessions={sessions} isDark={isDark} onClose={() => setSelectedMember(null)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {leadsMember && (
+          <LeadsHandlingModal member={leadsMember} memberLeads={leads.filter((l) => l.assigned_to === leadsMember.id)} isDark={isDark} onClose={() => setLeadsMember(null)} />
         )}
       </AnimatePresence>
     </div>
