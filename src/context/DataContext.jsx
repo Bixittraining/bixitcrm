@@ -205,7 +205,11 @@ export function DataProvider({ children }) {
       .select()
       .single()
     if (error) { console.error('updateFollowUp error', error); return }
-    setFollowUps((prev) => prev.map((f) => f.id === followUpId ? mapFollowUpFromDb(data) : f))
+    // Moves the touched follow-up to the front of the list so an action
+    // (RNR, reschedule, mark complete) is visibly reflected immediately —
+    // otherwise it silently stays buried in its old spot and reps re-do
+    // the same action thinking nothing happened.
+    setFollowUps((prev) => [mapFollowUpFromDb(data), ...prev.filter((f) => f.id !== followUpId)])
   }, [])
 
   // ── STUDENTS ─────────────────────────────────────────────

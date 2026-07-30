@@ -182,7 +182,7 @@ export default function FollowUps() {
   const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers } = useData()
+  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, setFollowUps, addActivity, teamMembers, takeOverLead } = useData()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
@@ -250,9 +250,19 @@ export default function FollowUps() {
     ? 'bg-dark-900 border border-dark-700/60'
     : 'bg-white border border-dark-200/60 shadow-sm'
 
+  // A rep who actively works a follow-up (RNR, reschedule, mark complete,
+  // call) is the one really handling that lead — if it's still sitting
+  // "Unassigned" it should reflect them, not stay blank until someone
+  // remembers to click "Take Over Lead" separately.
+  const autoAssignIfUnassigned = (fu) => {
+    const lead = getLeadFor(fu)
+    if (lead && !lead.assigned_to) takeOverLead(lead.id)
+  }
+
   const handleMarkComplete = (id) => {
     const fu = localFollowUps.find((f) => f.id === id)
     updateFollowUp(id, { status: 'completed' })
+    if (fu) autoAssignIfUnassigned(fu)
     const lead = fu && leads.find((l) => l.name === fu.lead)
     if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up marked COMPLETED`)
   }
@@ -304,6 +314,7 @@ export default function FollowUps() {
     const lead = leads.find((l) => l.name === fu.lead)
     if (lead) {
       window.open(`tel:${lead.phone}`)
+      autoAssignIfUnassigned(fu)
     }
     showToast(`Calling ${fu.lead}...`)
   }
@@ -311,6 +322,7 @@ export default function FollowUps() {
   const handlePresetReschedule = (fu, days) => {
     const newDate = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
     updateFollowUp(fu.id, { date: newDate, status: 'pending' })
+    autoAssignIfUnassigned(fu)
     const lead = getLeadFor(fu)
     if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${newDate}`)
     showToast(`Follow-up with ${fu.lead} rescheduled to ${newDate}`)
@@ -320,6 +332,7 @@ export default function FollowUps() {
     const newDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
     const noteText = `Ring No Response (RNR).${fu.notes && !isRNR(fu) ? ` ${fu.notes}` : ''}`
     updateFollowUp(fu.id, { date: newDate, notes: noteText, status: 'pending' })
+    autoAssignIfUnassigned(fu)
     const lead = getLeadFor(fu)
     if (lead) addActivity(lead.id, lead.status, lead.status, `CALL follow-up marked NOT_ATTEMPT — next attempt ${newDate}`)
     showToast(`Marked RNR for ${fu.lead} — next attempt ${newDate}`)
@@ -747,6 +760,7 @@ export default function FollowUps() {
                                   onCustomReschedule={(date, time) => {
                                     const timeStr = time ? new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : fu.time
                                     updateFollowUp(fu.id, { date, time: timeStr, status: 'pending' })
+                                    autoAssignIfUnassigned(fu)
                                     const lead = getLeadFor(fu)
                                     if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up rescheduled to ${date} ${timeStr}`)
                                     showToast('Follow-up rescheduled')
