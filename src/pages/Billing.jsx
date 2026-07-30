@@ -54,6 +54,7 @@ export default function Billing() {
   const isDark = theme === 'dark'
   const { students, invoices: invoicesData, recordPayment, createInvoice, installments } = useData()
   const [searchQuery, setSearchQuery] = useState('')
+  const [planFilter, setPlanFilter] = useState('all')
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
@@ -231,6 +232,12 @@ export default function Billing() {
     else if (bucketFilter === 'paid') result = result.filter((inv) => inv.status === 'paid')
     else if (bucketFilter === 'overdue') result = result.filter(isInvoiceOverdue)
 
+    // "Full Payment" isn't always stored explicitly — an invoice with no
+    // installment plan (payment_plan is null) is a full-payment invoice by
+    // definition, so it's treated the same as an explicit "Full Payment".
+    if (planFilter === 'full') result = result.filter((inv) => !inv.payment_plan || inv.payment_plan === 'Full Payment')
+    else if (planFilter !== 'all') result = result.filter((inv) => inv.payment_plan === planFilter)
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       result = result.filter(
@@ -253,7 +260,7 @@ export default function Billing() {
     })
 
     return result
-  }, [invoicesData, searchQuery, sortField, sortDirection, bucketFilter, today])
+  }, [invoicesData, searchQuery, sortField, sortDirection, bucketFilter, planFilter, today])
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -478,19 +485,35 @@ export default function Billing() {
               </button>
             )}
           </div>
-          <div className="relative">
-            <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted}`} />
-            <input
-              type="text"
-              placeholder="Search invoices..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-4 py-2 rounded-xl text-sm w-full sm:w-64 outline-none transition-colors ${
+          <div className="flex items-center gap-2">
+            <select
+              value={planFilter}
+              onChange={(e) => setPlanFilter(e.target.value)}
+              className={`px-3 py-2 rounded-xl text-sm outline-none cursor-pointer transition-colors ${
                 isDark
-                  ? 'bg-dark-800 border border-dark-600 text-white placeholder:text-dark-500 focus:border-primary-500'
-                  : 'bg-dark-50 border border-dark-200 text-dark-900 placeholder:text-dark-400 focus:border-primary-500'
+                  ? 'bg-dark-800 border border-dark-600 text-white'
+                  : 'bg-dark-50 border border-dark-200 text-dark-900'
               }`}
-            />
+            >
+              <option value="all">All Payment Plans</option>
+              <option value="full">Full Payment</option>
+              <option value="2 Installments">2 Installments</option>
+              <option value="3 Installments">3 Installments</option>
+            </select>
+            <div className="relative">
+              <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${textMuted}`} />
+              <input
+                type="text"
+                placeholder="Search invoices..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`pl-9 pr-4 py-2 rounded-xl text-sm w-full sm:w-64 outline-none transition-colors ${
+                  isDark
+                    ? 'bg-dark-800 border border-dark-600 text-white placeholder:text-dark-500 focus:border-primary-500'
+                    : 'bg-dark-50 border border-dark-200 text-dark-900 placeholder:text-dark-400 focus:border-primary-500'
+                }`}
+              />
+            </div>
           </div>
         </div>
 
