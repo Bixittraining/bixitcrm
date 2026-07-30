@@ -176,7 +176,7 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
   )
 }
 
-function BatchDetailModal({ batch, isDark, students, instructor, scheduleText, dateRange, cfg, onClose }) {
+function BatchDetailModal({ batch, isDark, students, instructor, scheduleText, dateRange, cfg, onClose, onUpdateStudent }) {
   const roster = students.filter((s) => s.batch_id === batch.id)
   const StatusIcon = cfg.icon
   const badgeCls = {
@@ -248,7 +248,25 @@ function BatchDetailModal({ batch, isDark, students, instructor, scheduleText, d
                     </div>
                     <div className="text-right shrink-0">
                       <p className={`text-xs font-semibold ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{s.feePaid?.toLocaleString('en-IN')} / {s.feeTotal?.toLocaleString('en-IN')}</p>
-                      <p className={`text-[11px] ${s.status === 'active' ? 'text-emerald-500' : isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.status}</p>
+                      {s.status === 'completed' ? (
+                        s.certificate_collected ? (
+                          <button
+                            onClick={() => onUpdateStudent(s.id, { certificate_collected: false, certificate_collected_date: null })}
+                            title="Click to undo"
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-500 mt-0.5 hover:opacity-70 transition-opacity">
+                            <CheckCircle2 className="w-3 h-3" />Certificate Collected
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onUpdateStudent(s.id, { certificate_collected: true, certificate_collected_date: new Date().toISOString().slice(0, 10) })}
+                            className={`inline-flex items-center gap-1 text-[11px] font-medium mt-0.5 px-2 py-0.5 rounded-full transition-colors ${isDark ? 'bg-accent-500/15 text-accent-400 hover:bg-accent-500/25' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}
+                          >
+                            <GraduationCap className="w-3 h-3" />Course Completed — Mark Certificate Collected
+                          </button>
+                        )
+                      ) : (
+                        <p className={`text-[11px] ${s.status === 'active' ? 'text-emerald-500' : isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.status}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -264,7 +282,7 @@ function BatchDetailModal({ batch, isDark, students, instructor, scheduleText, d
 export default function Batches() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { batches, addBatch, updateBatch, deleteBatch, students, teamMembers } = useData()
+  const { batches, addBatch, updateBatch, deleteBatch, students, teamMembers, updateStudent } = useData()
 
   const [showFormModal, setShowFormModal] = useState(false)
   const [editingBatch, setEditingBatch] = useState(null)
@@ -467,6 +485,7 @@ export default function Batches() {
               : 'Dates not set'}
             cfg={statusConfig[viewingBatch.status] || statusConfig.upcoming}
             onClose={() => setViewingBatch(null)}
+            onUpdateStudent={updateStudent}
           />
         )}
       </AnimatePresence>
