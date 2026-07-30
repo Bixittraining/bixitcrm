@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Menu, Search, Bell, MessageSquare, Sun, Moon, ChevronDown,
   User, Settings, LogOut, Users,
-  GraduationCap, AlertCircle, CalendarClock, IndianRupee,
+  GraduationCap, CalendarClock, IndianRupee,
   Bot, UserCheck,
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
@@ -86,8 +86,13 @@ function Header({ onMenuToggle, onLogout }) {
         time: l.date,
         link: '/leads',
       })),
+    // "Overdue" isn't a status ever actually stored on an invoice — it has
+    // to be computed the same way Billing.jsx does: unpaid balance whose
+    // due date has already passed. Checking inv.status === 'overdue'
+    // directly (the old code) only ever matched one leftover seed row and
+    // missed every real overdue invoice.
     ...invoices
-      .filter(inv => inv.status === 'overdue')
+      .filter(inv => inv.balance > 0 && inv.dueDate && inv.dueDate < today)
       .slice(0, 2)
       .map(inv => ({
         id: `inv-${inv.id}`,
@@ -98,18 +103,10 @@ function Header({ onMenuToggle, onLogout }) {
         time: inv.dueDate,
         link: '/billing',
       })),
-    ...students
-      .filter(s => s.attendance < 75)
-      .slice(0, 2)
-      .map(s => ({
-        id: `att-${s.id}`,
-        icon: AlertCircle,
-        color: 'bg-rose-500/15 text-rose-500',
-        title: `Low attendance: ${s.name}`,
-        desc: `${s.attendance}% attendance in ${s.course}`,
-        time: '',
-        link: '/students',
-      })),
+    // No "Low attendance" notification here — students.attendance is
+    // hardcoded to 0 for every student (there's no real class-attendance
+    // tracking system yet), so this would have flagged every single
+    // student as low-attendance regardless of reality.
   ]
 
   const unreadNotifCount = notifications.filter(n => !readNotifs.has(n.id)).length
