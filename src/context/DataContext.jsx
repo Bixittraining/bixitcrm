@@ -12,13 +12,14 @@ export function DataProvider({ children }) {
   const [invoices, setInvoices] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
   const [leadDocuments, setLeadDocuments] = useState([])
+  const [batches, setBatches] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -27,6 +28,7 @@ export function DataProvider({ children }) {
         supabase.from('lead_activities').select('*').order('created_at', { ascending: false }),
         supabase.from('profiles').select('id, name, role'),
         supabase.from('lead_documents').select('*').order('created_at', { ascending: false }),
+        supabase.from('batches').select('*').order('created_at', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -37,6 +39,7 @@ export function DataProvider({ children }) {
       if (activitiesRes.error) console.error('lead_activities error', activitiesRes.error)
       if (profilesRes.error) console.error('profiles error', profilesRes.error)
       if (documentsRes.error) console.error('lead_documents error', documentsRes.error)
+      if (batchesRes.error) console.error('batches error', batchesRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -49,6 +52,7 @@ export function DataProvider({ children }) {
       setLeadActivities(activitiesRes.data || [])
       setTeamMembers(profilesRes.data || [])
       setLeadDocuments(documentsRes.data || [])
+      setBatches(batchesRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -214,6 +218,32 @@ export function DataProvider({ children }) {
     setStudents((prev) => prev.filter((s) => s.id !== studentId))
   }, [])
 
+  const updateStudent = useCallback(async (studentId, updates) => {
+    const { data, error } = await supabase.from('students').update(updates).eq('id', studentId).select().single()
+    if (error) { console.error('updateStudent error', error); return }
+    setStudents((prev) => prev.map((s) => s.id === studentId ? mapStudentFromDb(data) : s))
+  }, [])
+
+  // ── BATCHES ──────────────────────────────────────────────
+  const addBatch = useCallback(async (batch) => {
+    const { data, error } = await supabase.from('batches').insert(batch).select().single()
+    if (error) { console.error('addBatch error', error); return null }
+    setBatches((prev) => [data, ...prev])
+    return data
+  }, [])
+
+  const updateBatch = useCallback(async (batchId, updates) => {
+    const { data, error } = await supabase.from('batches').update(updates).eq('id', batchId).select().single()
+    if (error) { console.error('updateBatch error', error); return }
+    setBatches((prev) => prev.map((b) => b.id === batchId ? data : b))
+  }, [])
+
+  const deleteBatch = useCallback(async (batchId) => {
+    const { error } = await supabase.from('batches').delete().eq('id', batchId)
+    if (error) { console.error('deleteBatch error', error); return }
+    setBatches((prev) => prev.filter((b) => b.id !== batchId))
+  }, [])
+
   // ── LEAD DOCUMENT VAULT ────────────────────────────────────
   const addLeadDocument = useCallback(async (leadId, category, title, url) => {
     const { data, error } = await supabase
@@ -240,7 +270,7 @@ export function DataProvider({ children }) {
   }, [])
 
   // ── ENROLLMENT (lead -> student + invoice) ───────────────
-  const enrollLead = useCallback(async (lead, pkg) => {
+  const enrollLead = useCallback(async (lead, pkg, batchName) => {
     // 1. mark lead enrolled
     const { data: updatedLead, error: leadErr } = await supabase
       .from('leads')
@@ -258,7 +288,6 @@ export function DataProvider({ children }) {
     let newStudent = existingStudent
 
     if (!existingStudent) {
-      const batch = `Batch ${new Date().getFullYear()}-${String.fromCharCode(65 + Math.floor(Math.random() * 4))}`
       const { data: studentData, error: studentErr } = await supabase
         .from('students')
         .insert({
@@ -266,7 +295,7 @@ export function DataProvider({ children }) {
           email: lead.email,
           phone: lead.phone,
           course: lead.course,
-          batch,
+          batch: batchName || 'Unassigned',
           enroll_date: new Date().toISOString().slice(0, 10),
           status: 'active',
           fee_paid: 0,
@@ -342,11 +371,12 @@ export function DataProvider({ children }) {
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
       followUps, setFollowUps, addFollowUp, updateFollowUp,
       leadActivities, addActivity,
-      students, setStudents, addStudent, deleteStudent, enrollLead, generateFeeBill,
+      students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill,
       packages, setPackages, addPackage,
       invoices, setInvoices,
       teamMembers,
       leadDocuments, addLeadDocument, deleteLeadDocument,
+      batches, addBatch, updateBatch, deleteBatch,
       loading,
     }}>
       {children}

@@ -58,7 +58,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches }) {
   if (!student) return null
 
   const isDark = theme === 'dark'
@@ -164,7 +164,13 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
               </div>
               <div className="flex items-center gap-2">
                 <BookOpen size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
-                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.batch}</span>
+                <select value={student.batch || 'Unassigned'} onChange={(e) => onBatchChange(student, e.target.value)}
+                  className={`text-sm bg-transparent outline-none cursor-pointer rounded-lg -ml-1 px-1 py-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                  <option value="Unassigned">Unassigned</option>
+                  {(batches || []).filter((b) => b.course === student.course).map((b) => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-2">
                 <Calendar size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
@@ -222,7 +228,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent } = useData()
+  const { students, addStudent, deleteStudent, updateStudent, batches } = useData()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('All')
@@ -259,6 +265,12 @@ function Students() {
     deleteStudent(id)
     setSelectedStudent(null)
     showToast(student ? `${student.name} removed` : 'Student removed')
+  }
+
+  const handleBatchChange = (student, batchName) => {
+    updateStudent(student.id, { batch: batchName })
+    setSelectedStudent((prev) => (prev && prev.id === student.id ? { ...prev, batch: batchName } : prev))
+    showToast(`${student.name} moved to ${batchName}`)
   }
 
   const handleMessageStudent = (student) => {
@@ -810,6 +822,8 @@ function Students() {
             onCall={handleCallStudent}
             onWhatsApp={handleWhatsApp}
             onDelete={handleDeleteStudent}
+            onBatchChange={handleBatchChange}
+            batches={batches}
           />
         )}
       </AnimatePresence>

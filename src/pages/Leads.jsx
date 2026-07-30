@@ -696,9 +696,10 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
+  const [selectedBatchName, setSelectedBatchName] = useState('')
   const [addingDocCategory, setAddingDocCategory] = useState(null)
   const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
@@ -1130,6 +1131,21 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       </span>
                     ))}
                   </div>
+                  {lead.status !== 'enrolled' && (
+                    <div className="mb-4">
+                      <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Assign to Batch</label>
+                      <select value={selectedBatchName} onChange={(e) => setSelectedBatchName(e.target.value)}
+                        className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+                        <option value="">No batch yet (assign later)</option>
+                        {(batches || []).filter((b) => b.course === lead.course).map((b) => (
+                          <option key={b.id} value={b.name}>{b.name} &middot; {b.schedule || 'schedule TBD'}</option>
+                        ))}
+                      </select>
+                      {(batches || []).filter((b) => b.course === lead.course).length === 0 && (
+                        <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {lead.course} — create one from the Batches page.</p>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-3">
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                       onClick={() => {
@@ -1144,7 +1160,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                         if (lead.status === 'enrolled') {
                           showNotification('Lead is already enrolled', 'error')
                         } else {
-                          onEnroll(lead)
+                          onEnroll(lead, selectedBatchName)
                           setActiveTab('feebill')
                         }
                       }}
@@ -1332,7 +1348,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -1540,9 +1556,9 @@ function Leads() {
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, batch_timing: newTiming } : prev))
   }
 
-  const handleEnrollLead = (lead) => {
+  const handleEnrollLead = (lead, batchName) => {
     const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
-    enrollLead(lead, pkg)
+    enrollLead(lead, pkg, batchName)
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'enrolled' } : prev))
     showNotification(`${lead.name} has been enrolled in ${lead.course}`)
   }
@@ -1613,6 +1629,7 @@ function Leads() {
             showNotification={showNotification}
             packages={packages}
             teamMembers={teamMembers}
+            batches={batches}
           />
         ) : (
           <motion.div key="list" className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit={{ opacity: 0, x: -40 }}>
