@@ -95,6 +95,10 @@ export async function insertLead(admin, { name, email, phone, course, source, no
     if (existing) return { data: existing, duplicate: true }
   }
 
+  // Webhook leads have no "creating user" to fall back on, so round-robin
+  // assignment is the only way they don't all pile up Unassigned.
+  const { data: assignedTo } = await admin.rpc('assign_next_sales_rep')
+
   const lead = {
     name,
     email: email || null,
@@ -106,6 +110,7 @@ export async function insertLead(admin, { name, email, phone, course, source, no
     date: todayISODate(),
     notes: notes || '',
     avatar: avatarFromName(name),
+    assigned_to: assignedTo || null,
   }
 
   const { data, error } = await admin.from('leads').insert(lead).select().single()
