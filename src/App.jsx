@@ -16,6 +16,7 @@ import Reports from './pages/Reports'
 import Conversations from './pages/Conversations'
 import TeamActivity from './pages/TeamActivity'
 import TeamMemberDetail from './pages/TeamMemberDetail'
+import TeamPerformance from './pages/TeamPerformance'
 import Settings from './pages/Settings'
 
 function FullScreenSpinner() {
@@ -50,6 +51,7 @@ function AppRoutes() {
             <Route path="conversations" element={<Conversations />} />
             <Route path="team-activity" element={<TeamActivity />} />
             <Route path="team-activity/:memberId" element={<TeamMemberDetail />} />
+            <Route path="team-performance" element={<TeamPerformance />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

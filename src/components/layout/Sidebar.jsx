@@ -13,6 +13,7 @@ import {
   BarChart3,
   MessageSquare,
   ShieldCheck,
+  Target,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,7 @@ const navItems = [
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/conversations', label: 'Conversations', icon: MessageSquare },
   { to: '/team-activity', label: 'Team Activity', icon: ShieldCheck, adminOnly: true },
+  { to: '/team-performance', label: 'Team Performance', icon: Target, adminOnly: true },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
