@@ -65,6 +65,7 @@ const REPORT_TYPES = [
   { key: 'batches', label: 'Batches', icon: Layers },
   { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
   { key: 'attendance', label: 'Team Attendance', icon: CalendarCheck },
+  { key: 'performance', label: 'Sales Activity', icon: TrendingUp },
 ]
 
 function inReportDateRange(dateStr, from, to) {
@@ -291,7 +292,7 @@ function downloadCSV(filename, csv) {
 
 export default function Reports() {
   const { theme } = useTheme()
-  const { students, leads, invoices, installments, batches, teamMembers } = useData()
+  const { students, leads, invoices, installments, batches, teamMembers, followUps } = useData()
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [showDateMenu, setShowDateMenu] = useState(false)
   const [notification, setNotification] = useState(null)
@@ -404,6 +405,28 @@ export default function Reports() {
         }),
       }
     }
+    if (reportType === 'performance') {
+      const leadAssigneeByName = new Map(leads.map((l) => [l.name, l.assigned_to]))
+      const members = rbUser === 'all' ? teamMembers : teamMembers.filter((m) => m.id === rbUser)
+      const rows = members.map((member) => {
+        const memberLeads = leads.filter((l) => l.assigned_to === member.id && inReportDateRange(l.date, rbDateFrom, rbDateTo))
+        const byStatus = (status) => memberLeads.filter((l) => l.status === status).length
+        const total = memberLeads.length
+        const enrolled = byStatus('enrolled')
+        const followUpsCompleted = followUps.filter((f) => f.status === 'completed' && leadAssigneeByName.get(f.lead) === member.id).length
+        const conversionRate = total > 0 ? Math.round((enrolled / total) * 100) : 0
+        return [
+          member.name, member.role === 'admin' ? 'Administrator' : member.role === 'manager' ? 'Manager' : 'Sales Executive',
+          total, byStatus('new'), byStatus('contacted'), byStatus('qualified'), byStatus('negotiation'), enrolled, byStatus('lost'),
+          followUpsCompleted, `${conversionRate}%`,
+        ]
+      })
+      return {
+        title: 'Sales Activity Report',
+        columns: ['Agent', 'Role', 'Total Assigned', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost', 'Follow-ups Completed', 'Conversion'],
+        rows,
+      }
+    }
     // attendance
     const rows = sessions.filter((s) =>
       inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
@@ -426,7 +449,7 @@ export default function Reports() {
         ]
       }),
     }
-  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions])
+  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps])
 
   const handleReportDownload = (format) => {
     const { title, columns, rows } = builtReport
@@ -1093,7 +1116,7 @@ export default function Reports() {
               </div>
             )}
 
-            {reportType === 'attendance' && (
+            {(reportType === 'attendance' || reportType === 'performance') && (
               <div>
                 <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Team Member</label>
                 <select value={rbUser} onChange={(e) => setRbUser(e.target.value)}
