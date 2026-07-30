@@ -243,15 +243,19 @@ function Students() {
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
   const courseOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.course).filter(Boolean))], [students])
-  const batchOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.batch).filter(Boolean))], [students])
+  // Sourced from the real batches table, not students.batch — that field is
+  // just a display-text cache and drifts (e.g. stale seed names like
+  // "Batch 2026-A" that no longer correspond to any actual batch row).
+  const batchOptions = useMemo(() => ['All', 'Unassigned', ...batches.map((b) => b.name)], [batches])
 
   const handleAddStudent = (e) => {
     e.preventDefault()
     const nameParts = addForm.name.trim().split(' ')
     const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : addForm.name.trim().slice(0, 2).toUpperCase()
+    const batch = batches.find((b) => String(b.id) === addForm.batch)
     addStudent({
       name: addForm.name, email: addForm.email, phone: addForm.phone,
-      course: addForm.course, batch: addForm.batch || `Batch ${new Date().getFullYear()}-A`,
+      course: addForm.course, batch_id: batch?.id || null, batch: batch?.name || 'Unassigned',
       enroll_date: new Date().toISOString().slice(0, 10), status: 'active',
       fee_paid: 0, fee_total: Number(addForm.feeTotal) || 0, avatar, attendance: 0,
     })
@@ -901,6 +905,17 @@ function Students() {
                     <input type="number" required value={addForm.feeTotal} onChange={(e) => setAddForm(p => ({ ...p, feeTotal: e.target.value }))} placeholder="75000"
                       className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
                   </div>
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Batch</label>
+                  <select value={addForm.batch} onChange={(e) => setAddForm(p => ({ ...p, batch: e.target.value }))}
+                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
+                    <option value="">Unassigned (assign later)</option>
+                    {batches.filter((b) => b.course === addForm.course).map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                  </select>
+                  {addForm.course && batches.filter((b) => b.course === addForm.course).length === 0 && (
+                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {addForm.course} — create one from the Batches page.</p>
+                  )}
                 </div>
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={() => setShowAddModal(false)}
