@@ -9,6 +9,7 @@ import Leads from './pages/Leads'
 import FollowUps from './pages/FollowUps'
 import Students from './pages/Students'
 import Batches from './pages/Batches'
+import BatchDetail from './pages/BatchDetail'
 import Packages from './pages/Packages'
 import Billing from './pages/Billing'
 import Pipeline from './pages/Pipeline'
@@ -44,6 +45,7 @@ function AppRoutes() {
             <Route path="follow-ups" element={<FollowUps />} />
             <Route path="students" element={<Students />} />
             <Route path="batches" element={<Batches />} />
+            <Route path="batches/:batchId" element={<BatchDetail />} />
             <Route path="packages" element={<Packages />} />
             <Route path="billing" element={<Billing />} />
             <Route path="pipeline" element={<Pipeline />} />
