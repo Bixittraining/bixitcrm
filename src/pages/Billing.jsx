@@ -58,7 +58,6 @@ export default function Billing() {
   const [sortField, setSortField] = useState('id')
   const [sortDirection, setSortDirection] = useState('desc')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
-  const [modalMode, setModalMode] = useState(null)
   const [toast, setToast] = useState(null)
   const [showCreateBill, setShowCreateBill] = useState(false)
   const [createForm, setCreateForm] = useState({ student: '', course: '', amount: '', dueDate: '' })
@@ -248,23 +247,24 @@ export default function Billing() {
     }
   }
 
-  const openModal = (invoice, mode) => {
+  // The old "view" vs "payment" split opened two differently-shaped modals
+  // for the same invoice (details-only vs payment-only, missing each
+  // other's info depending on which icon you clicked). Every invoice modal
+  // now always shows full details + installment schedule + the payment
+  // form together.
+  const openModal = (invoice) => {
     setSelectedInvoice(invoice)
-    setModalMode(mode)
-    if (mode === 'payment') {
-      const next = getNextPending(invoice.id)
-      setPaymentForm({
-        amount: (next ? next.amount : invoice.balance).toString(),
-        paymentMode: invoice.paymentMode || 'UPI',
-        date: new Date().toISOString().split('T')[0],
-        reference: '',
-      })
-    }
+    const next = getNextPending(invoice.id)
+    setPaymentForm({
+      amount: (next ? next.amount : invoice.balance).toString(),
+      paymentMode: invoice.paymentMode || 'UPI',
+      date: new Date().toISOString().split('T')[0],
+      reference: '',
+    })
   }
 
   const closeModal = () => {
     setSelectedInvoice(null)
-    setModalMode(null)
   }
 
 
@@ -633,9 +633,7 @@ export default function Billing() {
                 isDark ? 'border-dark-700/60 bg-dark-900' : 'border-dark-200/60 bg-white'
               }`}>
                 <div>
-                  <h2 className={`text-lg font-bold ${textPrimary}`}>
-                    {modalMode === 'payment' ? 'Record Payment' : 'Invoice Details'}
-                  </h2>
+                  <h2 className={`text-lg font-bold ${textPrimary}`}>Invoice Details</h2>
                   <div className={`flex items-center gap-3 mt-1 text-sm ${textSecondary}`}>
                     <span className="font-mono font-semibold">{selectedInvoice.id}</span>
                     <span>|</span>
@@ -717,7 +715,7 @@ export default function Billing() {
                 </div>
 
                 {/* Installment Schedule */}
-                {modalMode === 'payment' && getSchedule(selectedInvoice.id).length > 0 && (
+                {getSchedule(selectedInvoice.id).length > 0 && (
                   <div>
                     <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>Installment Schedule</h3>
                     <div className="space-y-2">
@@ -751,7 +749,7 @@ export default function Billing() {
                 )}
 
                 {/* Record Payment Form */}
-                {(modalMode === 'payment' && selectedInvoice.status !== 'paid') && (
+                {selectedInvoice.status !== 'paid' && (
                   <div>
                     <h3 className={`text-sm font-semibold mb-3 ${textPrimary}`}>
                       {getSchedule(selectedInvoice.id).length > 0 ? `Record Payment — Installment ${getNextPending(selectedInvoice.id)?.seq}` : 'Record New Payment'}
@@ -844,9 +842,20 @@ export default function Billing() {
                       : 'border-dark-300 text-dark-600 hover:bg-dark-50'
                   }`}
                 >
-                  {modalMode === 'view' ? 'Close' : 'Cancel'}
+                  Close
                 </motion.button>
-                {modalMode === 'payment' && selectedInvoice.status !== 'paid' && (
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => handleDownloadInvoice(selectedInvoice)}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                    isDark ? 'border-dark-600 text-dark-300 hover:bg-dark-800' : 'border-dark-300 text-dark-600 hover:bg-dark-50'
+                  }`}
+                >
+                  <Download size={16} />
+                  Download PDF
+                </motion.button>
+                {selectedInvoice.status !== 'paid' && (
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -855,17 +864,6 @@ export default function Billing() {
                   >
                     <CreditCard size={16} />
                     Confirm Payment
-                  </motion.button>
-                )}
-                {modalMode === 'view' && (
-                  <motion.button
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => handleDownloadInvoice(selectedInvoice)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white text-sm font-semibold shadow-lg shadow-primary-600/25 hover:shadow-primary-600/40 transition-shadow"
-                  >
-                    <Download size={16} />
-                    Download PDF
                   </motion.button>
                 )}
               </div>
