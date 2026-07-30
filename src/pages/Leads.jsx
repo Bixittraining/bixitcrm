@@ -235,7 +235,7 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
     <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
       className={`absolute z-30 mt-1 w-40 rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
     >
-      {Object.entries(statusConfig).map(([key, cfg]) => (
+      {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled').map(([key, cfg]) => (
         <button key={key} onClick={() => onSelect(key)}
           className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
             key === currentStatus
@@ -247,6 +247,11 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
           {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
         </button>
       ))}
+      {currentStatus !== 'enrolled' && (
+        <p className={`px-3 pt-1.5 mt-1 border-t text-[11px] leading-snug ${isDark ? 'border-dark-700/60 text-dark-500' : 'border-dark-100 text-dark-400'}`}>
+          To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.
+        </p>
+      )}
     </motion.div>
   )
 }
@@ -462,9 +467,13 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Status</label>
-              <select value={form.status} onChange={(e) => handleChange('status', e.target.value)} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
-                {Object.entries(statusConfig).map(([key, cfg]) => <option key={key} value={key}>{cfg.label}</option>)}
+              <select value={form.status} onChange={(e) => handleChange('status', e.target.value)} disabled={form.status === 'enrolled'}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 transition-all ${form.status === 'enrolled' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${inputClass}`}>
+                {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled' || form.status === 'enrolled').map(([key, cfg]) => <option key={key} value={key}>{cfg.label}</option>)}
               </select>
+              {form.status === 'enrolled' && (
+                <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Already enrolled — use "Assign Package &amp; Enroll" to re-run enrollment.</p>
+              )}
             </div>
             <div>
               <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Priority</label>
