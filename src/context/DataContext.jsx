@@ -330,8 +330,14 @@ export function DataProvider({ children }) {
     addActivity(lead.id, lead.status, 'enrolled', `Enrolled in ${lead.course}`)
     closePendingFollowUps(lead.name)
 
-    // 2. skip if student already exists with this email
-    const existingStudent = students.find(s => s.email === lead.email)
+    // 2. skip if this exact lead was already turned into a student — matching
+    // on email alone is wrong: multiple different leads can share a
+    // placeholder/test email (or genuinely re-enroll under the same email
+    // for a different course), and email-only matching silently reused
+    // someone else's student record, leaving this lead "enrolled" with no
+    // student of its own. Name + course is how every other table here
+    // already links a lead to its student/invoice.
+    const existingStudent = students.find(s => s.name === lead.name && s.course === lead.course)
     let newStudent = existingStudent
     const batch = batches.find((b) => b.id === batchId)
 

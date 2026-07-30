@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -12,6 +12,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import AnchoredMenu from '../components/AnchoredMenu'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 const statusConfig = {
@@ -224,65 +225,34 @@ function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
   )
 }
 
-function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark }) {
-  const ref = useRef(null)
-  const [openUpward, setOpenUpward] = useState(false)
-  useEffect(() => {
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
-  useLayoutEffect(() => {
-    if (!ref.current) return
-    const rect = ref.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.top
-    if (spaceBelow < ref.current.offsetHeight + 24) setOpenUpward(true)
-  }, [])
+function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark, anchorEl }) {
   return (
-    <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute z-30 w-40 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
-    >
-      {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled').map(([key, cfg]) => (
-        <button key={key} onClick={() => onSelect(key)}
-          className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
-            key === currentStatus
-              ? isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600'
-              : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
-          }`}
-        >
-          <cfg.icon className="w-3.5 h-3.5" />{cfg.label}
-          {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
-        </button>
-      ))}
-      {currentStatus !== 'enrolled' && (
-        <p className={`px-3 pt-1.5 mt-1 border-t text-[11px] leading-snug ${isDark ? 'border-dark-700/60 text-dark-500' : 'border-dark-100 text-dark-400'}`}>
-          To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.
-        </p>
-      )}
-    </motion.div>
+    <AnchoredMenu anchorEl={anchorEl} onClose={onClose}>
+      <div className={`w-40 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
+        {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled').map(([key, cfg]) => (
+          <button key={key} onClick={() => onSelect(key)}
+            className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
+              key === currentStatus
+                ? isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600'
+                : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
+            }`}
+          >
+            <cfg.icon className="w-3.5 h-3.5" />{cfg.label}
+            {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
+          </button>
+        ))}
+        {currentStatus !== 'enrolled' && (
+          <p className={`px-3 pt-1.5 mt-1 border-t text-[11px] leading-snug ${isDark ? 'border-dark-700/60 text-dark-500' : 'border-dark-100 text-dark-400'}`}>
+            To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.
+          </p>
+        )}
+      </div>
+    </AnchoredMenu>
   )
 }
 
 // ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onOpenEnroll, onLost, onTakeOver, onEdit, onDelete }) {
-  const ref = useRef(null)
-  const [openUpward, setOpenUpward] = useState(false)
-  useEffect(() => {
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
-
-  // A row near the bottom of the list would otherwise open this menu off
-  // the bottom of the viewport, forcing a scroll to reach it — flip it
-  // upward instead when there isn't enough room below.
-  useLayoutEffect(() => {
-    if (!ref.current) return
-    const rect = ref.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.top
-    if (spaceBelow < ref.current.offsetHeight + 24) setOpenUpward(true)
-  }, [])
-
+function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onOpenEnroll, onLost, onTakeOver, onEdit, onDelete }) {
   const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
     isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
   }`
@@ -305,38 +275,38 @@ function LeadActionMenu({ lead, isDark, isAdmin, onClose, onScheduleFollowUp, on
   const isLockedToOther = !!lead.assigned_to && lead.assigned_to !== user?.id && !isAdmin
 
   return (
-    <motion.div ref={ref} initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }} transition={{ duration: 0.15 }}
-      className={`absolute right-0 z-30 w-56 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}
-    >
-      {isClosed ? (
-        isAdmin ? (
+    <AnchoredMenu anchorEl={anchorEl} onClose={onClose}>
+      <div className={`w-56 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
+        {isClosed ? (
+          isAdmin ? (
+            <>
+              {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
+              {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+            </>
+          ) : (
+            <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              {lead.status === 'enrolled' ? 'Enrolled' : 'Lost'} — only an admin can edit this lead.
+            </p>
+          )
+        ) : isLockedToOther ? (
+          <p className={`px-3 py-2 text-xs leading-relaxed ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+            This lead is already being handled by another team member — only they or an admin can update it.
+          </p>
+        ) : (
           <>
+            {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
+            {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
+            {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
+            {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
+            {item(<GraduationCap className="w-3.5 h-3.5" />, 'Enroll — Assign Package & Batch', () => onOpenEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+            {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+            <div className={dividerCls} />
             {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
             {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
           </>
-        ) : (
-          <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-            {lead.status === 'enrolled' ? 'Enrolled' : 'Lost'} — only an admin can edit this lead.
-          </p>
-        )
-      ) : isLockedToOther ? (
-        <p className={`px-3 py-2 text-xs leading-relaxed ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-          This lead is already being handled by another team member — only they or an admin can update it.
-        </p>
-      ) : (
-        <>
-          {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
-          {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
-          {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
-          {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
-          {item(<GraduationCap className="w-3.5 h-3.5" />, 'Enroll — Assign Package & Batch', () => onOpenEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
-          {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
-          <div className={dividerCls} />
-          {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
-          {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
-        </>
-      )}
-    </motion.div>
+        )}
+      </div>
+    </AnchoredMenu>
   )
 }
 
@@ -1476,7 +1446,9 @@ function Leads() {
   const [activeProfileTab, setActiveProfileTab] = useState('overview')
   const [notification, setNotification] = useState(null)
   const [statusDropdownId, setStatusDropdownId] = useState(null)
+  const [statusDropdownAnchor, setStatusDropdownAnchor] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
+  const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
   const [showRNRModal, setShowRNRModal] = useState(null)
   const [showLostModal, setShowLostModal] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -1901,10 +1873,10 @@ function Leads() {
                             <td className={`px-4 py-3.5 text-xs font-medium ${lead.assigned_to ? (isDark ? 'text-dark-200' : 'text-dark-700') : (isDark ? 'text-dark-600' : 'text-dark-400')}`}>{agentName(lead)}</td>
                             <td className="px-4 py-3.5">
                               <div className="relative">
-                                <StatusBadge status={lead.status} isDark={isDark} onClick={isLockedForMe(lead) ? undefined : () => setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id)} />
+                                <StatusBadge status={lead.status} isDark={isDark} onClick={isLockedForMe(lead) ? undefined : (e) => { setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id); setStatusDropdownAnchor(e.currentTarget) }} />
                                 <AnimatePresence>
                                   {statusDropdownId === lead.id && (
-                                    <InlineStatusDropdown currentStatus={lead.status} onSelect={(s) => handleStatusChange(lead.id, s)} onClose={() => setStatusDropdownId(null)} isDark={isDark} />
+                                    <InlineStatusDropdown currentStatus={lead.status} onSelect={(s) => handleStatusChange(lead.id, s)} onClose={() => setStatusDropdownId(null)} isDark={isDark} anchorEl={statusDropdownAnchor} />
                                   )}
                                 </AnimatePresence>
                               </div>
@@ -1913,7 +1885,7 @@ function Leads() {
                             <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} title={lead.date}>{relativeDate(lead.date)}</td>
                             <td className="px-4 py-3.5">
                               <div className="relative inline-block">
-                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => setActionMenuId(actionMenuId === lead.id ? null : lead.id)}
+                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={(e) => { setActionMenuId(actionMenuId === lead.id ? null : lead.id); setActionMenuAnchor(e.currentTarget) }}
                                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' : 'bg-dark-100 text-dark-600 hover:text-dark-900 hover:bg-dark-200'}`}>
                                   Action
                                   <ChevronDown className="w-3.5 h-3.5" />
@@ -1924,6 +1896,7 @@ function Leads() {
                                       lead={lead}
                                       isDark={isDark}
                                       isAdmin={isAdmin}
+                                      anchorEl={actionMenuAnchor}
                                       onClose={() => setActionMenuId(null)}
                                       onScheduleFollowUp={(l) => { setTransferModalType('call'); setShowTransferModal(l) }}
                                       onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}

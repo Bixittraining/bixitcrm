@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   User, Bell, Shield, Palette, Globe, Database, Mail,
   Sun, Moon, Save, Camera, Building2, Phone, MapPin, Plug, Key, Eye, EyeOff,
-  Copy, Check, Loader2, RefreshCw, Plus, Trash2,
+  Copy, Check, Loader2, RefreshCw, Plus, Trash2, Pencil, X,
   ExternalLink, ChevronRight, AlertTriangle, Activity,
   Zap, Users, UserPlus, ShieldCheck, Briefcase
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -116,7 +117,7 @@ const mockApiKeys = [
 
 export default function Settings() {
   const { theme, toggleTheme, accentColor, setAccentColor } = useTheme()
-  const { session, profile, initials, isAdmin, canManageTeam, updateProfile, uploadAvatar, addTeamMember } = useAuth()
+  const { session, profile, initials, isAdmin, canManageTeam, updateProfile, uploadAvatar, addTeamMember, updateTeamMemberProfile, deleteTeamMember } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
   // 'admin' tabs (Integrations/API) are admin-only; 'manager' tabs
@@ -193,6 +194,45 @@ export default function Settings() {
   useEffect(() => {
     if (canManageTeam) loadTeamMembers()
   }, [canManageTeam])
+
+  const [editingMember, setEditingMember] = useState(null)
+  const [memberEditForm, setMemberEditForm] = useState({ name: '', phone: '', role: 'sales' })
+  const [memberEditSaving, setMemberEditSaving] = useState(false)
+  const [memberEditError, setMemberEditError] = useState('')
+
+  const openEditMember = (member) => {
+    setEditingMember(member)
+    setMemberEditForm({ name: member.name || '', phone: member.phone || '', role: member.role || 'sales' })
+    setMemberEditError('')
+  }
+
+  const handleSaveMemberEdit = async (e) => {
+    e.preventDefault()
+    setMemberEditError('')
+    if (!memberEditForm.name.trim()) { setMemberEditError('Name is required'); return }
+    setMemberEditSaving(true)
+    const { error } = await updateTeamMemberProfile(editingMember.id, {
+      name: memberEditForm.name.trim(), phone: memberEditForm.phone.trim() || null, role: memberEditForm.role,
+    })
+    setMemberEditSaving(false)
+    if (error) { setMemberEditError(error.message); return }
+    setEditingMember(null)
+    loadTeamMembers()
+  }
+
+  const [deletingMember, setDeletingMember] = useState(null)
+  const [memberDeleteSaving, setMemberDeleteSaving] = useState(false)
+  const [memberDeleteError, setMemberDeleteError] = useState('')
+
+  const handleConfirmDeleteMember = async () => {
+    setMemberDeleteSaving(true)
+    setMemberDeleteError('')
+    const { error } = await deleteTeamMember(deletingMember.id)
+    setMemberDeleteSaving(false)
+    if (error) { setMemberDeleteError(error.message); return }
+    setDeletingMember(null)
+    loadTeamMembers()
+  }
 
   // Academy tab — real, persisted business info (academy_settings table)
   const [academyForm, setAcademyForm] = useState({ name: '', contactEmail: '', phone: '', website: '', gstNumber: '', address: '' })
@@ -755,7 +795,7 @@ export default function Settings() {
                 ) : (
                   <div className="space-y-2">
                     {teamMembers.map((member) => (
-                      <div key={member.id} className={`flex items-center justify-between px-4 py-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                      <div key={member.id} className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center text-white text-xs font-bold">
                             {member.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)}
@@ -765,15 +805,31 @@ export default function Settings() {
                             <p className={`text-xs truncate ${textSecondary}`}>{member.email}</p>
                           </div>
                         </div>
-                        <span className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium ${
-                          member.role === 'admin'
-                            ? 'bg-primary-500/10 text-primary-500'
-                            : member.role === 'manager'
-                            ? 'bg-accent-500/10 text-accent-500'
-                            : 'bg-emerald-500/10 text-emerald-500'
-                        }`}>
-                          {member.role === 'admin' ? 'Administrator' : member.role === 'manager' ? 'Manager' : 'Sales Executive'}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                            member.role === 'admin'
+                              ? 'bg-primary-500/10 text-primary-500'
+                              : member.role === 'manager'
+                              ? 'bg-accent-500/10 text-accent-500'
+                              : 'bg-emerald-500/10 text-emerald-500'
+                          }`}>
+                            {member.role === 'admin' ? 'Administrator' : member.role === 'manager' ? 'Manager' : 'Sales Executive'}
+                          </span>
+                          {isAdmin && (
+                            <>
+                              <button type="button" onClick={() => openEditMember(member)}
+                                className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-700' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-200'}`}>
+                                <Pencil size={15} />
+                              </button>
+                              {member.id !== profile?.id && (
+                                <button type="button" onClick={() => { setDeletingMember(member); setMemberDeleteError('') }}
+                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-rose-400 hover:bg-rose-500/10' : 'text-rose-500 hover:bg-rose-50'}`}>
+                                  <Trash2 size={15} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -781,6 +837,84 @@ export default function Settings() {
               </motion.div>
             </>
           )}
+
+          <AnimatePresence>
+            {editingMember && (
+              <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+                <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setEditingMember(null)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+                <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+                  className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Edit Team Member</h2>
+                    <button type="button" onClick={() => setEditingMember(null)} className={`p-1.5 rounded-lg ${isDark ? 'text-dark-400 hover:bg-dark-800' : 'text-dark-500 hover:bg-dark-100'}`}><X size={18} /></button>
+                  </div>
+                  <form onSubmit={handleSaveMemberEdit} className="space-y-4">
+                    <div>
+                      <label className={`block text-xs font-medium mb-1.5 ${textSecondary}`}>Full Name</label>
+                      <input type="text" required value={memberEditForm.name} onChange={(e) => setMemberEditForm((p) => ({ ...p, name: e.target.value }))}
+                        className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+                    </div>
+                    <div>
+                      <label className={`block text-xs font-medium mb-1.5 ${textSecondary}`}>Phone</label>
+                      <input type="tel" value={memberEditForm.phone} onChange={(e) => setMemberEditForm((p) => ({ ...p, phone: e.target.value }))}
+                        className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
+                    </div>
+                    <div>
+                      <label className={`block text-xs font-medium mb-2 ${textSecondary}`}>Role</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[{ key: 'sales', label: 'Sales Executive' }, { key: 'manager', label: 'Manager' }, { key: 'admin', label: 'Administrator' }].map((r) => (
+                          <button key={r.key} type="button" onClick={() => setMemberEditForm((p) => ({ ...p, role: r.key }))}
+                            className={`px-2 py-2 rounded-lg text-xs font-medium border transition-all ${
+                              memberEditForm.role === r.key
+                                ? isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                                : isDark ? 'border-dark-700 text-dark-400' : 'border-dark-200 text-dark-500'
+                            }`}>{r.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {memberEditError && <p className="text-xs text-rose-500">{memberEditError}</p>}
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button type="button" onClick={() => setEditingMember(null)}
+                        className={`px-4 py-2.5 rounded-lg text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                      <button type="submit" disabled={memberEditSaving}
+                        className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 disabled:opacity-60 transition-all">
+                        {memberEditSaving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {deletingMember && (
+              <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+                <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeletingMember(null)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+                <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+                  className={`relative w-full max-w-sm rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}>
+                  <div className="flex flex-col items-center text-center">
+                    <div className={`p-3 rounded-full mb-4 ${isDark ? 'bg-rose-500/15' : 'bg-rose-50'}`}>
+                      <AlertTriangle className="w-6 h-6 text-rose-500" />
+                    </div>
+                    <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>Remove Team Member</h3>
+                    <p className={`text-sm mb-2 ${textSecondary}`}>
+                      Remove <strong>{deletingMember.name}</strong>'s account? They will no longer be able to log in, and this can't be undone.
+                    </p>
+                    {memberDeleteError && <p className="text-xs text-rose-500 mb-2">{memberDeleteError}</p>}
+                    <div className="flex items-center gap-3 w-full mt-4">
+                      <button type="button" onClick={() => setDeletingMember(null)}
+                        className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                      <button type="button" onClick={handleConfirmDeleteMember} disabled={memberDeleteSaving}
+                        className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 disabled:opacity-60 transition-all">
+                        {memberDeleteSaving ? 'Removing...' : 'Remove'}
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {activeTab === 'academy' && (
             <motion.div variants={itemVariants} className={`${cardBg} border rounded-2xl p-6`}>

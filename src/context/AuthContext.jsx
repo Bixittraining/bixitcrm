@@ -144,6 +144,37 @@ export function AuthProvider({ children }) {
     return { data: body }
   }
 
+  // Editing another team member's profile (not your own) — permitted by the
+  // profiles_update_admin RLS policy for admins only.
+  const updateTeamMemberProfile = async (userId, updates) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', userId)
+      .select()
+      .single()
+    if (error) console.error('updateTeamMemberProfile error', error)
+    return { data, error }
+  }
+
+  const deleteTeamMember = async (userId) => {
+    if (!session?.access_token) return { error: new Error('Not authenticated') }
+    const res = await fetch('/api/delete-team-member', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ userId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      console.error('deleteTeamMember error', body.error || res.statusText)
+      return { error: new Error(body.error || 'Failed to remove team member') }
+    }
+    return { data: body }
+  }
+
   const profile = profileRow
     ? { ...profileRow, role: roleLabels[profileRow.role] || profileRow.role, roleCode: profileRow.role }
     : null
@@ -160,7 +191,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, isManager, canManageTeam, loading, signIn, signOut, updateProfile, uploadAvatar, addTeamMember }}
+      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, isManager, canManageTeam, loading, signIn, signOut, updateProfile, uploadAvatar, addTeamMember, updateTeamMemberProfile, deleteTeamMember }}
     >
       {children}
     </AuthContext.Provider>
