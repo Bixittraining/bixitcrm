@@ -320,6 +320,12 @@ function Students() {
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
+  const getAttendancePct = (studentId) => {
+    const records = attendance.filter((a) => a.student_id === studentId)
+    if (!records.length) return null
+    return Math.round((records.filter((a) => a.status === 'present').length / records.length) * 100)
+  }
+
   const courseOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.course).filter(Boolean))], [students])
   // Sourced from the real batches table, not students.batch — that field is
   // just a display-text cache and drifts (e.g. stale seed names like
@@ -596,6 +602,7 @@ function Students() {
         >
           {filteredStudents.map((student) => {
             const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
+            const attendancePct = getAttendancePct(student.id)
             return (
               <motion.div
                 key={student.id}
@@ -634,9 +641,16 @@ function Students() {
                     {student.course}
                   </span>
                 </div>
-                <p className={`text-xs mb-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                  {student.batch}
-                </p>
+                <div className="flex items-center justify-between mb-4">
+                  <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                    {student.batch}
+                  </p>
+                  {attendancePct != null && (
+                    <span className={`text-xs font-medium ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {attendancePct}% attendance
+                    </span>
+                  )}
+                </div>
 
                 {/* Fee Progress */}
                 <div className="mb-4">
@@ -753,6 +767,7 @@ function Students() {
               <tbody className={`divide-y ${isDark ? 'divide-dark-700/40' : 'divide-dark-200/60'}`}>
                 {filteredStudents.map((student, index) => {
                   const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
+                  const attendancePct = getAttendancePct(student.id)
                   return (
                     <motion.tr
                       key={student.id}
@@ -797,6 +812,11 @@ function Students() {
                       {/* Batch */}
                       <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
                         {student.batch}
+                        {attendancePct != null && (
+                          <span className={`block text-xs mt-0.5 font-medium ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {attendancePct}% attendance
+                          </span>
+                        )}
                       </td>
 
                       {/* Fee Status */}

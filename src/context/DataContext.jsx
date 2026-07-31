@@ -368,12 +368,13 @@ export function DataProvider({ children }) {
       .from('attendance')
       .upsert(rows, { onConflict: 'student_id,date' })
       .select()
-    if (error) { console.error('markAttendance error', error); return }
+    if (error) { console.error('markAttendance error', error); return false }
     setAttendance((prev) => {
       const touchedIds = new Set(data.map((d) => `${d.student_id}_${d.date}`))
       const kept = prev.filter((a) => !touchedIds.has(`${a.student_id}_${a.date}`))
       return [...data, ...kept]
     })
+    return true
   }, [teamMembers])
 
   const deleteLeadDocument = useCallback(async (docId) => {

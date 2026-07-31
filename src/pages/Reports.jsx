@@ -12,7 +12,7 @@ import {
   TrendingUp, Users, Target, Wallet, ChevronDown, Download,
   FileText, DollarSign, Filter, UserCheck, CalendarCheck,
   ArrowUpRight, ArrowDownRight, Sparkles, Layers, FileSpreadsheet,
-  FileType2, AlertCircle, X,
+  FileType2, AlertCircle, X, ClipboardCheck,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -52,6 +52,12 @@ const FEE_STATUS_FILTER_OPTIONS = [
   { value: 'due', label: 'Pending Dues' },
 ]
 
+const STUDENT_ATTENDANCE_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'present', label: 'Present' },
+  { value: 'absent', label: 'Absent' },
+]
+
 const PRIORITY_FILTER_OPTIONS = [
   { value: 'all', label: 'All Priorities' },
   { value: 'high', label: 'High' },
@@ -64,6 +70,7 @@ const REPORT_TYPES = [
   { key: 'students', label: 'Students', icon: UserCheck },
   { key: 'batches', label: 'Batches', icon: Layers },
   { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
+  { key: 'student_attendance', label: 'Student Attendance', icon: ClipboardCheck },
   { key: 'attendance', label: 'Team Attendance', icon: CalendarCheck },
   { key: 'performance', label: 'Sales Activity', icon: TrendingUp },
   { key: 'funnel', label: 'Sales Funnel', icon: Target },
@@ -304,7 +311,7 @@ function downloadCSV(filename, csv) {
 
 export default function Reports() {
   const { theme } = useTheme()
-  const { students, leads, invoices, installments, batches, teamMembers, followUps, leadActivities } = useData()
+  const { students, leads, invoices, installments, batches, teamMembers, followUps, leadActivities, attendance } = useData()
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [showDateMenu, setShowDateMenu] = useState(false)
   const [notification, setNotification] = useState(null)
@@ -464,7 +471,28 @@ export default function Reports() {
         rows,
       }
     }
-    // attendance
+    if (reportType === 'student_attendance') {
+      const rows = attendance.filter((a) => {
+        const student = students.find((s) => s.id === a.student_id)
+        return inReportDateRange(a.date, rbDateFrom, rbDateTo) &&
+          (rbCourse === 'all' || student?.course === rbCourse) &&
+          (rbBatch === 'all' || String(a.batch_id) === rbBatch) &&
+          (rbStatus === 'all' || a.status === rbStatus)
+      })
+      return {
+        title: 'Student Attendance Report',
+        columns: ['Student', 'Course', 'Batch', 'Date', 'Status', 'Marked By'],
+        rows: rows.map((a) => {
+          const student = students.find((s) => s.id === a.student_id)
+          const batch = batches.find((b) => b.id === a.batch_id)
+          return [
+            student?.name || 'Unknown', student?.course || '—', batch?.name || 'Unassigned',
+            a.date, a.status === 'present' ? 'Present' : 'Absent', a.marked_by_name || '—',
+          ]
+        }),
+      }
+    }
+    // attendance (team login/logout)
     const rows = sessions.filter((s) =>
       inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
       (rbUser === 'all' || s.user_id === rbUser)
@@ -486,7 +514,7 @@ export default function Reports() {
         ]
       }),
     }
-  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps, leadActivities])
+  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps, leadActivities, attendance])
 
   const handleReportDownload = (format) => {
     const { title, columns, rows } = builtReport
@@ -832,7 +860,7 @@ export default function Reports() {
                 className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`} />
             </div>
 
-            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+            {['leads', 'students', 'batches', 'fees', 'student_attendance'].includes(reportType) && (
               <div>
                 <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Course</label>
                 <select value={rbCourse} onChange={(e) => setRbCourse(e.target.value)}
@@ -843,7 +871,7 @@ export default function Reports() {
               </div>
             )}
 
-            {reportType === 'students' && (
+            {['students', 'student_attendance'].includes(reportType) && (
               <div>
                 <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Batch</label>
                 <select value={rbBatch} onChange={(e) => setRbBatch(e.target.value)}
@@ -864,7 +892,7 @@ export default function Reports() {
               </div>
             )}
 
-            {['leads', 'students', 'batches', 'fees'].includes(reportType) && (
+            {['leads', 'students', 'batches', 'fees', 'student_attendance'].includes(reportType) && (
               <div>
                 <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Status</label>
                 <select value={rbStatus} onChange={(e) => setRbStatus(e.target.value)}
@@ -872,6 +900,7 @@ export default function Reports() {
                   {(reportType === 'leads' ? LEAD_STATUS_FILTER_OPTIONS
                     : reportType === 'students' ? STUDENT_STATUS_FILTER_OPTIONS
                     : reportType === 'batches' ? BATCH_STATUS_FILTER_OPTIONS
+                    : reportType === 'student_attendance' ? STUDENT_ATTENDANCE_STATUS_FILTER_OPTIONS
                     : FEE_STATUS_FILTER_OPTIONS
                   ).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>

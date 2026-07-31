@@ -46,6 +46,8 @@ export default function BatchDetail() {
   const [attDate, setAttDate] = useState(todayStr)
   const [attDraft, setAttDraft] = useState({})
   const [attSaved, setAttSaved] = useState(false)
+  const [attError, setAttError] = useState(false)
+  const [savedStudentId, setSavedStudentId] = useState(null)
 
   const batchAttendance = useMemo(() => attendance.filter((a) => a.batch_id === batch?.id), [attendance, batch])
 
@@ -61,10 +63,28 @@ export default function BatchDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attDate, roster.length, batch?.id])
 
-  const handleSaveAttendance = () => {
-    markAttendance(batch.id, attDate, roster.map((s) => ({ studentId: s.id, status: attDraft[s.id] || 'present' })))
-    setAttSaved(true)
-    setTimeout(() => setAttSaved(false), 2500)
+  // Marking Present/Absent saves immediately, one student at a time — a
+  // trainer marking a big roster shouldn't have to remember to hit a
+  // separate Save button at the end, or lose everything if they navigate
+  // away before doing so.
+  const handleMark = async (studentId, status) => {
+    setAttDraft((d) => ({ ...d, [studentId]: status }))
+    const ok = await markAttendance(batch.id, attDate, [{ studentId, status }])
+    if (ok) {
+      setSavedStudentId(studentId)
+      setTimeout(() => setSavedStudentId((id) => (id === studentId ? null : id)), 1500)
+    }
+  }
+
+  const handleSaveAttendance = async () => {
+    const ok = await markAttendance(batch.id, attDate, roster.map((s) => ({ studentId: s.id, status: attDraft[s.id] || 'present' })))
+    if (ok) {
+      setAttSaved(true)
+      setTimeout(() => setAttSaved(false), 2500)
+    } else {
+      setAttError(true)
+      setTimeout(() => setAttError(false), 3000)
+    }
   }
 
   const attendedDays = new Set(batchAttendance.map((a) => a.date)).size
@@ -197,9 +217,9 @@ export default function BatchDetail() {
               />
               <button
                 onClick={handleSaveAttendance}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 shadow-lg shadow-primary-500/25 transition-all"
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white shadow-lg transition-all ${attError ? 'bg-rose-500 shadow-rose-500/25' : 'bg-gradient-to-r from-primary-600 to-primary-500 shadow-primary-500/25'}`}
               >
-                {attSaved ? <><Check className="w-3.5 h-3.5" />Saved</> : 'Save Attendance'}
+                {attSaved ? <><Check className="w-3.5 h-3.5" />Saved</> : attError ? 'Failed — retry' : 'Save All'}
               </button>
             </div>
           </div>
@@ -213,14 +233,17 @@ export default function BatchDetail() {
                   <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {savedStudentId === s.id && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-500"><Check className="w-3 h-3" />Saved</span>
+                  )}
                   <button
-                    onClick={() => setAttDraft((d) => ({ ...d, [s.id]: 'present' }))}
+                    onClick={() => handleMark(s.id, 'present')}
                     className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'present' ? 'bg-emerald-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
                   >
                     <Check className="w-3 h-3" />Present
                   </button>
                   <button
-                    onClick={() => setAttDraft((d) => ({ ...d, [s.id]: 'absent' }))}
+                    onClick={() => handleMark(s.id, 'absent')}
                     className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'absent' ? 'bg-rose-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
                   >
                     <X className="w-3 h-3" />Absent
