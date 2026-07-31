@@ -1,10 +1,10 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Layers, User, Calendar, Clock, Users, Mail, Phone,
   CheckCircle2, PlayCircle, Hourglass, GraduationCap, IndianRupee, Pencil,
-  ClipboardCheck, Check, X,
+  ClipboardCheck, Check, X, ChevronLeft, AlertCircle,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -44,48 +44,59 @@ export default function BatchDetail() {
 
   const todayStr = new Date().toISOString().slice(0, 10)
   const [attDate, setAttDate] = useState(todayStr)
-  const [attDraft, setAttDraft] = useState({})
-  const [attSaved, setAttSaved] = useState(false)
-  const [attError, setAttError] = useState(false)
-  const [savedStudentId, setSavedStudentId] = useState(null)
+  const [cardIndex, setCardIndex] = useState(0)
+  const [showSummary, setShowSummary] = useState(false)
+  const [editingSingle, setEditingSingle] = useState(false)
+  const [markError, setMarkError] = useState(false)
 
   const batchAttendance = useMemo(() => attendance.filter((a) => a.batch_id === batch?.id), [attendance, batch])
+  const dayAttendance = useMemo(() => batchAttendance.filter((a) => a.date === attDate), [batchAttendance, attDate])
 
+  // Jump straight to whichever student in the roster hasn't been marked for
+  // this date yet — a trainer re-opening today's register mid-class
+  // shouldn't have to click through everyone already done. If the whole
+  // roster is already marked, go straight to the summary.
   useEffect(() => {
     if (!roster.length) return
-    const draft = {}
-    roster.forEach((s) => {
-      const existing = batchAttendance.find((a) => a.student_id === s.id && a.date === attDate)
-      draft[s.id] = existing?.status || 'present'
-    })
-    setAttDraft(draft)
-    setAttSaved(false)
+    const firstUnmarked = roster.findIndex((s) => !dayAttendance.some((a) => a.student_id === s.id))
+    setEditingSingle(false)
+    setMarkError(false)
+    if (firstUnmarked === -1) {
+      setShowSummary(true)
+      setCardIndex(0)
+    } else {
+      setShowSummary(false)
+      setCardIndex(firstUnmarked)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attDate, roster.length, batch?.id])
 
-  // Marking Present/Absent saves immediately, one student at a time — a
-  // trainer marking a big roster shouldn't have to remember to hit a
-  // separate Save button at the end, or lose everything if they navigate
-  // away before doing so.
-  const handleMark = async (studentId, status) => {
-    setAttDraft((d) => ({ ...d, [studentId]: status }))
+  // Marking Present/Absent saves immediately and auto-advances to the next
+  // student — one card at a time instead of a long scrolling list. Editing
+  // a student from the completed summary (e.g. they walked in late) returns
+  // straight back to the summary instead of restarting the whole sequence.
+  const handleMarkAndAdvance = async (studentId, status) => {
+    setMarkError(false)
     const ok = await markAttendance(batch.id, attDate, [{ studentId, status }])
-    if (ok) {
-      setSavedStudentId(studentId)
-      setTimeout(() => setSavedStudentId((id) => (id === studentId ? null : id)), 1500)
+    if (!ok) { setMarkError(true); return }
+    if (editingSingle) {
+      setEditingSingle(false)
+      setShowSummary(true)
+      return
     }
+    if (cardIndex + 1 < roster.length) setCardIndex((i) => i + 1)
+    else setShowSummary(true)
   }
 
-  const handleSaveAttendance = async () => {
-    const ok = await markAttendance(batch.id, attDate, roster.map((s) => ({ studentId: s.id, status: attDraft[s.id] || 'present' })))
-    if (ok) {
-      setAttSaved(true)
-      setTimeout(() => setAttSaved(false), 2500)
-    } else {
-      setAttError(true)
-      setTimeout(() => setAttError(false), 3000)
-    }
+  const handleEditStudent = (index) => {
+    setCardIndex(index)
+    setEditingSingle(true)
+    setShowSummary(false)
+    setMarkError(false)
   }
+
+  const presentCount = dayAttendance.filter((a) => a.status === 'present').length
+  const absentCount = dayAttendance.filter((a) => a.status === 'absent').length
 
   const attendedDays = new Set(batchAttendance.map((a) => a.date)).size
   const attendancePct = batchAttendance.length
@@ -202,56 +213,147 @@ export default function BatchDetail() {
       </motion.div>
 
       {roster.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 ${cardClass}`}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 overflow-hidden ${cardClass}`}>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
               <ClipboardCheck className="w-4 h-4" />Take Attendance
             </h3>
-            <div className="flex items-center gap-3">
-              <input
-                type="date"
-                value={attDate}
-                max={todayStr}
-                onChange={(e) => setAttDate(e.target.value)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
-              />
-              <button
-                onClick={handleSaveAttendance}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white shadow-lg transition-all ${attError ? 'bg-rose-500 shadow-rose-500/25' : 'bg-gradient-to-r from-primary-600 to-primary-500 shadow-primary-500/25'}`}
-              >
-                {attSaved ? <><Check className="w-3.5 h-3.5" />Saved</> : attError ? 'Failed — retry' : 'Save All'}
-              </button>
-            </div>
+            <input
+              type="date"
+              value={attDate}
+              max={todayStr}
+              onChange={(e) => setAttDate(e.target.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
+            />
           </div>
-          <div className="space-y-2">
-            {roster.map((s) => (
-              <div key={s.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500">
-                    {s.avatar || s.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+
+          {!showSummary ? (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                  {editingSingle ? 'Editing attendance' : `Marking ${cardIndex + 1} of ${roster.length}`}
+                </p>
+                {!editingSingle && cardIndex > 0 && (
+                  <button onClick={() => setCardIndex((i) => Math.max(0, i - 1))}
+                    className={`inline-flex items-center gap-1 text-xs font-medium ${isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+                    <ChevronLeft className="w-3.5 h-3.5" />Back
+                  </button>
+                )}
+              </div>
+              {!editingSingle && (
+                <div className={`h-1.5 rounded-full overflow-hidden mb-5 ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                  <motion.div className="h-full rounded-full bg-gradient-to-r from-primary-500 to-violet-500"
+                    animate={{ width: `${(cardIndex / roster.length) * 100}%` }} transition={{ duration: 0.3 }} />
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {savedStudentId === s.id && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-500"><Check className="w-3 h-3" />Saved</span>
-                  )}
-                  <button
-                    onClick={() => handleMark(s.id, 'present')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'present' ? 'bg-emerald-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
-                  >
-                    <Check className="w-3 h-3" />Present
-                  </button>
-                  <button
-                    onClick={() => handleMark(s.id, 'absent')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'absent' ? 'bg-rose-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
-                  >
-                    <X className="w-3 h-3" />Absent
-                  </button>
+              )}
+
+              <AnimatePresence mode="wait">
+                {roster[cardIndex] && (() => {
+                  const s = roster[cardIndex]
+                  const existing = dayAttendance.find((a) => a.student_id === s.id)
+                  return (
+                    <motion.div
+                      key={s.id}
+                      initial={{ opacity: 0, x: 60 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -60 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                      className={`rounded-xl p-6 text-center ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}
+                    >
+                      <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500 mb-3">
+                        {s.avatar || s.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <p className={`text-base font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+                      {existing && (
+                        <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                          Currently marked {existing.status === 'present' ? 'Present' : 'Absent'} at{' '}
+                          {new Date(existing.marked_at || existing.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} — tap to update
+                        </p>
+                      )}
+                      <div className="flex items-center justify-center gap-3 mt-5">
+                        <button
+                          onClick={() => handleMarkAndAdvance(s.id, 'present')}
+                          className="flex-1 max-w-[160px] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"
+                        >
+                          <Check className="w-4 h-4" />Present
+                        </button>
+                        <button
+                          onClick={() => handleMarkAndAdvance(s.id, 'absent')}
+                          className="flex-1 max-w-[160px] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 transition-colors"
+                        >
+                          <X className="w-4 h-4" />Absent
+                        </button>
+                      </div>
+                      {markError && (
+                        <p className="flex items-center justify-center gap-1.5 text-xs font-medium text-rose-500 mt-3">
+                          <AlertCircle className="w-3.5 h-3.5" />Couldn't save — check connection and tap again
+                        </p>
+                      )}
+                      {editingSingle && (
+                        <button onClick={() => { setEditingSingle(false); setShowSummary(true) }}
+                          className={`text-xs font-medium mt-4 ${isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+                          Cancel
+                        </button>
+                      )}
+                    </motion.div>
+                  )
+                })()}
+              </AnimatePresence>
+            </div>
+          ) : (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className={`rounded-xl p-3 text-center ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{dayAttendance.length}/{roster.length}</p>
+                  <p className={`text-[11px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Marked</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
+                  <p className="text-lg font-bold text-emerald-500">{presentCount}</p>
+                  <p className={`text-[11px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Present</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${isDark ? 'bg-rose-500/10' : 'bg-rose-50'}`}>
+                  <p className="text-lg font-bold text-rose-500">{absentCount}</p>
+                  <p className={`text-[11px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Absent</p>
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {roster.map((s, i) => {
+                  const record = dayAttendance.find((a) => a.student_id === s.id)
+                  return (
+                    <div key={s.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500">
+                          {s.avatar || s.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+                          {record && (
+                            <p className={`text-[11px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              {new Date(record.marked_at || record.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {record ? (
+                          <span className={`px-2 py-1 rounded-md text-[11px] font-semibold ${record.status === 'present' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}>
+                            {record.status === 'present' ? 'Present' : 'Absent'}
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-1 rounded-md text-[11px] font-medium ${isDark ? 'bg-dark-700 text-dark-400' : 'bg-dark-200 text-dark-500'}`}>Not marked</span>
+                        )}
+                        <button onClick={() => handleEditStudent(i)}
+                          title="Came in late? Update their mark"
+                          className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
         </motion.div>
       )}
 

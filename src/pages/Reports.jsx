@@ -481,13 +481,15 @@ export default function Reports() {
       })
       return {
         title: 'Student Attendance Report',
-        columns: ['Student', 'Course', 'Batch', 'Date', 'Status', 'Marked By'],
+        columns: ['Student', 'Course', 'Batch', 'Date', 'Status', 'Marked At', 'Marked By'],
         rows: rows.map((a) => {
           const student = students.find((s) => s.id === a.student_id)
           const batch = batches.find((b) => b.id === a.batch_id)
           return [
             student?.name || 'Unknown', student?.course || '—', batch?.name || 'Unassigned',
-            a.date, a.status === 'present' ? 'Present' : 'Absent', a.marked_by_name || '—',
+            a.date, a.status === 'present' ? 'Present' : 'Absent',
+            a.marked_at ? new Date(a.marked_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—',
+            a.marked_by_name || '—',
           ]
         }),
       }

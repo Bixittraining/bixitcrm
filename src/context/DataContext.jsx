@@ -363,6 +363,7 @@ export function DataProvider({ children }) {
       status: r.status,
       marked_by: user?.id || null,
       marked_by_name: markerName,
+      marked_at: new Date().toISOString(),
     }))
     const { data, error } = await supabase
       .from('attendance')

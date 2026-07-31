@@ -216,7 +216,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
                 {studentAttendance.slice(0, 30).map((a) => (
                   <span
                     key={a.id}
-                    title={`${new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — ${a.status}`}
+                    title={`${new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — ${a.status}${a.marked_at ? ` at ${new Date(a.marked_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}`}
                     className={`px-2 py-1 rounded-md text-[11px] font-medium ${a.status === 'present' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}
                   >
                     {new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
