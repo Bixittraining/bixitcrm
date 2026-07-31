@@ -64,8 +64,6 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
   if (!student) return null
 
   const isDark = theme === 'dark'
-  const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
-  const feeRemaining = student.feeTotal - student.feePaid
   const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
 
   // A student started life as a lead — whatever requirement/context was
@@ -195,44 +193,6 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
                 </span>
               </div>
             </div>
-          </div>
-
-          {/* Fee Breakdown */}
-          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              Fee Breakdown
-            </h3>
-            <div className="grid grid-cols-3 gap-4 mb-3">
-              <div>
-                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Total Fee</p>
-                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                  {student.feeTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                </p>
-              </div>
-              <div>
-                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Paid</p>
-                <p className="text-lg font-bold text-emerald-500">
-                  {student.feePaid.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                </p>
-              </div>
-              <div>
-                <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Remaining</p>
-                <p className={`text-lg font-bold ${feeRemaining > 0 ? 'text-accent-500' : 'text-emerald-500'}`}>
-                  {feeRemaining.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                </p>
-              </div>
-            </div>
-            <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-              <motion.div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
-                initial={{ width: 0 }}
-                animate={{ width: `${feePercent}%` }}
-                transition={{ duration: 0.8, ease: 'easeOut' }}
-              />
-            </div>
-            <p className={`text-xs mt-1.5 text-right ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-              {feePercent}% paid
-            </p>
           </div>
 
           {/* From Lead Inquiry — requirements/notes recorded before enrollment */}
