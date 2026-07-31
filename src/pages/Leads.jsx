@@ -725,17 +725,14 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [addingDocCategory, setAddingDocCategory] = useState(null)
   const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
-  const [profileNotes, setProfileNotes] = useState([
-    { id: 1, text: lead.notes, date: lead.date, author: 'Admin' },
-    { id: 2, text: `Initial inquiry about ${lead.course} received.`, date: lead.date, author: 'System' },
-  ])
+  const profileNotes = (leadNotes || []).filter((n) => n.lead_id === lead.id)
 
   const statusColor = getStatusColor(lead.status)
   const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
@@ -768,7 +765,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 
   const handleAddNote = () => {
     if (!profileNoteText.trim()) return
-    setProfileNotes((prev) => [{ id: Date.now(), text: profileNoteText, date: new Date().toISOString().slice(0, 10), author: 'Admin' }, ...prev])
+    onAddNote(lead.id, profileNoteText.trim())
     setProfileNoteText('')
   }
 
@@ -1437,14 +1434,20 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   Add Note
                 </motion.button>
               </div>
-              <div className="space-y-3">
-                {profileNotes.map((note) => (
-                  <div key={note.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-800/80' : 'bg-dark-50'}`}>
-                    <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
-                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>{note.author} &middot; {note.date}</p>
-                  </div>
-                ))}
-              </div>
+              {profileNotes.length === 0 ? (
+                <p className={`text-sm text-center py-6 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No notes yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {profileNotes.map((note) => (
+                    <div key={note.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-800/80' : 'bg-dark-50'}`}>
+                      <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
+                      <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
+                        {note.author_name} &middot; {new Date(note.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1460,7 +1463,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches, leadNotes, addLeadNote } = useData()
   const { isAdmin, user } = useAuth()
   const isLockedForMe = (lead) => !!lead.assigned_to && lead.assigned_to !== user?.id && !isAdmin
   const location = useLocation()
@@ -1739,6 +1742,8 @@ function Leads() {
             leadDocuments={leadDocuments}
             onAddDocument={addLeadDocument}
             onDeleteDocument={deleteLeadDocument}
+            leadNotes={leadNotes}
+            onAddNote={addLeadNote}
             followUpsData={followUpsData}
             setFollowUpsData={setFollowUpsData}
             updateFollowUp={updateFollowUp}

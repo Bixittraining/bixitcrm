@@ -52,7 +52,7 @@ const itemVariants = {
 export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, invoices: invoicesData, recordPayment, createInvoice, installments } = useData()
+  const { students, invoices: invoicesData, recordPayment, createInvoice, installments, updateInvoiceDueDate } = useData()
   const [searchQuery, setSearchQuery] = useState('')
   const [planFilter, setPlanFilter] = useState('all')
   const [sortField, setSortField] = useState('id')
@@ -682,7 +682,17 @@ export default function Billing() {
                   </div>
                   <div>
                     <p className={`text-xs font-medium uppercase tracking-wider ${textMuted}`}>Due Date</p>
-                    <p className={`mt-1 text-sm font-semibold ${textPrimary}`}>{selectedInvoice.dueDate}</p>
+                    <input
+                      type="date"
+                      value={selectedInvoice.dueDate || ''}
+                      onChange={(e) => {
+                        const newDate = e.target.value
+                        setSelectedInvoice((prev) => ({ ...prev, dueDate: newDate }))
+                        updateInvoiceDueDate(selectedInvoice.id, newDate)
+                        showToast(`Due date updated for ${selectedInvoice.id}`)
+                      }}
+                      className={`mt-1 text-sm font-semibold bg-transparent outline-none rounded px-1 -mx-1 cursor-pointer ${textPrimary}`}
+                    />
                   </div>
                   <div>
                     <p className={`text-xs font-medium uppercase tracking-wider ${textMuted}`}>Status</p>

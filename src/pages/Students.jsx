@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
   Users, UserCheck, GraduationCap, BarChart3, X, Phone, Calendar,
   BookOpen, ChevronUp, ChevronDown, ArrowUpDown, MessageCircle,
-  CheckCircle2, AlertCircle, Trash2
+  CheckCircle2, AlertCircle, Trash2, FileText
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -58,12 +59,20 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote }) {
+  const [noteText, setNoteText] = useState('')
   if (!student) return null
 
   const isDark = theme === 'dark'
   const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
   const feeRemaining = student.feeTotal - student.feePaid
+  const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
+
+  const handleSubmitNote = () => {
+    if (!noteText.trim()) return
+    onAddNote(student.id, noteText.trim())
+    setNoteText('')
+  }
 
   return createPortal(
     <motion.div
@@ -219,6 +228,42 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             </p>
           </div>
 
+          {/* Notes & Performance */}
+          <div className={`rounded-xl p-4 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              <FileText size={14} />Notes &amp; Performance
+            </h3>
+            <div className="flex gap-2 mb-4">
+              <textarea
+                rows={2}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="How to teach this student, progress observations, requirements..."
+                className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none resize-none transition-all ${
+                  isDark ? 'bg-dark-900 border-dark-700 text-dark-100 placeholder-dark-500' : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400'
+                }`}
+              />
+              <button onClick={handleSubmitNote}
+                className="self-end px-4 py-2 rounded-lg text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                Add
+              </button>
+            </div>
+            {studentNotesList.length === 0 ? (
+              <p className={`text-xs text-center py-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No notes yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {studentNotesList.map((note) => (
+                  <div key={note.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
+                    <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
+                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
+                      {note.author_name} &middot; {new Date(note.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </motion.div>
       </motion.div>,
     document.body
@@ -228,13 +273,25 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent, updateStudent, batches } = useData()
+  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote } = useData()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('All')
   const [batchFilter, setBatchFilter] = useState('All')
   const [viewMode, setViewMode] = useState('grid')
   const [selectedStudent, setSelectedStudent] = useState(null)
+
+  // Auto-open a specific student's profile when navigated here with that
+  // intent (e.g. clicking a student from a batch's roster)
+  useEffect(() => {
+    if (location.state?.openStudentId != null) {
+      const found = students.find((s) => s.id === location.state.openStudentId)
+      if (found) setSelectedStudent(found)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate, students])
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const [notification, setNotification] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -830,6 +887,8 @@ function Students() {
             onDelete={handleDeleteStudent}
             onBatchChange={handleBatchChange}
             batches={batches}
+            notes={studentNotes}
+            onAddNote={addStudentNote}
           />
         )}
       </AnimatePresence>

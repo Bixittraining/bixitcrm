@@ -160,13 +160,14 @@ export default function BatchDetail() {
         ) : (
           <div className="space-y-2">
             {roster.map((s) => (
-              <div key={s.id} className={`flex items-center justify-between gap-3 p-3.5 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+              <div key={s.id} onClick={() => navigate('/students', { state: { openStudentId: s.id } })}
+                className={`flex items-center justify-between gap-3 p-3.5 rounded-xl cursor-pointer transition-colors ${isDark ? 'bg-dark-800/50 hover:bg-dark-800' : 'bg-dark-50 hover:bg-dark-100'}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500">
                     {s.avatar || s.name.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+                    <p className={`text-sm font-medium truncate hover:underline ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
                     <div className={`flex items-center gap-3 text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
                       <span className="flex items-center gap-1 truncate"><Mail className="w-3 h-3 shrink-0" />{s.email}</span>
                       <span className="flex items-center gap-1 shrink-0"><Phone className="w-3 h-3" />{s.phone}</span>
@@ -178,14 +179,14 @@ export default function BatchDetail() {
                   {s.status === 'completed' ? (
                     s.certificate_collected ? (
                       <button
-                        onClick={() => updateStudent(s.id, { certificate_collected: false, certificate_collected_date: null })}
+                        onClick={(e) => { e.stopPropagation(); updateStudent(s.id, { certificate_collected: false, certificate_collected_date: null }) }}
                         title="Click to undo"
                         className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-500 mt-0.5 hover:opacity-70 transition-opacity">
                         <CheckCircle2 className="w-3 h-3" />Certificate Collected
                       </button>
                     ) : (
                       <button
-                        onClick={() => updateStudent(s.id, { certificate_collected: true, certificate_collected_date: new Date().toISOString().slice(0, 10) })}
+                        onClick={(e) => { e.stopPropagation(); updateStudent(s.id, { certificate_collected: true, certificate_collected_date: new Date().toISOString().slice(0, 10) }) }}
                         className={`inline-flex items-center gap-1 text-[11px] font-medium mt-0.5 px-2 py-0.5 rounded-full transition-colors ${isDark ? 'bg-accent-500/15 text-accent-400 hover:bg-accent-500/25' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}
                       >
                         <GraduationCap className="w-3 h-3" />Course Completed — Mark Certificate Collected

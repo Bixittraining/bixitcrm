@@ -27,6 +27,8 @@ export function DataProvider({ children }) {
   const [invoices, setInvoices] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
   const [leadDocuments, setLeadDocuments] = useState([])
+  const [leadNotes, setLeadNotes] = useState([])
+  const [studentNotes, setStudentNotes] = useState([])
   const [batches, setBatches] = useState([])
   const [installments, setInstallments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,7 +37,7 @@ export function DataProvider({ children }) {
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -46,6 +48,8 @@ export function DataProvider({ children }) {
         supabase.from('lead_documents').select('*').order('created_at', { ascending: false }),
         supabase.from('batches').select('*').order('created_at', { ascending: false }),
         supabase.from('invoice_installments').select('*').order('seq', { ascending: true }),
+        supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
+        supabase.from('student_notes').select('*').order('created_at', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -58,6 +62,8 @@ export function DataProvider({ children }) {
       if (documentsRes.error) console.error('lead_documents error', documentsRes.error)
       if (batchesRes.error) console.error('batches error', batchesRes.error)
       if (installmentsRes.error) console.error('invoice_installments error', installmentsRes.error)
+      if (leadNotesRes.error) console.error('lead_notes error', leadNotesRes.error)
+      if (studentNotesRes.error) console.error('student_notes error', studentNotesRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -70,6 +76,8 @@ export function DataProvider({ children }) {
       setLeadActivities(activitiesRes.data || [])
       setTeamMembers(profilesRes.data || [])
       setLeadDocuments(documentsRes.data || [])
+      setLeadNotes(leadNotesRes.data || [])
+      setStudentNotes(studentNotesRes.data || [])
       setBatches(batchesRes.data || [])
       setInstallments(installmentsRes.data || [])
       setLoading(false)
@@ -311,6 +319,32 @@ export function DataProvider({ children }) {
     setLeadDocuments((prev) => [data, ...prev])
   }, [])
 
+  // ── NOTES (real, persisted — the Lead Notes tab used to be fake local
+  // state that vanished on refresh; Students never had notes at all) ──
+  const addLeadNote = useCallback(async (leadId, text) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const authorName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const { data, error } = await supabase
+      .from('lead_notes')
+      .insert({ lead_id: leadId, text, author_id: user?.id || null, author_name: authorName })
+      .select()
+      .single()
+    if (error) { console.error('addLeadNote error', error); return }
+    setLeadNotes((prev) => [data, ...prev])
+  }, [teamMembers])
+
+  const addStudentNote = useCallback(async (studentId, text) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const authorName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const { data, error } = await supabase
+      .from('student_notes')
+      .insert({ student_id: studentId, text, author_id: user?.id || null, author_name: authorName })
+      .select()
+      .single()
+    if (error) { console.error('addStudentNote error', error); return }
+    setStudentNotes((prev) => [data, ...prev])
+  }, [teamMembers])
+
   const deleteLeadDocument = useCallback(async (docId) => {
     const { error } = await supabase.from('lead_documents').delete().eq('id', docId)
     if (error) { console.error('deleteLeadDocument error', error); return }
@@ -543,6 +577,13 @@ export function DataProvider({ children }) {
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
   }, [])
 
+  const updateInvoiceDueDate = useCallback(async (invoiceId, dueDate) => {
+    const { data, error } = await supabase.from('invoices').update({ due_date: dueDate }).eq('id', invoiceId).select().single()
+    if (error) { console.error('updateInvoiceDueDate error', error); return }
+    const mapped = mapInvoiceFromDb(data)
+    setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
+  }, [])
+
   const recordPayment = useCallback(async (invoiceId, amount, paymentMode, date) => {
     const invoice = invoices.find((inv) => inv.id === invoiceId)
     if (!invoice) return
@@ -576,10 +617,11 @@ export function DataProvider({ children }) {
       leadActivities, addActivity,
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage,
-      invoices, setInvoices, recordPayment, createInvoice,
+      invoices, setInvoices, recordPayment, createInvoice, updateInvoiceDueDate,
       installments,
       teamMembers,
       leadDocuments, addLeadDocument, deleteLeadDocument,
+      leadNotes, addLeadNote, studentNotes, addStudentNote,
       batches, addBatch, updateBatch, deleteBatch,
       loading,
     }}>
