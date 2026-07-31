@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { jsPDF } from 'jspdf'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -53,6 +54,8 @@ export default function Billing() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const { students, invoices: invoicesData, recordPayment, createInvoice, installments, updateInvoiceDueDate } = useData()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [planFilter, setPlanFilter] = useState('all')
   const [sortField, setSortField] = useState('id')
@@ -287,6 +290,20 @@ export default function Billing() {
       reference: '',
     })
   }
+
+  // Auto-open a specific student's invoice when navigated here with that
+  // intent (e.g. the "Fees" button on the Students page). Picks the most
+  // recent invoice if a student somehow has more than one.
+  useEffect(() => {
+    const studentName = location.state?.openInvoiceForStudent
+    if (studentName) {
+      const matches = invoicesData.filter((inv) => inv.student === studentName)
+      const target = matches[0]
+      if (target) openModal(target)
+      else showToast(`No invoice found yet for ${studentName}`, 'error')
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate, invoicesData])
 
   const closeModal = () => {
     setSelectedInvoice(null)

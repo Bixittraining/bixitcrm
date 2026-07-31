@@ -646,18 +646,18 @@ function Students() {
                     View
                   </button>
                   <button
-                    onClick={() => handleMessageStudent(student)}
+                    onClick={() => handleWhatsApp(student)}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isDark
                         ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
                         : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
                     }`}
                   >
-                    <Mail size={14} />
-                    Message
+                    <MessageCircle size={14} />
+                    WhatsApp
                   </button>
                   <button
-                    onClick={() => { setSelectedStudent(student) }}
+                    onClick={() => navigate('/billing', { state: { openInvoiceForStudent: student.name } })}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isDark
                         ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
@@ -809,15 +809,15 @@ function Students() {
                             <Eye size={16} />
                           </button>
                           <button
-                            onClick={() => handleMessageStudent(student)}
+                            onClick={() => handleWhatsApp(student)}
                             className={`p-2 rounded-lg transition-colors ${
                               isDark
                                 ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
                                 : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
                             }`}
-                            title="Send Message"
+                            title="WhatsApp"
                           >
-                            <Mail size={16} />
+                            <MessageCircle size={16} />
                           </button>
                           <button
                             onClick={() => handleCallStudent(student)}
@@ -829,6 +829,17 @@ function Students() {
                             title="Call Student"
                           >
                             <Phone size={16} />
+                          </button>
+                          <button
+                            onClick={() => navigate('/billing', { state: { openInvoiceForStudent: student.name } })}
+                            className={`p-2 rounded-lg transition-colors ${
+                              isDark
+                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
+                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
+                            }`}
+                            title="View Fees"
+                          >
+                            <Receipt size={16} />
                           </button>
                         </div>
                       </td>
