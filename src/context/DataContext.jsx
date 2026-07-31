@@ -31,13 +31,14 @@ export function DataProvider({ children }) {
   const [studentNotes, setStudentNotes] = useState([])
   const [batches, setBatches] = useState([])
   const [installments, setInstallments] = useState([])
+  const [attendance, setAttendance] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -50,6 +51,7 @@ export function DataProvider({ children }) {
         supabase.from('invoice_installments').select('*').order('seq', { ascending: true }),
         supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('student_notes').select('*').order('created_at', { ascending: false }),
+        supabase.from('attendance').select('*').order('date', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -64,6 +66,7 @@ export function DataProvider({ children }) {
       if (installmentsRes.error) console.error('invoice_installments error', installmentsRes.error)
       if (leadNotesRes.error) console.error('lead_notes error', leadNotesRes.error)
       if (studentNotesRes.error) console.error('student_notes error', studentNotesRes.error)
+      if (attendanceRes.error) console.error('attendance error', attendanceRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -80,6 +83,7 @@ export function DataProvider({ children }) {
       setStudentNotes(studentNotesRes.data || [])
       setBatches(batchesRes.data || [])
       setInstallments(installmentsRes.data || [])
+      setAttendance(attendanceRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -343,6 +347,33 @@ export function DataProvider({ children }) {
       .single()
     if (error) { console.error('addStudentNote error', error); return }
     setStudentNotes((prev) => [data, ...prev])
+  }, [teamMembers])
+
+  // ── ATTENDANCE (trainer marks the roster per batch/day) ────
+  // One upsert call handles the whole day's register at once — records is
+  // [{ studentId, status }]. Unique (student_id, date) means re-marking the
+  // same day overwrites rather than duplicating.
+  const markAttendance = useCallback(async (batchId, date, records) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const markerName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const rows = records.map((r) => ({
+      batch_id: batchId,
+      student_id: r.studentId,
+      date,
+      status: r.status,
+      marked_by: user?.id || null,
+      marked_by_name: markerName,
+    }))
+    const { data, error } = await supabase
+      .from('attendance')
+      .upsert(rows, { onConflict: 'student_id,date' })
+      .select()
+    if (error) { console.error('markAttendance error', error); return }
+    setAttendance((prev) => {
+      const touchedIds = new Set(data.map((d) => `${d.student_id}_${d.date}`))
+      const kept = prev.filter((a) => !touchedIds.has(`${a.student_id}_${a.date}`))
+      return [...data, ...kept]
+    })
   }, [teamMembers])
 
   const deleteLeadDocument = useCallback(async (docId) => {
@@ -623,6 +654,7 @@ export function DataProvider({ children }) {
       leadDocuments, addLeadDocument, deleteLeadDocument,
       leadNotes, addLeadNote, studentNotes, addStudentNote,
       batches, addBatch, updateBatch, deleteBatch,
+      attendance, markAttendance,
       loading,
     }}>
       {children}

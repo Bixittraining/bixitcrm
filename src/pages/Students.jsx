@@ -6,7 +6,7 @@ import {
   Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
   Users, UserCheck, GraduationCap, BarChart3, X, Phone, Calendar,
   BookOpen, ChevronUp, ChevronDown, ArrowUpDown, MessageCircle,
-  CheckCircle2, AlertCircle, Trash2, FileText
+  CheckCircle2, AlertCircle, Trash2, FileText, ClipboardCheck
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -59,12 +59,16 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes, attendance }) {
   const [noteText, setNoteText] = useState('')
   if (!student) return null
 
   const isDark = theme === 'dark'
   const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
+  const studentAttendance = (attendance || []).filter((a) => a.student_id === student.id).sort((a, b) => b.date.localeCompare(a.date))
+  const attendancePct = studentAttendance.length
+    ? Math.round((studentAttendance.filter((a) => a.status === 'present').length / studentAttendance.length) * 100)
+    : null
 
   // A student started life as a lead — whatever requirement/context was
   // recorded back then (special requirements, notes) shouldn't just
@@ -195,6 +199,33 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             </div>
           </div>
 
+          {/* Attendance */}
+          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                <ClipboardCheck size={14} />Attendance
+              </h3>
+              {attendancePct != null && (
+                <span className={`text-sm font-bold ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>{attendancePct}%</span>
+              )}
+            </div>
+            {studentAttendance.length === 0 ? (
+              <p className={`text-xs text-center py-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No attendance recorded yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                {studentAttendance.slice(0, 30).map((a) => (
+                  <span
+                    key={a.id}
+                    title={`${new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — ${a.status}`}
+                    className={`px-2 py-1 rounded-md text-[11px] font-medium ${a.status === 'present' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}
+                  >
+                    {new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* From Lead Inquiry — requirements/notes recorded before enrollment */}
           {originLead && (originLead.notes || originLeadNotes.length > 0) && (
             <div className={`rounded-xl p-4 mb-5 border-l-2 ${isDark ? 'bg-dark-800/40 border-primary-500/50' : 'bg-primary-50/50 border-primary-300'}`}>
@@ -263,7 +294,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes } = useData()
+  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes, attendance } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -892,6 +923,7 @@ function Students() {
             onAddNote={addStudentNote}
             leads={leads}
             leadNotes={leadNotes}
+            attendance={attendance}
           />
         )}
       </AnimatePresence>

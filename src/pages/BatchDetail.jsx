@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Layers, User, Calendar, Clock, Users, Mail, Phone,
   CheckCircle2, PlayCircle, Hourglass, GraduationCap, IndianRupee, Pencil,
+  ClipboardCheck, Check, X,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -34,12 +35,42 @@ export default function BatchDetail() {
   const navigate = useNavigate()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { batches, students, teamMembers, updateStudent } = useData()
+  const { batches, students, teamMembers, updateStudent, attendance, markAttendance } = useData()
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
   const batch = batches.find((b) => String(b.id) === batchId)
   const roster = useMemo(() => students.filter((s) => s.batch_id === batch?.id), [students, batch])
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [attDate, setAttDate] = useState(todayStr)
+  const [attDraft, setAttDraft] = useState({})
+  const [attSaved, setAttSaved] = useState(false)
+
+  const batchAttendance = useMemo(() => attendance.filter((a) => a.batch_id === batch?.id), [attendance, batch])
+
+  useEffect(() => {
+    if (!roster.length) return
+    const draft = {}
+    roster.forEach((s) => {
+      const existing = batchAttendance.find((a) => a.student_id === s.id && a.date === attDate)
+      draft[s.id] = existing?.status || 'present'
+    })
+    setAttDraft(draft)
+    setAttSaved(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attDate, roster.length, batch?.id])
+
+  const handleSaveAttendance = () => {
+    markAttendance(batch.id, attDate, roster.map((s) => ({ studentId: s.id, status: attDraft[s.id] || 'present' })))
+    setAttSaved(true)
+    setTimeout(() => setAttSaved(false), 2500)
+  }
+
+  const attendedDays = new Set(batchAttendance.map((a) => a.date)).size
+  const attendancePct = batchAttendance.length
+    ? Math.round((batchAttendance.filter((a) => a.status === 'present').length / batchAttendance.length) * 100)
+    : null
 
   if (!batch) {
     return (
@@ -81,6 +112,7 @@ export default function BatchDetail() {
     { label: 'Fee Collected', value: `₹${feeCollected.toLocaleString('en-IN')}`, icon: IndianRupee, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50', sub: `of ₹${feeTotal.toLocaleString('en-IN')}` },
     { label: 'Course Completed', value: completedCount, icon: GraduationCap, color: 'text-violet-500', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
     { label: 'Certificates Pending', value: certPendingCount, icon: Clock, color: 'text-accent-500', bg: isDark ? 'bg-accent-500/10' : 'bg-amber-50' },
+    { label: 'Attendance', value: attendancePct != null ? `${attendancePct}%` : '—', icon: ClipboardCheck, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50', sub: attendedDays ? `${attendedDays} day${attendedDays === 1 ? '' : 's'} recorded` : 'No records yet' },
   ]
 
   return (
@@ -134,7 +166,7 @@ export default function BatchDetail() {
         </div>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {stats.map((s) => (
           <div key={s.label} className={`rounded-2xl p-4 ${cardClass}`}>
             <div className="flex items-center justify-between">
@@ -148,6 +180,57 @@ export default function BatchDetail() {
           </div>
         ))}
       </motion.div>
+
+      {roster.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 ${cardClass}`}>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
+              <ClipboardCheck className="w-4 h-4" />Take Attendance
+            </h3>
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={attDate}
+                max={todayStr}
+                onChange={(e) => setAttDate(e.target.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
+              />
+              <button
+                onClick={handleSaveAttendance}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 shadow-lg shadow-primary-500/25 transition-all"
+              >
+                {attSaved ? <><Check className="w-3.5 h-3.5" />Saved</> : 'Save Attendance'}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {roster.map((s) => (
+              <div key={s.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500">
+                    {s.avatar || s.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{s.name}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setAttDraft((d) => ({ ...d, [s.id]: 'present' }))}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'present' ? 'bg-emerald-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
+                  >
+                    <Check className="w-3 h-3" />Present
+                  </button>
+                  <button
+                    onClick={() => setAttDraft((d) => ({ ...d, [s.id]: 'absent' }))}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${attDraft[s.id] === 'absent' ? 'bg-rose-500 text-white' : isDark ? 'bg-dark-700 text-dark-400 hover:text-dark-200' : 'bg-dark-200 text-dark-500 hover:text-dark-700'}`}
+                  >
+                    <X className="w-3 h-3" />Absent
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 ${cardClass}`}>
         <h3 className={`text-sm font-semibold mb-4 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
