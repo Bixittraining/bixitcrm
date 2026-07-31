@@ -286,7 +286,7 @@ function SettingsModal({ isDark, onClose }) {
 export default function Pipeline() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads, addLead, updateLeadStatus } = useData()
+  const { leads, addLead, updateLeadStatus, enrollLead, packages } = useData()
 
   const [showAddLead, setShowAddLead] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -315,7 +315,16 @@ export default function Pipeline() {
     const currentIdx = stageKeys.indexOf(lead.status)
     if (currentIdx < stageKeys.length - 1) {
       const nextStage = stageKeys[currentIdx + 1]
-      updateLeadStatus(lead.id, nextStage)
+      if (nextStage === 'enrolled') {
+        // Enrolled needs a real student + invoice created, not just a status
+        // flip — updateLeadStatus alone left leads sitting in "Enrolled"
+        // with no matching row in Students. Batch isn't picked here, so it
+        // enrolls Unassigned; staff can assign a batch later from Students.
+        const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+        enrollLead(lead, pkg, null)
+      } else {
+        updateLeadStatus(lead.id, nextStage)
+      }
       showToastMsg(`${lead.name} moved to ${PIPELINE_STAGES[currentIdx + 1].label}`)
     }
   }
