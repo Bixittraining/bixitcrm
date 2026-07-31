@@ -175,7 +175,6 @@ export default function BatchDetail() {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className={`text-xs font-semibold ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>₹{(s.feePaid || 0).toLocaleString('en-IN')} / ₹{(s.feeTotal || 0).toLocaleString('en-IN')}</p>
                   {s.status === 'completed' ? (
                     s.certificate_collected ? (
                       <button

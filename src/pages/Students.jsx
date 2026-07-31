@@ -59,7 +59,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes }) {
   const [noteText, setNoteText] = useState('')
   if (!student) return null
 
@@ -67,6 +67,13 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
   const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
   const feeRemaining = student.feeTotal - student.feePaid
   const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
+
+  // A student started life as a lead — whatever requirement/context was
+  // recorded back then (special requirements, notes) shouldn't just
+  // disappear once they enroll. Matched by email since students don't
+  // carry a direct lead_id reference back.
+  const originLead = (leads || []).find((l) => l.email && student.email && l.email.toLowerCase() === student.email.toLowerCase())
+  const originLeadNotes = originLead ? (leadNotes || []).filter((n) => n.lead_id === originLead.id) : []
 
   const handleSubmitNote = () => {
     if (!noteText.trim()) return
@@ -228,6 +235,29 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             </p>
           </div>
 
+          {/* From Lead Inquiry — requirements/notes recorded before enrollment */}
+          {originLead && (originLead.notes || originLeadNotes.length > 0) && (
+            <div className={`rounded-xl p-4 mb-5 border-l-2 ${isDark ? 'bg-dark-800/40 border-primary-500/50' : 'bg-primary-50/50 border-primary-300'}`}>
+              <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                <FileText size={14} />From Lead Inquiry
+              </h3>
+              {originLead.notes && (
+                <div className={`rounded-lg p-3 text-sm mb-2 ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
+                  <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{originLead.notes}</p>
+                  <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>Special requirement · noted as a lead</p>
+                </div>
+              )}
+              {originLeadNotes.map((note) => (
+                <div key={note.id} className={`rounded-lg p-3 text-sm mb-2 last:mb-0 ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
+                  <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
+                  <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
+                    {note.author_name} &middot; {new Date(note.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Notes & Performance */}
           <div className={`rounded-xl p-4 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
             <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
@@ -273,7 +303,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote } = useData()
+  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -889,6 +919,8 @@ function Students() {
             batches={batches}
             notes={studentNotes}
             onAddNote={addStudentNote}
+            leads={leads}
+            leadNotes={leadNotes}
           />
         )}
       </AnimatePresence>
