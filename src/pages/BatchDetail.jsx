@@ -52,6 +52,24 @@ export default function BatchDetail() {
   const batchAttendance = useMemo(() => attendance.filter((a) => a.batch_id === batch?.id), [attendance, batch])
   const dayAttendance = useMemo(() => batchAttendance.filter((a) => a.date === attDate), [batchAttendance, attDate])
 
+  // Attendance only makes sense inside the batch's own date range — a batch
+  // starting 5 Aug shouldn't accept marks dated 31 Jul just because "today"
+  // happened to be before start. Clamp the picker to [start_date, min(today,
+  // end_date)] instead of only capping at today.
+  const minAttDate = batch?.start_date || null
+  const maxAttDate = batch?.end_date && batch.end_date < todayStr ? batch.end_date : todayStr
+  const batchStarted = !minAttDate || todayStr >= minAttDate
+
+  useEffect(() => {
+    if (!batch) return
+    setAttDate((d) => {
+      if (minAttDate && d < minAttDate) return minAttDate
+      if (maxAttDate && d > maxAttDate) return maxAttDate
+      return d
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, minAttDate, maxAttDate])
+
   // Jump straight to whichever student in the roster hasn't been marked for
   // this date yet — a trainer re-opening today's register mid-class
   // shouldn't have to click through everyone already done. If the whole
@@ -212,7 +230,16 @@ export default function BatchDetail() {
         ))}
       </motion.div>
 
-      {roster.length > 0 && (
+      {roster.length > 0 && !batchStarted && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 text-center ${cardClass}`}>
+          <ClipboardCheck className={`w-8 h-8 mx-auto mb-2 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+          <p className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+            Attendance opens once this batch starts on {new Date(batch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
+        </motion.div>
+      )}
+
+      {roster.length > 0 && batchStarted && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 overflow-hidden ${cardClass}`}>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
@@ -221,7 +248,8 @@ export default function BatchDetail() {
             <input
               type="date"
               value={attDate}
-              max={todayStr}
+              min={minAttDate || undefined}
+              max={maxAttDate}
               onChange={(e) => setAttDate(e.target.value)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
             />
