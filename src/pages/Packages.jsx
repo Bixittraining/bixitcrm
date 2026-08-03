@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Package,
@@ -11,10 +12,9 @@ import {
   Check,
   ChevronRight,
   X,
-  UserPlus,
   CheckCircle2,
   AlertCircle,
-  Search,
+  UserCheck,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -70,35 +70,9 @@ const cardVariants = {
   },
 }
 
-function EnrollmentChart({ theme }) {
-  const bars = [35, 55, 42, 68, 50, 75, 60, 80, 65, 72, 85, 90]
-  const maxBar = Math.max(...bars)
-
-  return (
-    <div className="flex items-end gap-1.5 h-24 mt-3">
-      {bars.map((value, i) => (
-        <motion.div
-          key={i}
-          className={`flex-1 rounded-t ${
-            theme === 'dark'
-              ? 'bg-primary-500/60'
-              : 'bg-primary-400/50'
-          }`}
-          initial={{ height: 0 }}
-          animate={{ height: `${(value / maxBar) * 100}%` }}
-          transition={{ delay: i * 0.05, duration: 0.4, ease: 'easeOut' }}
-        />
-      ))}
-    </div>
-  )
-}
-
 function PackageDetailModal({ pkg, theme, onClose }) {
-  const { students, setStudents, setInvoices, setPackages } = useData()
-  const [showPicker, setShowPicker] = useState(false)
-  const [pickerSearch, setPickerSearch] = useState('')
-  const [enrolledId, setEnrolledId] = useState(null)
-  const [enrollToast, setEnrollToast] = useState(null)
+  const { students } = useData()
+  const navigate = useNavigate()
 
   if (!pkg) return null
 
@@ -108,38 +82,14 @@ function PackageDetailModal({ pkg, theme, onClose }) {
     ? categoryBadgeColors[pkg.category]
     : categoryBadgeColorsLight[pkg.category]
 
-  const filteredStudents = students.filter(s =>
-    s.name.toLowerCase().includes(pickerSearch.toLowerCase()) ||
-    s.email.toLowerCase().includes(pickerSearch.toLowerCase())
-  )
-
-  function handleEnroll(student) {
-    setStudents(prev => prev.map(s =>
-      s.id === student.id ? { ...s, course: pkg.name, feeTotal: pkg.price } : s
-    ))
-    setInvoices(prev => {
-      if (prev.find(inv => inv.student === student.name && inv.course === pkg.name)) return prev
-      const invoiceId = `INV-${new Date().getFullYear()}-${String(prev.length + 1).padStart(3, '0')}`
-      return [{
-        id: invoiceId,
-        student: student.name,
-        course: pkg.name,
-        amount: pkg.price,
-        paid: 0,
-        balance: pkg.price,
-        date: new Date().toISOString().slice(0, 10),
-        dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-        status: 'partial',
-        paymentMode: 'UPI',
-      }, ...prev]
-    })
-    setPackages(prev => prev.map(p => p.id === pkg.id ? { ...p, students: (p.students || 0) + 1 } : p))
-    setEnrolledId(student.id)
-    setShowPicker(false)
-    setPickerSearch('')
-    setEnrollToast(`${student.name} enrolled in ${pkg.name}!`)
-    setTimeout(() => setEnrollToast(null), 3000)
-  }
+  // Real enrollment count — a student's course field is set when they're
+  // actually enrolled (Leads → Enroll → Batch), not by anything on this
+  // page. Packages used to show a hardcoded "students" stat with no
+  // connection to real data; this counts actual matching students instead.
+  const enrolledCount = students.filter((s) => s.course === pkg.name).length
+  const capacity = pkg.capacity || 0
+  const remainingSlots = Math.max(capacity - enrolledCount, 0)
+  const isFull = capacity > 0 && remainingSlots === 0
 
   return (
     <motion.div
@@ -223,8 +173,8 @@ function PackageDetailModal({ pkg, theme, onClose }) {
           <div className="grid grid-cols-3 gap-4">
             {[
               { label: 'Modules', value: pkg.modules, icon: BookOpen },
-              { label: 'Enrolled', value: pkg.students, icon: Users },
-              { label: 'Rating', value: pkg.rating, icon: Star },
+              { label: 'Enrolled', value: enrolledCount, icon: Users },
+              { label: 'Remaining Slots', value: capacity > 0 ? remainingSlots : '—', icon: UserCheck },
             ].map((stat) => (
               <div
                 key={stat.label}
@@ -241,6 +191,22 @@ function PackageDetailModal({ pkg, theme, onClose }) {
             ))}
           </div>
 
+          {/* Capacity bar */}
+          {capacity > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5 text-xs">
+                <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Capacity</span>
+                <span className={`font-semibold ${isFull ? 'text-rose-500' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                  {enrolledCount} / {capacity} {isFull ? '— Full' : ''}
+                </span>
+              </div>
+              <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                <div className={`h-full rounded-full ${isFull ? 'bg-rose-500' : 'bg-gradient-to-r from-primary-500 to-violet-500'}`}
+                  style={{ width: `${Math.min(100, Math.round((enrolledCount / capacity) * 100))}%` }} />
+              </div>
+            </div>
+          )}
+
           {/* All Features */}
           <div>
             <h3 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${
@@ -248,141 +214,39 @@ function PackageDetailModal({ pkg, theme, onClose }) {
             }`}>
               What's Included
             </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {pkg.features.map((feature, i) => (
-                <motion.div
-                  key={i}
-                  className="flex items-center gap-2"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.08 }}
-                >
-                  <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                    <Check className="w-3 h-3 text-emerald-500" />
-                  </div>
-                  <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{feature}</span>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          {/* Enrollment History Chart */}
-          <div>
-            <h3 className={`text-sm font-semibold uppercase tracking-wider mb-1 ${
-              isDark ? 'text-dark-400' : 'text-dark-500'
-            }`}>
-              Enrollment Trend (12 Months)
-            </h3>
-            <EnrollmentChart theme={theme} />
-            <div className="flex justify-between mt-1">
-              <span className={`text-[10px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Jul '25</span>
-              <span className={`text-[10px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Jun '26</span>
-            </div>
-          </div>
-
-          {/* Toast */}
-          <AnimatePresence>
-            {enrollToast && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 text-sm font-medium"
-              >
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                {enrollToast}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* CTA */}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowPicker(true)}
-            className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold text-sm shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-shadow cursor-pointer flex items-center justify-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            Enroll Student in {pkg.name}
-          </motion.button>
-
-          {/* Student Picker */}
-          <AnimatePresence>
-            {showPicker && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 12 }}
-                className={`rounded-xl border overflow-hidden ${
-                  isDark ? 'bg-dark-800 border-dark-700/60' : 'bg-dark-50 border-dark-200/60'
-                }`}
-              >
-                <div className={`flex items-center justify-between px-4 py-3 border-b ${
-                  isDark ? 'border-dark-700/60' : 'border-dark-200/60'
-                }`}>
-                  <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                    Select a Student
-                  </span>
-                  <button
-                    onClick={() => { setShowPicker(false); setPickerSearch('') }}
-                    className={`p-1 rounded-lg hover:bg-dark-700/30 transition-colors cursor-pointer ${isDark ? 'text-dark-400' : 'text-dark-500'}`}
+            {pkg.features?.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {pkg.features.map((feature, i) => (
+                  <motion.div
+                    key={i}
+                    className="flex items-center gap-2"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.08 }}
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="px-3 pt-3">
-                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-                    isDark ? 'bg-dark-900/60 border-dark-700/40' : 'bg-white border-dark-200/60'
-                  }`}>
-                    <Search className={`w-3.5 h-3.5 ${isDark ? 'text-dark-400' : 'text-dark-400'}`} />
-                    <input
-                      autoFocus
-                      value={pickerSearch}
-                      onChange={e => setPickerSearch(e.target.value)}
-                      placeholder="Search students..."
-                      className={`flex-1 bg-transparent text-sm outline-none ${isDark ? 'text-white placeholder-dark-500' : 'text-dark-900 placeholder-dark-400'}`}
-                    />
-                  </div>
-                </div>
-
-                <div className="max-h-52 overflow-y-auto p-3 space-y-1">
-                  {filteredStudents.length === 0 ? (
-                    <p className={`text-center text-sm py-6 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                      No students found
-                    </p>
-                  ) : filteredStudents.map(student => (
-                    <motion.button
-                      key={student.id}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => handleEnroll(student)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors cursor-pointer ${
-                        enrolledId === student.id
-                          ? isDark ? 'bg-emerald-500/15 border border-emerald-500/30' : 'bg-emerald-50 border border-emerald-200'
-                          : isDark ? 'hover:bg-dark-700/50' : 'hover:bg-white'
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-primary-500/20 flex items-center justify-center text-xs font-bold text-primary-500 flex-shrink-0">
-                        {student.avatar || student.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                          {student.name}
-                        </p>
-                        <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                          {student.email} · {student.course}
-                        </p>
-                      </div>
-                      {enrolledId === student.id && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                      )}
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.div>
+                    <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                      <Check className="w-3 h-3 text-emerald-500" />
+                    </div>
+                    <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{feature}</span>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <p className={`text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Nothing added yet for this package.</p>
             )}
-          </AnimatePresence>
+          </div>
+
+          {/* Enrollment happens through Leads → Enroll (which creates the
+              real student + invoice + batch link) or by assigning a batch
+              from Students — not from here, to avoid a second enrollment
+              path that skips GST and batch assignment. */}
+          <button
+            onClick={() => navigate('/students', { state: { filterCourse: pkg.name } })}
+            className={`w-full py-3 px-6 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2 border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+          >
+            <Users className="w-4 h-4" />
+            View Enrolled Students
+          </button>
         </div>
         </div>
       </motion.div>
@@ -391,13 +255,15 @@ function PackageDetailModal({ pkg, theme, onClose }) {
 }
 
 function PackageCard({ pkg, theme, onViewDetails }) {
+  const { students } = useData()
   const isDark = theme === 'dark'
   const gradient = categoryGradients[pkg.category] || 'from-primary-500 to-primary-700'
   const badgeColor = isDark
     ? categoryBadgeColors[pkg.category]
     : categoryBadgeColorsLight[pkg.category]
-  const visibleFeatures = pkg.features.slice(0, 3)
-  const remainingCount = pkg.features.length - 3
+  const visibleFeatures = (pkg.features || []).slice(0, 3)
+  const remainingCount = (pkg.features?.length || 0) - 3
+  const enrolledCount = students.filter((s) => s.course === pkg.name).length
 
   return (
     <motion.div
@@ -447,7 +313,7 @@ function PackageCard({ pkg, theme, onViewDetails }) {
           <div className="flex items-center gap-1.5">
             <Users className={`w-4 h-4 ${isDark ? 'text-accent-400' : 'text-accent-500'}`} />
             <span className={`text-xs font-medium ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              {pkg.students} Students
+              {enrolledCount}{pkg.capacity ? `/${pkg.capacity}` : ''} Students
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -483,31 +349,16 @@ function PackageCard({ pkg, theme, onViewDetails }) {
           )}
         </div>
 
-        {/* CTA Buttons */}
-        <div className="flex gap-2 pt-1">
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => onViewDetails(pkg)}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white text-sm font-semibold shadow-md shadow-primary-500/20 hover:shadow-primary-500/40 transition-shadow cursor-pointer flex items-center justify-center gap-1.5"
-          >
-            View Details
-            <ChevronRight className="w-4 h-4" />
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => onViewDetails(pkg)}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold border cursor-pointer transition-colors flex items-center justify-center gap-1.5 ${
-              isDark
-                ? 'border-dark-600 text-dark-300 hover:bg-dark-800 hover:text-white'
-                : 'border-dark-300 text-dark-600 hover:bg-dark-50 hover:text-dark-900'
-            }`}
-          >
-            <UserPlus className="w-4 h-4" />
-            Enroll Student
-          </motion.button>
-        </div>
+        {/* CTA */}
+        <motion.button
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => onViewDetails(pkg)}
+          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white text-sm font-semibold shadow-md shadow-primary-500/20 hover:shadow-primary-500/40 transition-shadow cursor-pointer flex items-center justify-center gap-1.5"
+        >
+          View Details
+          <ChevronRight className="w-4 h-4" />
+        </motion.button>
       </div>
     </motion.div>
   )
@@ -517,7 +368,7 @@ const packageCategories = ['Development', 'Data & AI', 'Design', 'Marketing', 'I
 
 function CreatePackageModal({ isDark, onClose, onSave }) {
   const [form, setForm] = useState({
-    name: '', duration: '', price: '', description: '', category: 'Development', modules: '',
+    name: '', duration: '', price: '', description: '', category: 'Development', modules: '', capacity: '30', featuresText: '',
   })
   const [toast, setToast] = useState(null)
 
@@ -536,10 +387,11 @@ function CreatePackageModal({ isDark, onClose, onSave }) {
       description: form.description,
       category: form.category,
       modules: Number(form.modules) || 0,
+      capacity: Number(form.capacity) || 0,
       students: 0,
       rating: 0,
       status: 'active',
-      features: [],
+      features: form.featuresText.split('\n').map((f) => f.trim()).filter(Boolean),
     })
     onClose()
   }
@@ -589,8 +441,17 @@ function CreatePackageModal({ isDark, onClose, onSave }) {
             </div>
           </div>
           <div>
+            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Capacity (max students)</label>
+            <input type="number" min="0" value={form.capacity} onChange={e => setForm(p => ({ ...p, capacity: e.target.value }))} placeholder="30" className={inputCls} />
+          </div>
+          <div>
             <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Description</label>
             <textarea rows={3} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Describe what this program covers..."
+              className={`${inputCls} resize-none`} />
+          </div>
+          <div>
+            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>What's Included (one per line)</label>
+            <textarea rows={4} value={form.featuresText} onChange={e => setForm(p => ({ ...p, featuresText: e.target.value }))} placeholder={'Live Projects\nPlacement Assistance\nCertificate'}
               className={`${inputCls} resize-none`} />
           </div>
           {toast && (
@@ -610,7 +471,9 @@ function CreatePackageModal({ isDark, onClose, onSave }) {
 }
 
 function ComparePackagesModal({ isDark, onClose, packages }) {
+  const { students } = useData()
   const [selected, setSelected] = useState([])
+  const enrolledCountFor = (pkg) => students.filter((s) => s.course === pkg.name).length
 
   const toggleSelect = (pkg) => {
     setSelected(prev => {
@@ -680,7 +543,7 @@ function ComparePackagesModal({ isDark, onClose, packages }) {
                   { label: 'Price', key: 'price', format: formatPrice },
                   { label: 'Duration', key: 'duration' },
                   { label: 'Modules', key: 'modules' },
-                  { label: 'Students', key: 'students' },
+                  { label: 'Students', key: 'students', format: (_, pkg) => `${enrolledCountFor(pkg)}${pkg.capacity ? `/${pkg.capacity}` : ''}` },
                   { label: 'Rating', key: 'rating' },
                   { label: 'Category', key: 'category' },
                 ].map(row => (
@@ -688,7 +551,7 @@ function ComparePackagesModal({ isDark, onClose, packages }) {
                     <td className={`py-3 px-4 font-medium ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>{row.label}</td>
                     {selected.map(pkg => (
                       <td key={pkg.id} className={`py-3 px-4 text-center ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
-                        {row.format ? row.format(pkg[row.key]) : (pkg[row.key] ?? '—')}
+                        {row.format ? row.format(pkg[row.key], pkg) : (pkg[row.key] ?? '—')}
                       </td>
                     ))}
                   </tr>

@@ -311,6 +311,9 @@ function Students() {
       const found = students.find((s) => s.id === location.state.openStudentId)
       if (found) setSelectedStudent(found)
       navigate(location.pathname, { replace: true, state: {} })
+    } else if (location.state?.filterCourse) {
+      setCourseFilter(location.state.filterCourse)
+      navigate(location.pathname, { replace: true, state: {} })
     }
   }, [location.state, location.pathname, navigate, students])
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
