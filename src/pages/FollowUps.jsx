@@ -17,6 +17,7 @@ import {
   Plus,
   X,
   ChevronDown,
+  Search,
   Bell,
   GraduationCap,
   Trash2,
@@ -202,6 +203,8 @@ export default function FollowUps() {
     priority: 'medium',
     notes: '',
   })
+  const [leadQuery, setLeadQuery] = useState('')
+  const [showLeadPicker, setShowLeadPicker] = useState(false)
 
   const getLeadFor = (fu) => leads.find((l) => l.name === fu.lead)
   const getLeadFollowUpHistory = (leadName) => {
@@ -289,6 +292,7 @@ export default function FollowUps() {
       })
     }
     setFormData({ lead: '', type: 'call', date: '', time: '', priority: 'medium', notes: '' })
+    setLeadQuery('')
     setShowModal(false)
   }
 
@@ -1055,7 +1059,7 @@ export default function FollowUps() {
               {/* Modal Body */}
               <form onSubmit={handleScheduleSubmit} className="p-6 space-y-5">
                 {/* Lead */}
-                <div>
+                <div className="relative">
                   <label
                     className={`block text-sm font-medium mb-1.5 ${
                       isDark ? 'text-dark-300' : 'text-dark-700'
@@ -1064,31 +1068,47 @@ export default function FollowUps() {
                     Lead
                   </label>
                   <div className="relative">
-                    <select
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                    <input
+                      type="text"
                       required
-                      value={formData.lead}
-                      onChange={(e) =>
-                        setFormData({ ...formData, lead: e.target.value })
-                      }
-                      className={`w-full appearance-none pl-3 pr-8 py-2.5 rounded-xl text-sm border transition-all duration-200 ${
+                      value={leadQuery}
+                      onFocus={() => setShowLeadPicker(true)}
+                      onChange={(e) => {
+                        setLeadQuery(e.target.value)
+                        setShowLeadPicker(true)
+                        if (formData.lead) setFormData((p) => ({ ...p, lead: '' }))
+                      }}
+                      onBlur={() => setTimeout(() => setShowLeadPicker(false), 150)}
+                      placeholder="Search a lead by name..."
+                      className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-sm border outline-none transition-all duration-200 ${
                         isDark
                           ? 'bg-dark-800 border-dark-700 text-dark-200'
                           : 'bg-white border-dark-200 text-dark-800'
                       }`}
-                    >
-                      <option value="">Select a lead</option>
-                      {leadNames.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      className={`w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none ${
-                        isDark ? 'text-dark-500' : 'text-dark-400'
-                      }`}
                     />
                   </div>
+                  {showLeadPicker && (
+                    <div className={`absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border shadow-xl ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-200'}`}>
+                      {leadNames.filter((name) => name.toLowerCase().includes(leadQuery.toLowerCase())).length === 0 ? (
+                        <p className={`text-center text-sm py-4 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No leads found</p>
+                      ) : leadNames.filter((name) => name.toLowerCase().includes(leadQuery.toLowerCase())).map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setFormData((p) => ({ ...p, lead: name }))
+                            setLeadQuery(name)
+                            setShowLeadPicker(false)
+                          }}
+                          className={`w-full px-3.5 py-2.5 text-left text-sm truncate transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-200' : 'hover:bg-dark-50 text-dark-800'}`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Type (Radio) */}
@@ -1100,7 +1120,7 @@ export default function FollowUps() {
                   >
                     Type
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {Object.entries(typeConfig).map(([key, config]) => {
                       const Icon = config.icon
                       const isActive = formData.type === key
