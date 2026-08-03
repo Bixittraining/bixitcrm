@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import BatchFormModal from '../components/batches/BatchFormModal'
 
 const statusConfig = {
   upcoming: { label: 'Upcoming', color: 'sky', icon: Hourglass },
@@ -35,7 +36,8 @@ export default function BatchDetail() {
   const navigate = useNavigate()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { batches, students, teamMembers, updateStudent, attendance, markAttendance } = useData()
+  const { batches, students, teamMembers, updateStudent, updateBatch, attendance, markAttendance } = useData()
+  const [showEditModal, setShowEditModal] = useState(false)
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
@@ -171,7 +173,7 @@ export default function BatchDetail() {
           className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-900'}`}>
           <ArrowLeft className="w-4 h-4" />Back to Batches
         </motion.button>
-        <button onClick={() => navigate('/batches', { state: { editBatchId: batch.id } })}
+        <button onClick={() => setShowEditModal(true)}
           className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-100 text-dark-600 hover:bg-dark-200'}`}>
           <Pencil className="w-3.5 h-3.5" />Edit Batch
         </button>
@@ -436,6 +438,32 @@ export default function BatchDetail() {
           </div>
         )}
       </motion.div>
+
+      {/* Editing in place instead of navigating to the Batches list and back
+          — that used to strand the user on the list after saving instead of
+          returning them to the batch they were actually looking at. */}
+      <AnimatePresence>
+        {showEditModal && (
+          <BatchFormModal
+            batch={batch}
+            isDark={isDark}
+            teamMembers={teamMembers}
+            onClose={() => setShowEditModal(false)}
+            onSubmit={(form) => {
+              updateBatch(batch.id, {
+                ...form,
+                capacity: Number(form.capacity) || 30,
+                start_date: form.start_date || null,
+                end_date: form.end_date || null,
+                instructor_id: form.instructor_id || null,
+                start_time: form.start_time || null,
+                end_time: form.end_time || null,
+              })
+              setShowEditModal(false)
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
