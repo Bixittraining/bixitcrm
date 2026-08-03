@@ -1,16 +1,21 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check, Pencil } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
 import { categoryGradients, categoryBadgeColors, categoryBadgeColorsLight, formatPrice } from '../lib/packageStyles'
+import PackageFormModal from '../components/packages/PackageFormModal'
 
 export default function PackageDetail() {
   const { packageId } = useParams()
   const navigate = useNavigate()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { packages, students } = useData()
+  const { packages, students, updatePackage } = useData()
+  const { isAdmin } = useAuth()
+  const [showEditModal, setShowEditModal] = useState(false)
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
   const pkg = packages.find((p) => String(p.id) === packageId)
@@ -43,10 +48,18 @@ export default function PackageDetail() {
 
   return (
     <div className="space-y-6">
-      <motion.button whileHover={{ x: -3 }} onClick={() => navigate('/packages')}
-        className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-900'}`}>
-        <ArrowLeft className="w-4 h-4" />Back to Packages
-      </motion.button>
+      <div className="flex items-center justify-between">
+        <motion.button whileHover={{ x: -3 }} onClick={() => navigate('/packages')}
+          className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-900'}`}>
+          <ArrowLeft className="w-4 h-4" />Back to Packages
+        </motion.button>
+        {isAdmin && (
+          <button onClick={() => setShowEditModal(true)}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-100 text-dark-600 hover:bg-dark-200'}`}>
+            <Pencil className="w-3.5 h-3.5" />Edit Package
+          </button>
+        )}
+      </div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl overflow-hidden ${cardClass}`}>
         <div className={`relative h-32 bg-gradient-to-r ${gradient}`}>
@@ -132,6 +145,17 @@ export default function PackageDetail() {
           </button>
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {showEditModal && (
+          <PackageFormModal
+            pkg={pkg}
+            isDark={isDark}
+            onClose={() => setShowEditModal(false)}
+            onSave={(updates) => updatePackage(pkg.id, updates)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

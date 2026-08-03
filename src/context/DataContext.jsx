@@ -392,6 +392,12 @@ export function DataProvider({ children }) {
     setPackages((prev) => [...prev, data])
   }, [])
 
+  const updatePackage = useCallback(async (packageId, updates) => {
+    const { data, error } = await supabase.from('packages').update(updates).eq('id', packageId).select().single()
+    if (error) { console.error('updatePackage error', error); return }
+    setPackages((prev) => prev.map((p) => p.id === packageId ? data : p))
+  }, [])
+
   // ── ENROLLMENT (lead -> student + invoice) ───────────────
   const enrollLead = useCallback(async (lead, pkg, batchId) => {
     // 1. mark lead enrolled
@@ -649,7 +655,7 @@ export function DataProvider({ children }) {
       followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp,
       leadActivities, addActivity,
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
-      packages, setPackages, addPackage,
+      packages, setPackages, addPackage, updatePackage,
       invoices, setInvoices, recordPayment, createInvoice, updateInvoiceDueDate,
       installments,
       teamMembers,
