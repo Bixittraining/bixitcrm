@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext()
@@ -9,6 +9,13 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profileRow, setProfileRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Shown on the Login screen when a real session (not just the initial
+  // page load) drops out from under the user — e.g. the refresh token
+  // expired mid-use. Without this the app just silently swapped back to
+  // Login with no explanation, which read as "stuck" since nothing told
+  // the user why they were suddenly logged out.
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const hadSessionRef = useRef(false)
   // The open (not yet logged-out) user_sessions row for this browser tab —
   // set on a real signIn(), or recovered on page load if the browser
   // session was restored (so logout still closes the right row after a
@@ -44,10 +51,19 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let active = true
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // A stalled network request (bad wifi, token refresh hanging) used to
+    // leave the app on the loading spinner forever, since nothing ever
+    // resolved this promise. Race it against a timeout so we always reach
+    // a real screen (Login, if we can't confirm a session) instead of
+    // spinning indefinitely.
+    const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null }, timedOut: true }), 10000))
+
+    Promise.race([supabase.auth.getSession(), timeout]).then(async (result) => {
       if (!active) return
+      const session = result.data.session
       setSession(session)
       if (session?.user) {
+        hadSessionRef.current = true
         await loadProfile(session.user.id)
         await recoverOpenSession(session.user.id)
       }
@@ -57,9 +73,12 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       if (session?.user) {
+        hadSessionRef.current = true
         loadProfile(session.user.id)
       } else {
         setProfileRow(null)
+        if (hadSessionRef.current) setSessionExpired(true)
+        hadSessionRef.current = false
       }
     })
 
@@ -68,6 +87,8 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe()
     }
   }, [loadProfile, recoverOpenSession])
+
+  const clearSessionExpired = useCallback(() => setSessionExpired(false), [])
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -191,7 +212,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, isManager, canManageTeam, loading, signIn, signOut, updateProfile, uploadAvatar, addTeamMember, updateTeamMemberProfile, deleteTeamMember }}
+      value={{ session, user: session?.user ?? null, profile, initials, isAdmin, isManager, canManageTeam, loading, sessionExpired, clearSessionExpired, signIn, signOut, updateProfile, uploadAvatar, addTeamMember, updateTeamMemberProfile, deleteTeamMember }}
     >
       {children}
     </AuthContext.Provider>

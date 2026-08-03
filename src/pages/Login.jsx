@@ -4,7 +4,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight, Sparkles, AlertCircle } from 'luci
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
-  const { signIn } = useAuth()
+  const { signIn, sessionExpired, clearSessionExpired } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -14,6 +14,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    clearSessionExpired()
     setIsLoading(true)
     const { error } = await signIn(email, password)
     setIsLoading(false)
@@ -60,6 +61,17 @@ export default function Login() {
         >
           <h2 className="text-xl font-bold text-white mb-1">Welcome back</h2>
           <p className="text-dark-400 text-sm mb-6">Sign in to your account to continue</p>
+
+          {sessionExpired && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-accent-500/10 border border-accent-500/30 text-accent-400 text-sm mb-5"
+            >
+              <AlertCircle size={16} className="shrink-0" />
+              Your session has expired. Please sign in again.
+            </motion.div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
