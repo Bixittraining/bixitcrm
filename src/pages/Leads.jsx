@@ -12,6 +12,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import SendEmailModal from '../components/SendEmailModal'
 import AnchoredMenu from '../components/AnchoredMenu'
 import { supabase } from '../lib/supabase'
 
@@ -764,9 +765,25 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
     })
   }, [lead.id])
 
+  // Same reasoning as WhatsApp — a sent email is a real communication event
+  // and belongs in the same timeline, not a separate view (or nowhere, like
+  // it was when this used a plain mailto: link with no record at all).
+  const [leadEmails, setLeadEmails] = useState([])
+  const refetchLeadEmails = () => {
+    supabase.from('email_messages').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).then(({ data, error }) => {
+      if (error) { console.error('email_messages fetch error', error); return }
+      setLeadEmails(data || [])
+    })
+  }
+  useEffect(refetchLeadEmails, [lead.id])
+
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailModalPreset, setEmailModalPreset] = useState(null)
+
   const combinedTimeline = [
     ...leadTimeline.map((a) => ({ type: 'activity', at: a.created_at, data: a })),
     ...whatsappMessages.map((m) => ({ type: 'whatsapp', at: m.created_at, data: m })),
+    ...leadEmails.map((m) => ({ type: 'email', at: m.created_at, data: m })),
   ].sort((a, b) => new Date(b.at) - new Date(a.at))
   const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
   const isLeadClosed = lead.status === 'enrolled' || lead.status === 'lost'
@@ -942,7 +959,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       <div className="min-w-0 flex-1">
                         <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{item.label}</p>
                         {item.isLink ? (
-                          <a href={`mailto:${item.value}`} className="text-sm font-medium text-primary-500 hover:text-primary-400 truncate block">{item.value}</a>
+                          <button
+                            type="button"
+                            onClick={() => { setEmailModalPreset({ subject: '', body: `Hi ${lead.name},\n\n` }); setShowEmailModal(true) }}
+                            className="text-sm font-medium text-primary-500 hover:text-primary-400 truncate block text-left"
+                          >{item.value}</button>
                         ) : (
                           <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{item.value}</p>
                         )}
@@ -1022,6 +1043,23 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                             <p className={`text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.body}</p>
                             <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
                               {new Date(m.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    }
+                    if (item.type === 'email') {
+                      const m = item.data
+                      return (
+                        <div key={`em-${m.id}`} className="flex items-start gap-3">
+                          <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${m.status === 'sent' ? 'bg-primary-500' : 'bg-rose-500'}`} />
+                          <div className="min-w-0">
+                            <p className={`text-sm font-semibold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                              <Mail className="w-3.5 h-3.5" />{m.status === 'sent' ? 'Email sent' : 'Email failed'}: {m.subject}
+                            </p>
+                            <p className={`text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.body}</p>
+                            <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                              {m.sender_name} &middot; {new Date(m.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </p>
                           </div>
                         </div>
@@ -1243,8 +1281,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   <div className="flex items-center gap-3">
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                       onClick={() => {
-                        window.open(`mailto:${lead.email}?subject=${encodeURIComponent(`Package Details: ${matchingPackage.name}`)}&body=${encodeURIComponent(`Hi ${lead.name},\n\nHere are the details for the ${matchingPackage.name} course:\n\nDuration: ${matchingPackage.duration}\nModules: ${matchingPackage.modules}\nPrice: ${formatINR(matchingPackage.price)}\n\nFeatures:\n${matchingPackage.features.map(f => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`)}`)
-                        showNotification(`Package details sent to ${lead.email}`)
+                        setEmailModalPreset({
+                          subject: `Package Details: ${matchingPackage.name}`,
+                          body: `Hi ${lead.name},\n\nHere are the details for the ${matchingPackage.name} course:\n\nDuration: ${matchingPackage.duration}\nModules: ${matchingPackage.modules}\nPrice: ${formatINR(matchingPackage.price)}\n\nFeatures:\n${matchingPackage.features.map(f => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`,
+                        })
+                        setShowEmailModal(true)
                       }}
                       className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
                       Send Package Details
@@ -1465,6 +1506,20 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
           )}
 
         </motion.div>
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEmailModal && (
+          <SendEmailModal
+            to={lead.email}
+            subject={emailModalPreset?.subject || ''}
+            body={emailModalPreset?.body || ''}
+            leadId={lead.id}
+            isDark={isDark}
+            onClose={() => setShowEmailModal(false)}
+            onSent={() => { showNotification(`Email sent to ${lead.email}`); refetchLeadEmails() }}
+          />
+        )}
       </AnimatePresence>
     </motion.div>
   )

@@ -21,7 +21,7 @@ export async function requireAdmin(req, admin) {
   return { user: callerData.user }
 }
 
-const VALID_KEYS = ['meta_ads', 'google_ads', 'whatsapp', 'justdial']
+const VALID_KEYS = ['meta_ads', 'google_ads', 'whatsapp', 'justdial', 'email']
 
 export function isValidIntegrationKey(key) {
   return VALID_KEYS.includes(key)

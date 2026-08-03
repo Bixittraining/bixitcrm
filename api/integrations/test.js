@@ -1,7 +1,24 @@
+import nodemailer from 'nodemailer'
 import { getAdminClient, getIntegrationConfig, logAudit, markIntegrationStatus } from '../webhooks/_lib.js'
 import { isValidIntegrationKey, requireAdmin } from './_shared.js'
 
 const GRAPH_API_VERSION = 'v21.0'
+
+// Gmail SMTP over a Google Workspace App Password (not OAuth — far less
+// setup for a single sending mailbox, at the cost of needing 2FA enabled
+// on the account to generate one). verify() opens a real connection and
+// authenticates without sending anything, so it proves the credentials
+// work the same way the Graph API check does for Meta/WhatsApp.
+async function testEmailCredential(fromEmail, appPassword) {
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: fromEmail, pass: appPassword },
+  })
+  await transporter.verify()
+  return { ok: true, message: `Connected as "${fromEmail}"` }
+}
 
 // Meta Ads and WhatsApp both sit on the Graph API, so a live GET against
 // the configured id/token proves the credentials actually work. Google Ads
@@ -54,6 +71,16 @@ export default async function handler(req, res) {
     } else {
       try {
         result = await testGraphApiCredential(integration.page_id, integration.page_access_token)
+      } catch (err) {
+        result = { ok: false, message: err.message }
+      }
+    }
+  } else if (key === 'email') {
+    if (!integration.page_id || !integration.page_access_token) {
+      result = { ok: false, message: 'Set the From Email Address and App Password first' }
+    } else {
+      try {
+        result = await testEmailCredential(integration.page_id, integration.page_access_token)
       } catch (err) {
         result = { ok: false, message: err.message }
       }

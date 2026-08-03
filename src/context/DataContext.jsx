@@ -32,13 +32,14 @@ export function DataProvider({ children }) {
   const [batches, setBatches] = useState([])
   const [installments, setInstallments] = useState([])
   const [attendance, setAttendance] = useState([])
+  const [emailMessages, setEmailMessages] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -52,6 +53,7 @@ export function DataProvider({ children }) {
         supabase.from('lead_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('student_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('attendance').select('*').order('date', { ascending: false }),
+        supabase.from('email_messages').select('*').order('created_at', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -67,6 +69,7 @@ export function DataProvider({ children }) {
       if (leadNotesRes.error) console.error('lead_notes error', leadNotesRes.error)
       if (studentNotesRes.error) console.error('student_notes error', studentNotesRes.error)
       if (attendanceRes.error) console.error('attendance error', attendanceRes.error)
+      if (emailMessagesRes.error) console.error('email_messages error', emailMessagesRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -84,6 +87,7 @@ export function DataProvider({ children }) {
       setBatches(batchesRes.data || [])
       setInstallments(installmentsRes.data || [])
       setAttendance(attendanceRes.data || [])
+      setEmailMessages(emailMessagesRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -378,6 +382,20 @@ export function DataProvider({ children }) {
     return true
   }, [teamMembers])
 
+  // ── EMAIL (real send via Gmail SMTP, replaces mailto: links) ────
+  const sendEmail = useCallback(async ({ to, subject, body, leadId, studentId }) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ to, subject, body, leadId, studentId }),
+    })
+    const resBody = await res.json().catch(() => ({}))
+    if (!res.ok) return { error: resBody.error || 'Failed to send email' }
+    if (resBody.message) setEmailMessages((prev) => [resBody.message, ...prev])
+    return { success: true }
+  }, [])
+
   const deleteLeadDocument = useCallback(async (docId) => {
     const { error } = await supabase.from('lead_documents').delete().eq('id', docId)
     if (error) { console.error('deleteLeadDocument error', error); return }
@@ -663,6 +681,7 @@ export function DataProvider({ children }) {
       leadNotes, addLeadNote, studentNotes, addStudentNote,
       batches, addBatch, updateBatch, deleteBatch,
       attendance, markAttendance,
+      emailMessages, sendEmail,
       loading,
     }}>
       {children}

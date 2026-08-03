@@ -11,6 +11,7 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import SendEmailModal from '../components/SendEmailModal'
 
 const avatarGradients = {
   A: 'from-rose-500 to-pink-600',
@@ -59,12 +60,13 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes, attendance }) {
+function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes, attendance, emailMessages }) {
   const [noteText, setNoteText] = useState('')
   if (!student) return null
 
   const isDark = theme === 'dark'
   const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
+  const studentEmails = (emailMessages || []).filter((m) => m.student_id === student.id)
   const studentAttendance = (attendance || []).filter((a) => a.student_id === student.id).sort((a, b) => b.date.localeCompare(a.date))
   const attendancePct = studentAttendance.length
     ? Math.round((studentAttendance.filter((a) => a.status === 'present').length / studentAttendance.length) * 100)
@@ -285,6 +287,33 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
             )}
           </div>
 
+          {/* Email History — every send goes through the real Gmail
+              integration now, not a mailto: link, so it's actually logged. */}
+          <div className={`rounded-xl p-4 mt-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+            <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+              <Mail size={14} />Email History
+            </h3>
+            {studentEmails.length === 0 ? (
+              <p className={`text-xs text-center py-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No emails sent yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {studentEmails.map((msg) => (
+                  <div key={msg.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`font-medium truncate ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>{msg.subject}</p>
+                      <span className={`shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded ${msg.status === 'sent' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}>
+                        {msg.status === 'sent' ? 'Sent' : 'Failed'}
+                      </span>
+                    </div>
+                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
+                      {msg.sender_name} &middot; {new Date(msg.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </motion.div>
       </motion.div>,
     document.body
@@ -294,7 +323,7 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes, attendance } = useData()
+  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes, attendance, emailMessages } = useData()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -303,6 +332,7 @@ function Students() {
   const [batchFilter, setBatchFilter] = useState('All')
   const [viewMode, setViewMode] = useState('grid')
   const [selectedStudent, setSelectedStudent] = useState(null)
+  const [emailModalStudent, setEmailModalStudent] = useState(null)
 
   // Auto-open a specific student's profile when navigated here with that
   // intent (e.g. clicking a student from a batch's roster)
@@ -367,8 +397,7 @@ function Students() {
   }
 
   const handleMessageStudent = (student) => {
-    window.open(`mailto:${student.email}?subject=${encodeURIComponent(`BIX Academy - ${student.course}`)}`)
-    showToast(`Opening email for ${student.name}`)
+    setEmailModalStudent(student)
   }
 
   const handleCallStudent = (student) => {
@@ -958,6 +987,22 @@ function Students() {
             leads={leads}
             leadNotes={leadNotes}
             attendance={attendance}
+            emailMessages={emailMessages}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Send Email Modal */}
+      <AnimatePresence>
+        {emailModalStudent && (
+          <SendEmailModal
+            to={emailModalStudent.email}
+            subject={`BIX Academy - ${emailModalStudent.course}`}
+            body={`Hi ${emailModalStudent.name},\n\n`}
+            studentId={emailModalStudent.id}
+            isDark={isDark}
+            onClose={() => setEmailModalStudent(null)}
+            onSent={() => showToast(`Email sent to ${emailModalStudent.name}`)}
           />
         )}
       </AnimatePresence>

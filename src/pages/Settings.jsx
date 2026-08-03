@@ -107,6 +107,18 @@ const integrationsList = [
       { key: 'webhookVerifyToken', label: 'Webhook Secret', type: 'secret', hasKey: 'hasWebhookToken' },
     ],
   },
+  {
+    key: 'email',
+    name: 'Email (Gmail)',
+    description: 'Send real emails to leads and students from the CRM via Gmail SMTP — replaces mailto: links, and every send is logged.',
+    brandColor: '#EA4335',
+    icon: 'E',
+    // Send-only — no inbound webhook, so no callback URL to show.
+    fields: [
+      { key: 'pageId', label: 'From Email Address', type: 'text' },
+      { key: 'pageAccessToken', label: 'App Password', type: 'secret', hasKey: 'hasPageAccessToken' },
+    ],
+  },
 ]
 
 const mockApiKeys = [
@@ -1017,9 +1029,9 @@ export default function Settings() {
                     const cfg = integrationsConfig[integration.key] || {}
                     const draft = integrationDrafts[integration.key] || emptyDraft
                     const isExpanded = expandedIntegration === integration.key
-                    const webhookUrl = /^https?:\/\//.test(integration.webhookPath)
-                      ? integration.webhookPath
-                      : `${window.location.origin}${integration.webhookPath}`
+                    const webhookUrl = integration.webhookPath
+                      ? (/^https?:\/\//.test(integration.webhookPath) ? integration.webhookPath : `${window.location.origin}${integration.webhookPath}`)
+                      : null
                     const testResult = integrationTestResult[integration.key]
                     const statusMeta = {
                       connected: { label: 'Connected', dot: 'bg-emerald-500', text: 'text-emerald-500' },
@@ -1069,12 +1081,14 @@ export default function Settings() {
                                   </div>
                                 )}
 
-                                <div className={cfg.status === 'error' ? '' : 'pt-5'}>
-                                  <CopyField label="Webhook callback URL" value={webhookUrl} fieldId={`webhook-url-${integration.key}`} />
-                                  <p className={`text-xs mt-1.5 ${textSecondary}`}>{integration.webhookNote}</p>
-                                </div>
+                                {webhookUrl && (
+                                  <div className={cfg.status === 'error' ? '' : 'pt-5'}>
+                                    <CopyField label="Webhook callback URL" value={webhookUrl} fieldId={`webhook-url-${integration.key}`} />
+                                    <p className={`text-xs mt-1.5 ${textSecondary}`}>{integration.webhookNote}</p>
+                                  </div>
+                                )}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!webhookUrl && cfg.status !== 'error' ? 'pt-5' : ''}`}>
                                   {integration.fields.map((field) => field.type === 'secret' ? (
                                     <DraftSecretField
                                       key={field.key}
