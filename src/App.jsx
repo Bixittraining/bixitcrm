@@ -16,6 +16,8 @@ const Students = lazy(() => import('./pages/Students'))
 const Batches = lazy(() => import('./pages/Batches'))
 const BatchDetail = lazy(() => import('./pages/BatchDetail'))
 const Packages = lazy(() => import('./pages/Packages'))
+const PackageDetail = lazy(() => import('./pages/PackageDetail'))
+const PackageCompare = lazy(() => import('./pages/PackageCompare'))
 const Billing = lazy(() => import('./pages/Billing'))
 const Pipeline = lazy(() => import('./pages/Pipeline'))
 const Reports = lazy(() => import('./pages/Reports'))
@@ -53,6 +55,8 @@ function AppRoutes() {
               <Route path="batches" element={<Batches />} />
               <Route path="batches/:batchId" element={<BatchDetail />} />
               <Route path="packages" element={<Packages />} />
+              <Route path="packages/compare" element={<PackageCompare />} />
+              <Route path="packages/:packageId" element={<PackageDetail />} />
               <Route path="billing" element={<Billing />} />
               <Route path="pipeline" element={<Pipeline />} />
               <Route path="reports" element={<Reports />} />

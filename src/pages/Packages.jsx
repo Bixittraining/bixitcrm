@@ -14,44 +14,13 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  UserCheck,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import { categoryGradients, categoryBadgeColors, categoryBadgeColorsLight, formatPrice } from '../lib/packageStyles'
 
 const categories = ['All', 'Development', 'Data & AI', 'Design', 'Marketing', 'Infrastructure', 'Security']
-
-const categoryGradients = {
-  Development: 'from-primary-500 to-primary-700',
-  'Data & AI': 'from-violet-500 to-violet-600',
-  Design: 'from-rose-400 to-rose-600',
-  Marketing: 'from-accent-400 to-accent-600',
-  Infrastructure: 'from-sky-400 to-sky-600',
-  Security: 'from-emerald-400 to-emerald-600',
-}
-
-const categoryBadgeColors = {
-  Development: 'bg-primary-500/20 text-primary-300',
-  'Data & AI': 'bg-violet-500/20 text-violet-300',
-  Design: 'bg-rose-500/20 text-rose-300',
-  Marketing: 'bg-accent-500/20 text-accent-300',
-  Infrastructure: 'bg-sky-500/20 text-sky-300',
-  Security: 'bg-emerald-500/20 text-emerald-300',
-}
-
-const categoryBadgeColorsLight = {
-  Development: 'bg-primary-100 text-primary-700',
-  'Data & AI': 'bg-violet-100 text-violet-600',
-  Design: 'bg-rose-100 text-rose-600',
-  Marketing: 'bg-accent-100 text-accent-700',
-  Infrastructure: 'bg-sky-100 text-sky-600',
-  Security: 'bg-emerald-100 text-emerald-700',
-}
-
-function formatPrice(price) {
-  return price.toLocaleString('en-IN')
-}
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -68,190 +37,6 @@ const cardVariants = {
     y: 0,
     transition: { type: 'spring', stiffness: 260, damping: 24 },
   },
-}
-
-function PackageDetailModal({ pkg, theme, onClose }) {
-  const { students } = useData()
-  const navigate = useNavigate()
-
-  if (!pkg) return null
-
-  const isDark = theme === 'dark'
-  const gradient = categoryGradients[pkg.category] || 'from-primary-500 to-primary-700'
-  const badgeColor = isDark
-    ? categoryBadgeColors[pkg.category]
-    : categoryBadgeColorsLight[pkg.category]
-
-  // Real enrollment count — a student's course field is set when they're
-  // actually enrolled (Leads → Enroll → Batch), not by anything on this
-  // page. Packages used to show a hardcoded "students" stat with no
-  // connection to real data; this counts actual matching students instead.
-  const enrolledCount = students.filter((s) => s.course === pkg.name).length
-  const capacity = pkg.capacity || 0
-  const remainingSlots = Math.max(capacity - enrolledCount, 0)
-  const isFull = capacity > 0 && remainingSlots === 0
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      variants={modalOverlayVariants}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-    >
-      {/* Backdrop */}
-      <motion.div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-      />
-
-      {/* Modal Content */}
-      <motion.div
-        className={`relative w-full max-w-2xl max-h-[90vh] rounded-2xl overflow-hidden ${
-          isDark
-            ? 'bg-dark-900 border border-dark-700/60'
-            : 'bg-white border border-dark-200/60 shadow-xl'
-        }`}
-        variants={modalCardVariants}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-      >
-        {/* Scrollable inner wrapper — keeps content/scrollbar clipped to the outer rounded corners */}
-        <div className="max-h-[90vh] overflow-y-auto">
-        {/* Gradient Header */}
-        <div className={`relative h-32 bg-gradient-to-r ${gradient} rounded-t-2xl`}>
-          <motion.button
-            whileHover={{ scale: 1.1, rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-xl bg-black/20 hover:bg-black/40 text-white transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </motion.button>
-          <div className="absolute bottom-4 left-6 right-6">
-            <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${badgeColor}`}>
-              {pkg.category}
-            </span>
-            <h2 className="text-2xl font-bold text-white mt-2">{pkg.name}</h2>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* Duration & Price Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className={`w-4 h-4 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} />
-              <span className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                {pkg.duration}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                Rs {formatPrice(pkg.price)}
-              </span>
-              <span className={`block text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>/program</span>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <h3 className={`text-sm font-semibold uppercase tracking-wider mb-2 ${
-              isDark ? 'text-dark-400' : 'text-dark-500'
-            }`}>
-              About This Program
-            </h3>
-            <p className={`text-sm leading-relaxed ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              {pkg.description}
-            </p>
-          </div>
-
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[
-              { label: 'Modules', value: pkg.modules, icon: BookOpen },
-              { label: 'Enrolled', value: enrolledCount, icon: Users },
-              { label: 'Remaining Slots', value: capacity > 0 ? remainingSlots : '—', icon: UserCheck },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className={`p-4 rounded-xl text-center ${
-                  isDark
-                    ? 'bg-dark-800/80 border border-dark-700/40'
-                    : 'bg-dark-50 border border-dark-200/40'
-                }`}
-              >
-                <stat.icon className={`w-5 h-5 mx-auto mb-2 ${isDark ? 'text-primary-400' : 'text-primary-500'}`} />
-                <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{stat.value}</p>
-                <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Capacity bar */}
-          {capacity > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5 text-xs">
-                <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Capacity</span>
-                <span className={`font-semibold ${isFull ? 'text-rose-500' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                  {enrolledCount} / {capacity} {isFull ? '— Full' : ''}
-                </span>
-              </div>
-              <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                <div className={`h-full rounded-full ${isFull ? 'bg-rose-500' : 'bg-gradient-to-r from-primary-500 to-violet-500'}`}
-                  style={{ width: `${Math.min(100, Math.round((enrolledCount / capacity) * 100))}%` }} />
-              </div>
-            </div>
-          )}
-
-          {/* All Features */}
-          <div>
-            <h3 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${
-              isDark ? 'text-dark-400' : 'text-dark-500'
-            }`}>
-              What's Included
-            </h3>
-            {pkg.features?.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                {pkg.features.map((feature, i) => (
-                  <motion.div
-                    key={i}
-                    className="flex items-center gap-2"
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.08 }}
-                  >
-                    <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                      <Check className="w-3 h-3 text-emerald-500" />
-                    </div>
-                    <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{feature}</span>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <p className={`text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Nothing added yet for this package.</p>
-            )}
-          </div>
-
-          {/* Enrollment happens through Leads → Enroll (which creates the
-              real student + invoice + batch link) or by assigning a batch
-              from Students — not from here, to avoid a second enrollment
-              path that skips GST and batch assignment. */}
-          <button
-            onClick={() => navigate('/students', { state: { filterCourse: pkg.name } })}
-            className={`w-full py-3 px-6 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2 border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
-          >
-            <Users className="w-4 h-4" />
-            View Enrolled Students
-          </button>
-        </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
 }
 
 function PackageCard({ pkg, theme, onViewDetails }) {
@@ -470,121 +255,14 @@ function CreatePackageModal({ isDark, onClose, onSave }) {
   )
 }
 
-function ComparePackagesModal({ isDark, onClose, packages }) {
-  const { students } = useData()
-  const [selected, setSelected] = useState([])
-  const enrolledCountFor = (pkg) => students.filter((s) => s.course === pkg.name).length
-
-  const toggleSelect = (pkg) => {
-    setSelected(prev => {
-      if (prev.find(p => p.id === pkg.id)) return prev.filter(p => p.id !== pkg.id)
-      if (prev.length >= 3) return prev
-      return [...prev, pkg]
-    })
-  }
-
-  const formatPrice = (p) => `Rs ${p.toLocaleString('en-IN')}`
-
-  const allFeatures = [...new Set(selected.flatMap(p => p.features || []))]
-
-  return (
-    <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={onClose}>
-      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
-        onClick={e => e.stopPropagation()}
-        className={`relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Compare Packages</h2>
-            <p className={`text-sm mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Select up to 3 packages to compare side by side</p>
-          </div>
-          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></motion.button>
-        </div>
-
-        {/* Package Selector */}
-        <div className="flex flex-wrap gap-2 mb-6">
-          {packages.map(pkg => {
-            const isSelected = selected.find(p => p.id === pkg.id)
-            return (
-              <button key={pkg.id} onClick={() => toggleSelect(pkg)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                  isSelected
-                    ? 'border-primary-500 bg-primary-500/10 text-primary-500'
-                    : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-500' : 'border-dark-200 text-dark-500 hover:border-dark-400'
-                }`}>
-                {isSelected && <Check size={10} className="inline mr-1" />}
-                {pkg.name}
-              </button>
-            )
-          })}
-        </div>
-
-        {selected.length === 0 && (
-          <div className={`rounded-xl p-12 text-center ${isDark ? 'bg-dark-800/50' : 'bg-dark-50'}`}>
-            <GitCompareArrows size={36} className={`mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-            <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Select packages above to compare</p>
-          </div>
-        )}
-
-        {selected.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className={`text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Feature</th>
-                  {selected.map(pkg => (
-                    <th key={pkg.id} className={`py-3 px-4 text-center text-xs font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{pkg.name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDark ? 'divide-dark-700/40' : 'divide-dark-200/60'}`}>
-                {[
-                  { label: 'Price', key: 'price', format: formatPrice },
-                  { label: 'Duration', key: 'duration' },
-                  { label: 'Modules', key: 'modules' },
-                  { label: 'Students', key: 'students', format: (_, pkg) => `${enrolledCountFor(pkg)}${pkg.capacity ? `/${pkg.capacity}` : ''}` },
-                  { label: 'Rating', key: 'rating' },
-                  { label: 'Category', key: 'category' },
-                ].map(row => (
-                  <tr key={row.label} className={isDark ? 'hover:bg-dark-800/30' : 'hover:bg-dark-50/60'}>
-                    <td className={`py-3 px-4 font-medium ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>{row.label}</td>
-                    {selected.map(pkg => (
-                      <td key={pkg.id} className={`py-3 px-4 text-center ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
-                        {row.format ? row.format(pkg[row.key], pkg) : (pkg[row.key] ?? '—')}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {allFeatures.length > 0 && allFeatures.map(feature => (
-                  <tr key={feature} className={isDark ? 'hover:bg-dark-800/30' : 'hover:bg-dark-50/60'}>
-                    <td className={`py-3 px-4 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>{feature}</td>
-                    {selected.map(pkg => (
-                      <td key={pkg.id} className="py-3 px-4 text-center">
-                        {(pkg.features || []).includes(feature)
-                          ? <CheckCircle2 size={16} className="text-emerald-500 mx-auto" />
-                          : <X size={16} className={`mx-auto ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </motion.div>
-    </motion.div>
-  )
-}
 
 export default function Packages() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
+  const navigate = useNavigate()
   const { packages, addPackage } = useData()
   const [activeCategory, setActiveCategory] = useState('All')
-  const [selectedPackage, setSelectedPackage] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showCompareModal, setShowCompareModal] = useState(false)
   const [toast, setToast] = useState(null)
 
   const showToast = (msg, type = 'success') => {
@@ -628,7 +306,7 @@ export default function Packages() {
             <Plus className="w-4 h-4" />
             Create Package
           </button>
-          <button onClick={() => setShowCompareModal(true)} className={`flex items-center gap-2 py-2.5 px-5 rounded-xl text-sm font-semibold border cursor-pointer transition-colors ${
+          <button onClick={() => navigate('/packages/compare')} className={`flex items-center gap-2 py-2.5 px-5 rounded-xl text-sm font-semibold border cursor-pointer transition-colors ${
             isDark
               ? 'border-dark-600 text-dark-300 hover:bg-dark-800 hover:text-white'
               : 'border-dark-300 text-dark-600 hover:bg-dark-50 hover:text-dark-900'
@@ -683,7 +361,7 @@ export default function Packages() {
               key={pkg.id}
               pkg={pkg}
               theme={theme}
-              onViewDetails={setSelectedPackage}
+              onViewDetails={(p) => navigate(`/packages/${p.id}`)}
             />
           ))}
         </motion.div>
@@ -707,17 +385,6 @@ export default function Packages() {
         </motion.div>
       )}
 
-      {/* Package Detail Modal */}
-      <AnimatePresence>
-        {selectedPackage && (
-          <PackageDetailModal
-            pkg={selectedPackage}
-            theme={theme}
-            onClose={() => setSelectedPackage(null)}
-          />
-        )}
-      </AnimatePresence>
-
       {/* Create Package Modal */}
       <AnimatePresence>
         {showCreateModal && (
@@ -728,17 +395,6 @@ export default function Packages() {
               addPackage(pkg)
               showToast(`Package "${pkg.name}" created successfully`)
             }}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Compare Packages Modal */}
-      <AnimatePresence>
-        {showCompareModal && (
-          <ComparePackagesModal
-            isDark={isDark}
-            onClose={() => setShowCompareModal(false)}
-            packages={packages}
           />
         )}
       </AnimatePresence>
