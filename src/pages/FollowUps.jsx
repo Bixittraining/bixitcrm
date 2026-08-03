@@ -398,13 +398,17 @@ export default function FollowUps() {
         </div>
       </motion.div>
 
-      {/* Stats Bar — click a bucket to filter the list below */}
+      {/* Stats Bar + Filters — one connected panel instead of two separate
+          floating cards, since the stat buckets and filters below both
+          drive the same list and previously read as disconnected pieces. */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 gap-4"
+        className={`rounded-2xl ${cardClass}`}
       >
+      <div className="p-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 gap-3">
         {[
           { key: 'all', label: 'All', value: localFollowUps.filter((f) => !isRNR(f) && !isLostLead(f)).length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
           { key: 'today', label: 'Today', value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
@@ -423,8 +427,10 @@ export default function FollowUps() {
             whileHover={{ scale: 1.03, y: -2 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setBucketFilter(bucketFilter === stat.key ? 'all' : stat.key)}
-            className={`min-w-0 rounded-2xl p-4 text-left transition-all ${cardClass} ${
-              bucketFilter === stat.key ? 'ring-2 ring-primary-500 border-primary-500' : ''
+            className={`min-w-0 rounded-xl p-3.5 text-left transition-all border ${
+              bucketFilter === stat.key
+                ? 'ring-2 ring-primary-500 border-primary-500'
+                : isDark ? 'bg-dark-800/60 border-dark-700/40 hover:bg-dark-800' : 'bg-dark-50 border-dark-200/40 hover:bg-white hover:shadow-sm'
             }`}
           >
             <div className="flex items-center gap-3 min-w-0">
@@ -454,15 +460,11 @@ export default function FollowUps() {
             </div>
           </motion.button>
         ))}
-      </motion.div>
+      </div>
+      </div>
 
       {/* Filters & View Toggle */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className={`rounded-2xl p-4 ${cardClass}`}
-      >
+      <div className={`border-t p-4 ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           {/* View Toggle */}
           <div
@@ -599,6 +601,7 @@ export default function FollowUps() {
             )}
           </div>
         </div>
+      </div>
       </motion.div>
 
       {/* List View */}
