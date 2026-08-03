@@ -64,6 +64,8 @@ export default function Billing() {
   const [toast, setToast] = useState(null)
   const [showCreateBill, setShowCreateBill] = useState(false)
   const [createForm, setCreateForm] = useState({ student: '', course: '', amount: '', dueDate: '' })
+  const [studentQuery, setStudentQuery] = useState('')
+  const [showStudentPicker, setShowStudentPicker] = useState(false)
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
     paymentMode: 'UPI',
@@ -107,6 +109,7 @@ export default function Billing() {
     })
     setShowCreateBill(false)
     setCreateForm({ student: '', course: '', amount: '', dueDate: '' })
+    setStudentQuery('')
     showToast(`Fee bill ${id} created for ${createForm.student}`)
   }
 
@@ -948,13 +951,47 @@ export default function Billing() {
                 <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setShowCreateBill(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={20} /></motion.button>
               </div>
               <form onSubmit={handleCreateBill} className="space-y-4">
-                <div>
+                <div className="relative">
                   <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Student</label>
-                  <select required value={createForm.student} onChange={e => { const s = students.find(st => st.name === e.target.value); setCreateForm(p => ({ ...p, student: e.target.value, course: s?.course || '' })) }}
-                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
-                    <option value="">Select student</option>
-                    {students.map(s => <option key={s.id} value={s.name}>{s.name} — {s.course}</option>)}
-                  </select>
+                  <div className="relative">
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                    <input
+                      type="text"
+                      required
+                      value={studentQuery}
+                      onFocus={() => setShowStudentPicker(true)}
+                      onChange={(e) => {
+                        setStudentQuery(e.target.value)
+                        setShowStudentPicker(true)
+                        if (createForm.student) setCreateForm((p) => ({ ...p, student: '', course: '' }))
+                      }}
+                      onBlur={() => setTimeout(() => setShowStudentPicker(false), 150)}
+                      placeholder="Search student by name..."
+                      className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}
+                    />
+                  </div>
+                  {showStudentPicker && (
+                    <div className={`absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border shadow-xl ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-200'}`}>
+                      {students.filter((s) => `${s.name} ${s.course}`.toLowerCase().includes(studentQuery.toLowerCase())).length === 0 ? (
+                        <p className={`text-center text-sm py-4 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No students found</p>
+                      ) : students.filter((s) => `${s.name} ${s.course}`.toLowerCase().includes(studentQuery.toLowerCase())).map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setCreateForm((p) => ({ ...p, student: s.name, course: s.course }))
+                            setStudentQuery(`${s.name} — ${s.course}`)
+                            setShowStudentPicker(false)
+                          }}
+                          className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm transition-colors ${isDark ? 'hover:bg-dark-700 text-dark-200' : 'hover:bg-dark-50 text-dark-800'}`}
+                        >
+                          <span className="truncate">{s.name}</span>
+                          <span className={`shrink-0 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.course}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
