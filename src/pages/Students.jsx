@@ -742,7 +742,7 @@ function Students() {
           className={`rounded-2xl overflow-hidden ${cardClass}`}
         >
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed min-w-[1100px]">
+            <table className="w-full table-fixed min-w-[1150px]">
               <colgroup>
                 <col className="w-[225px]" />
                 <col className="w-[150px]" />
@@ -750,7 +750,7 @@ function Students() {
                 <col className="w-[120px]" />
                 <col className="w-[185px]" />
                 <col className="w-[120px]" />
-                <col className="w-[145px]" />
+                <col className="w-[190px]" />
               </colgroup>
               <thead>
                 <tr className={isDark ? 'bg-dark-800/60' : 'bg-dark-50'}>
@@ -860,7 +860,7 @@ function Students() {
                       </td>
 
                       {/* Actions */}
-                      <td className="px-5 py-4">
+                      <td className="px-3 py-4">
                         <div className="flex items-center gap-1 whitespace-nowrap">
                           <button
                             onClick={() => setSelectedStudent(student)}
