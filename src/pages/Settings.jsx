@@ -861,7 +861,7 @@ export default function Settings() {
                     </div>
                     <div>
                       <label className={`block text-xs font-medium mb-2 ${textSecondary}`}>Role</label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {[{ key: 'sales', label: 'Sales Executive' }, { key: 'manager', label: 'Manager' }, { key: 'admin', label: 'Administrator' }].map((r) => (
                           <button key={r.key} type="button" onClick={() => setMemberEditForm((p) => ({ ...p, role: r.key }))}
                             className={`px-2 py-2 rounded-lg text-xs font-medium border transition-all ${

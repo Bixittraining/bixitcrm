@@ -116,7 +116,7 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Start Date</label>
               <input type="date" required value={form.start_date} onChange={(e) => handleChange('start_date', e.target.value)}

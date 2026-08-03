@@ -170,7 +170,7 @@ function PackageDetailModal({ pkg, theme, onClose }) {
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { label: 'Modules', value: pkg.modules, icon: BookOpen },
               { label: 'Enrolled', value: enrolledCount, icon: Users },

@@ -564,7 +564,7 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Follow-up Type</label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {followUpTypes.map(({ key, label, icon: TypeIcon }) => (
                 <label key={key} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border cursor-pointer transition-all text-xs font-medium ${form.type === key ? typeColors[key] : unselectedStyle}`}>
                   <input type="radio" name="followup-type" value={key} checked={form.type === key} onChange={() => handleChange('type', key)} className="sr-only" />
@@ -1312,7 +1312,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   ) : (
                     <>
                       <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Plan</h4>
-                      <div className="grid grid-cols-3 gap-3 mb-5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
                         {['Full Payment', '2 Installments', '3 Installments'].map((plan, i) => (
                           <button key={plan} type="button" onClick={() => setFeePlan(i)} className={`rounded-lg p-3 text-center border cursor-pointer transition-all ${
                             feePlan === i

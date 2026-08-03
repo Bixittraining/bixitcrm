@@ -849,7 +849,8 @@ export default function FollowUps() {
             </p>
           </div>
 
-          <div className={`grid grid-cols-7 divide-x divide-y ${isDark ? 'divide-dark-700/60' : 'divide-dark-200/60'}`}>
+          <div className="overflow-x-auto">
+          <div className={`grid grid-cols-7 divide-x divide-y min-w-[700px] ${isDark ? 'divide-dark-700/60' : 'divide-dark-200/60'}`}>
             {/* Day Headers */}
             {weekDates.map((day) => (
               <div
@@ -921,6 +922,7 @@ export default function FollowUps() {
                 </div>
               )
             })}
+          </div>
           </div>
         </motion.div>
       )}
