@@ -6,7 +6,7 @@ import {
   MessageSquare, GraduationCap, UserX, ChevronDown, ChevronLeft, ChevronRight, X,
   Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
-  Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed
+  Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed, SlidersHorizontal
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -1804,44 +1804,49 @@ function Leads() {
               </div>
             </motion.div>
 
-            {/* Filter Bar */}
-            <motion.div variants={itemVariants} className={`rounded-xl p-4 ${cardClass}`}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-                  <input type="text" placeholder="Search leads by name, email or course..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`w-full pl-10 pr-4 py-2.5 rounded-lg border text-sm transition-all outline-none focus:ring-2 ${inputClass}`} />
+            {/* Filters + Status Overview — one connected card instead of two
+                separate blocks floating with a visual gap between them, so
+                filtering and the status buckets it drives read as one unit. */}
+            <motion.div variants={itemVariants} className={`rounded-xl ${cardClass}`}>
+              <div className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <SlidersHorizontal className={`w-3.5 h-3.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                  <h3 className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Filters</h3>
                 </div>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                  className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
-                  {statusOptions.map((s) => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
-                </select>
-                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
-                  className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
-                  {sourceOptions.map((s) => <option key={s} value={s}>{s === 'All' ? 'All Sources' : s}</option>)}
-                </select>
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>From</span>
-                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-                    className={`px-2.5 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`} />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                    <input type="text" placeholder="Search leads by name, email or course..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`w-full pl-10 pr-4 py-2.5 rounded-lg border text-sm transition-all outline-none focus:ring-2 ${inputClass}`} />
+                  </div>
+                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+                    className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                    {statusOptions.map((s) => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
+                  </select>
+                  <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
+                    className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                    {sourceOptions.map((s) => <option key={s} value={s}>{s === 'All' ? 'All Sources' : s}</option>)}
+                  </select>
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${isDark ? 'border-dark-700' : 'border-dark-200'}`}>
+                    <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                      className={`py-1.5 bg-transparent text-sm outline-none cursor-pointer ${isDark ? 'text-dark-200' : 'text-dark-800'}`} />
+                    <span className={isDark ? 'text-dark-600' : 'text-dark-300'}>–</span>
+                    <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                      className={`py-1.5 bg-transparent text-sm outline-none cursor-pointer ${isDark ? 'text-dark-200' : 'text-dark-800'}`} />
+                  </div>
+                  {(statusFilter !== 'All' || sourceFilter !== 'All' || dateFrom || dateTo || searchQuery) && (
+                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => { setStatusFilter('All'); setSourceFilter('All'); setDateFrom(''); setDateTo(''); setSearchQuery('') }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
+                      <X className="w-3.5 h-3.5" />Clear
+                    </motion.button>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>To</span>
-                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-                    className={`px-2.5 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`} />
-                </div>
-                {(statusFilter !== 'All' || sourceFilter !== 'All' || dateFrom || dateTo || searchQuery) && (
-                  <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                    onClick={() => { setStatusFilter('All'); setSourceFilter('All'); setDateFrom(''); setDateTo(''); setSearchQuery('') }}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
-                    <X className="w-3.5 h-3.5" />Clear
-                  </motion.button>
-                )}
               </div>
-            </motion.div>
 
-            {/* Status Overview — click a bucket to filter the table below */}
-            <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9 gap-3">
+              {/* Status Overview — click a bucket to filter the table below */}
+              <div className={`border-t px-4 py-4 ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9 gap-3">
               {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
@@ -1871,8 +1876,10 @@ function Leads() {
                       initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
                       whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}
                       onClick={() => setStatusFilter(b.filterValue)}
-                      className={`min-w-0 rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all ${cardClass} ${
-                        isActive ? 'ring-2 ring-primary-500 border-primary-500' : ''
+                      className={`min-w-0 rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all border ${
+                        isActive
+                          ? 'ring-2 ring-primary-500 border-primary-500'
+                          : isDark ? 'bg-dark-800/60 border-dark-700/40 hover:bg-dark-800' : 'bg-dark-50 border-dark-200/40 hover:bg-white hover:shadow-sm'
                       }`}
                     >
                       <div className={`p-2 rounded-lg shrink-0 ${subtleBg[b.color] || subtleBg.slate}`}><Icon className={`w-4 h-4 ${iconColorMap[b.color] || countColor.slate}`} /></div>
@@ -1884,6 +1891,8 @@ function Leads() {
                   )
                 })
               })()}
+                </div>
+              </div>
             </motion.div>
 
             {/* Leads Table */}
