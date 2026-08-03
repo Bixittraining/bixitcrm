@@ -65,12 +65,20 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
   const inputClass = isDark
     ? 'bg-dark-800 border-dark-700 text-dark-100 placeholder-dark-500 focus:border-primary-500 focus:ring-primary-500/20'
     : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400 focus:border-primary-500 focus:ring-primary-500/20'
+  const [formError, setFormError] = useState('')
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
   const toggleDay = (day) => setForm((prev) => ({
     ...prev,
     schedule_days: prev.schedule_days.includes(day) ? prev.schedule_days.filter((d) => d !== day) : [...prev.schedule_days, day],
   }))
-  const handleSubmit = (e) => { e.preventDefault(); onSubmit(form) }
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (form.schedule_days.length === 0) { setFormError('Select at least one class day'); return }
+    if (!form.start_time || !form.end_time) { setFormError('Set both a class start time and end time'); return }
+    if (form.end_date && form.start_date && form.end_date < form.start_date) { setFormError('End date cannot be before start date'); return }
+    setFormError('')
+    onSubmit(form)
+  }
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
@@ -101,9 +109,9 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Instructor</label>
-              <select value={form.instructor_id} onChange={(e) => handleChange('instructor_id', e.target.value)}
+              <select required value={form.instructor_id} onChange={(e) => handleChange('instructor_id', e.target.value)}
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
-                <option value="">Unassigned</option>
+                <option value="">Select instructor</option>
                 {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
@@ -111,12 +119,12 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Start Date</label>
-              <input type="date" value={form.start_date} onChange={(e) => handleChange('start_date', e.target.value)}
+              <input type="date" required value={form.start_date} onChange={(e) => handleChange('start_date', e.target.value)}
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>End Date</label>
-              <input type="date" min={form.start_date || undefined} value={form.end_date} onChange={(e) => handleChange('end_date', e.target.value)}
+              <input type="date" required min={form.start_date || undefined} value={form.end_date} onChange={(e) => handleChange('end_date', e.target.value)}
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
             <div>
@@ -163,6 +171,7 @@ function BatchFormModal({ batch, isDark, teamMembers, onClose, onSubmit }) {
               ))}
             </div>
           </div>
+          {formError && <p className="text-xs font-medium text-rose-500">{formError}</p>}
           <div className="flex items-center justify-end gap-3 pt-2">
             <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}

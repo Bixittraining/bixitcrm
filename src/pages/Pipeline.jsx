@@ -9,6 +9,7 @@ import {
   Phone,
   Mail,
   ArrowRight,
+  ArrowLeft,
   GripVertical,
   MoreHorizontal,
   X,
@@ -69,7 +70,7 @@ const cardVariants = {
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 }
 
-function LeadCard({ lead, stageColor, isDark, onMoveNext }) {
+function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev }) {
   const colors = COLOR_MAP[stageColor]
   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 
@@ -118,6 +119,14 @@ function LeadCard({ lead, stageColor, isDark, onMoveNext }) {
           <Mail className="w-3.5 h-3.5" />
         </button>
         <button
+          onClick={() => onMovePrev(lead)}
+          disabled={lead.status === 'new' || lead.status === 'enrolled'}
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-primary-400' : 'hover:bg-dark-100 text-dark-500 hover:text-primary-600'}`}
+          title={lead.status === 'enrolled' ? "Can't revert an enrolled lead — it already has a student & invoice" : lead.status === 'new' ? 'Already at the first stage' : 'Move back to previous stage'}
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
           onClick={() => onMoveNext(lead)}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-primary-400' : 'hover:bg-dark-100 text-dark-500 hover:text-primary-600'}`}
           title="Move to next stage"
@@ -133,7 +142,7 @@ function LeadCard({ lead, stageColor, isDark, onMoveNext }) {
   )
 }
 
-function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onAddLead }) {
+function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onMovePrev, onAddLead }) {
   const colors = COLOR_MAP[stage.color]
 
   return (
@@ -153,7 +162,7 @@ function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onAddLead }) {
       <motion.div className="flex flex-col gap-3 px-3 pb-3 overflow-y-auto max-h-[calc(100vh-340px)] kanban-scrollbar" variants={containerVariants} initial="hidden" animate="visible">
         <AnimatePresence mode="popLayout">
           {stageLeads.map(lead => (
-            <LeadCard key={lead.id} lead={lead} stageColor={stage.color} isDark={isDark} onMoveNext={onMoveNext} />
+            <LeadCard key={lead.id} lead={lead} stageColor={stage.color} isDark={isDark} onMoveNext={onMoveNext} onMovePrev={onMovePrev} />
           ))}
         </AnimatePresence>
       </motion.div>
@@ -329,6 +338,25 @@ export default function Pipeline() {
     }
   }
 
+  // Reverting an accidental stage change. Blocked out of 'enrolled' — that
+  // transition already created a real student + invoice, and stepping back
+  // here would only flip the status flag, leaving those records orphaned
+  // with no corresponding lead stage. Undoing an enrollment is a separate,
+  // more deliberate action than fixing a misclick.
+  const handleMovePrev = (lead) => {
+    const stageKeys = PIPELINE_STAGES.map(s => s.key)
+    const currentIdx = stageKeys.indexOf(lead.status)
+    if (lead.status === 'enrolled') {
+      showToastMsg(`Can't revert ${lead.name} — already enrolled with a student & invoice`)
+      return
+    }
+    if (currentIdx > 0) {
+      const prevStage = stageKeys[currentIdx - 1]
+      updateLeadStatus(lead.id, prevStage)
+      showToastMsg(`${lead.name} moved back to ${PIPELINE_STAGES[currentIdx - 1].label}`)
+    }
+  }
+
   const handleColumnAddLead = (stageKey) => {
     setDefaultStage(stageKey)
     setShowAddLead(true)
@@ -394,6 +422,7 @@ export default function Pipeline() {
             stageLeads={getStageLeads(stage.key)}
             isDark={isDark}
             onMoveNext={handleMoveNext}
+            onMovePrev={handleMovePrev}
             onAddLead={handleColumnAddLead}
           />
         ))}

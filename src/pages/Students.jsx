@@ -180,10 +180,10 @@ function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWha
                 <Phone size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
                 <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.phone}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <BookOpen size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
+              <div className="flex items-center gap-2 min-w-0">
+                <BookOpen size={14} className={`shrink-0 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
                 <select value={student.batch_id || ''} onChange={(e) => onBatchChange(student, e.target.value ? Number(e.target.value) : null)}
-                  className={`text-sm bg-transparent outline-none cursor-pointer rounded-lg -ml-1 px-1 py-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                  className={`flex-1 min-w-0 truncate text-sm bg-transparent outline-none cursor-pointer rounded-lg -ml-1 px-1 py-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
                   <option value="">Unassigned</option>
                   {(batches || []).filter((b) => b.course === student.course).map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
@@ -461,8 +461,19 @@ function Students() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total\n' +
-                students.map(s => `${s.name},${s.email},${s.phone},${s.course},${s.batch},${s.enrollDate},${s.status},${s.feePaid},${s.feeTotal}`).join('\n')
+              // Unescaped, unquoted CSV corrupted rows the moment a name/batch
+              // had a comma in it, and Excel auto-reformatted plain digit-string
+              // phone numbers (dropping leading zeros / going scientific) since
+              // nothing told it to treat them as text. Remaining Balance wasn't
+              // exported at all despite being the one number staff actually
+              // need for a fees follow-up call.
+              const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
+              const rows = students.map((s) => [
+                esc(s.name), esc(s.email), `"=""${s.phone || ''}"""`, esc(s.course), esc(s.batch || 'Unassigned'),
+                esc(s.enrollDate || '—'), esc(s.status), s.feePaid || 0, s.feeTotal || 0,
+                Math.max((s.feeTotal || 0) - (s.feePaid || 0), 0),
+              ].join(','))
+              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Remaining Balance\n' + rows.join('\n')
               const blob = new Blob([csv], { type: 'text/csv' })
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a'); a.href = url; a.download = 'students-export.csv'; a.click(); URL.revokeObjectURL(url)

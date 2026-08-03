@@ -805,9 +805,10 @@ export default function Reports() {
           <button
             onClick={() => {
               const csv = 'Month,Revenue,Students\n' + revenueTrendData.map(d => `${d.month},${d.revenue},${d.students}`).join('\n')
-              downloadCSV('bix-academy-report.csv', csv)
-              showToast('Report downloaded')
+              downloadCSV('bix-academy-revenue-trend.csv', csv)
+              showToast('Revenue trend downloaded')
             }}
+            title="Downloads only the monthly Revenue/Students trend shown below. For Leads, Students, Batches, Fees or Attendance data, use Report Builder further down this page."
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors border ${
               isDark
                 ? 'border-primary-500/40 text-primary-400 hover:bg-primary-500/10'
@@ -815,7 +816,7 @@ export default function Reports() {
             }`}
           >
             <Download className="w-4 h-4" />
-            Download Report
+            Revenue Trend (CSV)
           </button>
         </div>
       </motion.div>

@@ -414,8 +414,15 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
     name: lead.name, email: lead.email, phone: lead.phone, course: lead.course,
     source: lead.source, priority: lead.priority, status: lead.status, notes: lead.notes,
   })
+  const [formError, setFormError] = useState('')
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
-  const handleSubmit = (e) => { e.preventDefault(); onSave({ ...lead, ...form }) }
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (form.phone.length !== 10) { setFormError('Phone number must be exactly 10 digits'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { setFormError('Enter a valid email address'); return }
+    setFormError('')
+    onSave({ ...lead, ...form })
+  }
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
@@ -440,13 +447,14 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
-              <input type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+              <input type="email" required pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address" value={form.email} onChange={(e) => handleChange('email', e.target.value)} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-              <input type="tel" inputMode="numeric" maxLength={10} required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+              <input type="tel" inputMode="numeric" maxLength={10} pattern="[0-9]{10}" title="Enter a 10-digit phone number" required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
           </div>
+          {formError && <p className="text-xs font-medium text-rose-500 -mt-2">{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
@@ -624,9 +632,13 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
 // ─── ADD LEAD MODAL ──────────────────────────────────────────────────
 function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', course: '', source: '', priority: 'medium', notes: '' })
+  const [formError, setFormError] = useState('')
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
   const handleSubmit = (e) => {
     e.preventDefault()
+    if (form.phone.length !== 10) { setFormError('Phone number must be exactly 10 digits'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { setFormError('Enter a valid email address'); return }
+    setFormError('')
     const nameParts = form.name.trim().split(' ')
     const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : form.name.trim().slice(0, 2).toUpperCase()
     onAdd({ ...form, id: Date.now(), avatar, status: 'new', date: new Date().toISOString().slice(0, 10) })
@@ -657,15 +669,16 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
-              <input type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} placeholder="email@example.com"
+              <input type="email" required pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address" value={form.email} onChange={(e) => handleChange('email', e.target.value)} placeholder="email@example.com"
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-              <input type="tel" inputMode="numeric" maxLength={10} required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="98765 43210"
+              <input type="tel" inputMode="numeric" maxLength={10} pattern="[0-9]{10}" title="Enter a 10-digit phone number" required value={form.phone} onChange={(e) => handleChange('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="98765 43210"
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
           </div>
+          {formError && <p className="text-xs font-medium text-rose-500 -mt-2">{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course Interested</label>
