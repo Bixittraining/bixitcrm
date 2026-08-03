@@ -3,6 +3,14 @@ import { motion } from 'framer-motion'
 import { X, PlayCircle, Hourglass, CheckCircle2 } from 'lucide-react'
 import { modalOverlayVariants, modalCardVariants } from '../../lib/modalVariants'
 
+function formatTime12h(t) {
+  if (!t) return null
+  const [h, m] = t.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
   'Cloud Computing', 'Cybersecurity', 'Mobile App Development', 'DevOps Engineering', 'Python Programming',
@@ -128,6 +136,11 @@ export default function BatchFormModal({ batch, isDark, teamMembers, onClose, on
                 className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
             </div>
           </div>
+          {form.start_time && form.end_time && (
+            <p className={`text-xs -mt-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+              Class runs {formatTime12h(form.start_time)} – {formatTime12h(form.end_time)}
+            </p>
+          )}
           <div>
             <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Status</label>
             <div className="flex gap-2">
