@@ -227,6 +227,12 @@ export default function Dashboard() {
   const currentDate = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   })
+  const greeting = (() => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good Morning'
+    if (h < 17) return 'Good Afternoon'
+    return 'Good Evening'
+  })()
 
   const pipelineCounts = pipelineStages.map(s => ({
     ...s,
@@ -342,7 +348,7 @@ export default function Dashboard() {
             <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight ${
               theme === 'dark' ? 'text-dark-50' : 'text-dark-900'
             }`}>
-              Welcome back, <span className="text-primary-500">{profile.name.split(' ')[0]}</span>
+              {greeting}, <span className="text-primary-500">{profile?.name?.split(' ')[0] || 'there'}</span>
             </h1>
             <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-dark-400' : 'text-dark-500'}`}>
               Here is what is happening at BIX Academy today. Keep up the great work!
