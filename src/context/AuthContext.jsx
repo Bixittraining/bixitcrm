@@ -148,7 +148,7 @@ export function AuthProvider({ children }) {
 
   const addTeamMember = async ({ name, email, phone, password, role }) => {
     if (!session?.access_token) return { error: new Error('Not authenticated') }
-    const res = await fetch('/api/create-team-member', {
+    const res = await fetch('/api/team-member', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -180,8 +180,8 @@ export function AuthProvider({ children }) {
 
   const deleteTeamMember = async (userId) => {
     if (!session?.access_token) return { error: new Error('Not authenticated') }
-    const res = await fetch('/api/delete-team-member', {
-      method: 'POST',
+    const res = await fetch('/api/team-member', {
+      method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,

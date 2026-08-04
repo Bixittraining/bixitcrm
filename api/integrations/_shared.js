@@ -1,5 +1,5 @@
 // Shared admin-auth check for api/integrations/* — mirrors the pattern in
-// api/create-team-member.js: verify the caller's bearer token against
+// api/team-member.js: verify the caller's bearer token against
 // Supabase Auth, then confirm their profile role is 'admin'.
 export async function requireAdmin(req, admin) {
   const token = (req.headers.authorization || '').replace('Bearer ', '')
