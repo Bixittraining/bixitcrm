@@ -32,6 +32,7 @@ export function DataProvider({ children }) {
   const [batches, setBatches] = useState([])
   const [installments, setInstallments] = useState([])
   const [attendance, setAttendance] = useState([])
+  const [staffAttendance, setStaffAttendance] = useState([])
   const [emailMessages, setEmailMessages] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -39,7 +40,7 @@ export function DataProvider({ children }) {
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes, staffAttendanceRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -54,6 +55,7 @@ export function DataProvider({ children }) {
         supabase.from('student_notes').select('*').order('created_at', { ascending: false }),
         supabase.from('attendance').select('*').order('date', { ascending: false }),
         supabase.from('email_messages').select('*').order('created_at', { ascending: false }),
+        supabase.from('staff_attendance').select('*').order('date', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -70,6 +72,7 @@ export function DataProvider({ children }) {
       if (studentNotesRes.error) console.error('student_notes error', studentNotesRes.error)
       if (attendanceRes.error) console.error('attendance error', attendanceRes.error)
       if (emailMessagesRes.error) console.error('email_messages error', emailMessagesRes.error)
+      if (staffAttendanceRes.error) console.error('staff_attendance error', staffAttendanceRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -88,6 +91,7 @@ export function DataProvider({ children }) {
       setInstallments(installmentsRes.data || [])
       setAttendance(attendanceRes.data || [])
       setEmailMessages(emailMessagesRes.data || [])
+      setStaffAttendance(staffAttendanceRes.data || [])
       setLoading(false)
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
@@ -377,6 +381,32 @@ export function DataProvider({ children }) {
     setAttendance((prev) => {
       const touchedIds = new Set(data.map((d) => `${d.student_id}_${d.date}`))
       const kept = prev.filter((a) => !touchedIds.has(`${a.student_id}_${a.date}`))
+      return [...data, ...kept]
+    })
+    return true
+  }, [teamMembers])
+
+  // Same upsert-the-whole-day pattern as student attendance, but for staff
+  // — a third status ('leave') is valid here where it isn't for students.
+  const markStaffAttendance = useCallback(async (date, records) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const markerName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const rows = records.map((r) => ({
+      staff_id: r.staffId,
+      date,
+      status: r.status,
+      marked_by: user?.id || null,
+      marked_by_name: markerName,
+      marked_at: new Date().toISOString(),
+    }))
+    const { data, error } = await supabase
+      .from('staff_attendance')
+      .upsert(rows, { onConflict: 'staff_id,date' })
+      .select()
+    if (error) { console.error('markStaffAttendance error', error); return false }
+    setStaffAttendance((prev) => {
+      const touchedIds = new Set(data.map((d) => `${d.staff_id}_${d.date}`))
+      const kept = prev.filter((a) => !touchedIds.has(`${a.staff_id}_${a.date}`))
       return [...data, ...kept]
     })
     return true
@@ -681,6 +711,7 @@ export function DataProvider({ children }) {
       leadNotes, addLeadNote, studentNotes, addStudentNote,
       batches, addBatch, updateBatch, deleteBatch,
       attendance, markAttendance,
+      staffAttendance, markStaffAttendance,
       emailMessages, sendEmail,
       loading,
     }}>

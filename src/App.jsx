@@ -15,6 +15,7 @@ const FollowUps = lazy(() => import('./pages/FollowUps'))
 const Students = lazy(() => import('./pages/Students'))
 const Batches = lazy(() => import('./pages/Batches'))
 const BatchDetail = lazy(() => import('./pages/BatchDetail'))
+const Attendance = lazy(() => import('./pages/Attendance'))
 const Packages = lazy(() => import('./pages/Packages'))
 const PackageDetail = lazy(() => import('./pages/PackageDetail'))
 const PackageCompare = lazy(() => import('./pages/PackageCompare'))
@@ -54,6 +55,7 @@ function AppRoutes() {
               <Route path="students" element={<Students />} />
               <Route path="batches" element={<Batches />} />
               <Route path="batches/:batchId" element={<BatchDetail />} />
+              <Route path="attendance" element={<Attendance />} />
               <Route path="packages" element={<Packages />} />
               <Route path="packages/compare" element={<PackageCompare />} />
               <Route path="packages/:packageId" element={<PackageDetail />} />
