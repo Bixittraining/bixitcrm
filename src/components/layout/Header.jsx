@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Menu, Search, Bell, MessageSquare, Sun, Moon, ChevronDown,
-  User, Settings, LogOut, Users,
+  Settings, LogOut, Users,
   GraduationCap, CalendarClock, IndianRupee,
   Bot, UserCheck,
 } from 'lucide-react'
@@ -346,7 +346,6 @@ function Header({ onMenuToggle, onLogout }) {
                   </div>
                   <div className="p-1.5">
                     {[
-                      { icon: User, label: 'My Profile', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
                       { icon: Settings, label: 'Settings', action: () => { navigate('/settings'); setUserDropdownOpen(false) } },
                     ].map(({ icon: Icon, label, action }) => (
                       <motion.button key={label} whileHover={{ x: 2 }} onClick={action}

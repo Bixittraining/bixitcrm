@@ -1,21 +1,24 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check, Pencil } from 'lucide-react'
+import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check, Pencil, Trash2, AlertTriangle, X } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { categoryGradients, categoryBadgeColors, categoryBadgeColorsLight, formatPrice } from '../lib/packageStyles'
 import PackageFormModal from '../components/packages/PackageFormModal'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
 export default function PackageDetail() {
   const { packageId } = useParams()
   const navigate = useNavigate()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { packages, students, updatePackage } = useData()
+  const { packages, students, updatePackage, deletePackage } = useData()
   const { isAdmin } = useAuth()
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
   const pkg = packages.find((p) => String(p.id) === packageId)
@@ -54,10 +57,16 @@ export default function PackageDetail() {
           <ArrowLeft className="w-4 h-4" />Back to Packages
         </motion.button>
         {isAdmin && (
-          <button onClick={() => setShowEditModal(true)}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-100 text-dark-600 hover:bg-dark-200'}`}>
-            <Pencil className="w-3.5 h-3.5" />Edit Package
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowEditModal(true)}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-100 text-dark-600 hover:bg-dark-200'}`}>
+              <Pencil className="w-3.5 h-3.5" />Edit Package
+            </button>
+            <button onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-rose-500 hover:bg-rose-500/10 transition-colors">
+              <Trash2 className="w-3.5 h-3.5" />Delete
+            </button>
+          </div>
         )}
       </div>
 
@@ -154,6 +163,49 @@ export default function PackageDetail() {
             onClose={() => setShowEditModal(false)}
             onSave={(updates) => updatePackage(pkg.id, updates)}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => !deleting && setShowDeleteConfirm(false)}>
+            <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-sm rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-rose-500">
+                  <AlertTriangle className="w-5 h-5" />
+                  <h2 className="text-base font-bold">Delete package?</h2>
+                </div>
+                <button onClick={() => setShowDeleteConfirm(false)} className={`p-1 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={18} /></button>
+              </div>
+              <p className={`text-sm mb-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                <strong>{pkg.name}</strong> will be permanently removed. This can't be undone.
+              </p>
+              {enrolledCount > 0 && (
+                <p className="text-sm text-rose-500 mb-2">
+                  {enrolledCount} student{enrolledCount === 1 ? ' is' : 's are'} currently enrolled in this course — their records won't be deleted, but this package will no longer show their real capacity/enrollment here.
+                </p>
+              )}
+              <div className="flex justify-end gap-3 pt-3">
+                <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium border disabled:opacity-60 ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                <button
+                  onClick={async () => {
+                    setDeleting(true)
+                    const ok = await deletePackage(pkg.id)
+                    setDeleting(false)
+                    if (ok) navigate('/packages')
+                  }}
+                  disabled={deleting}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 transition-colors disabled:opacity-60">
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

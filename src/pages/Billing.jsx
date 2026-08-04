@@ -80,15 +80,16 @@ export default function Billing() {
   // less than its amount) still counts as next, not just untouched ones.
   const getNextPending = (invoiceId) => getSchedule(invoiceId).find((i) => i.status !== 'paid')
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     const amt = Number(paymentForm.amount)
     if (!amt || amt <= 0 || amt > selectedInvoice.balance) { showToast('Enter a valid payment amount', 'error'); return }
-    recordPayment(selectedInvoice.id, amt, paymentForm.paymentMode, paymentForm.date)
+    const ok = await recordPayment(selectedInvoice.id, amt, paymentForm.paymentMode, paymentForm.date)
+    if (!ok) { showToast('Could not save the payment — check your connection and try again', 'error'); return }
     showToast(`Payment of ${formatINR(amt)} recorded for ${selectedInvoice.student}`)
     closeModal()
   }
 
-  const handleCreateBill = (e) => {
+  const handleCreateBill = async (e) => {
     e.preventDefault()
     // Deriving from array length breaks the moment a gap appears in the
     // sequence (e.g. an invoice gets deleted) — length+1 can collide with
@@ -101,12 +102,13 @@ export default function Billing() {
       return Number.isFinite(n) && n > max ? n : max
     }, 0)
     const id = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`
-    createInvoice({
+    const created = await createInvoice({
       id, student: createForm.student, course: createForm.course,
       amount: Number(createForm.amount), paid: 0, balance: Number(createForm.amount),
       date: new Date().toISOString().split('T')[0], due_date: createForm.dueDate,
       status: 'partial', payment_mode: 'UPI',
     })
+    if (!created) { showToast('Could not create the fee bill — check your connection and try again', 'error'); return }
     setShowCreateBill(false)
     setCreateForm({ student: '', course: '', amount: '', dueDate: '' })
     setStudentQuery('')

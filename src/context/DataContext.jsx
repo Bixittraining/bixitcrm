@@ -446,6 +446,13 @@ export function DataProvider({ children }) {
     setPackages((prev) => prev.map((p) => p.id === packageId ? data : p))
   }, [])
 
+  const deletePackage = useCallback(async (packageId) => {
+    const { error } = await supabase.from('packages').delete().eq('id', packageId)
+    if (error) { console.error('deletePackage error', error); return false }
+    setPackages((prev) => prev.filter((p) => p.id !== packageId))
+    return true
+  }, [])
+
   // ── ENROLLMENT (lead -> student + invoice) ───────────────
   const enrollLead = useCallback(async (lead, pkg, batchId) => {
     // 1. mark lead enrolled
@@ -490,7 +497,6 @@ export function DataProvider({ children }) {
           // separate Generate Fee Bill run happened to overwrite it.
           fee_total: Math.round((pkg?.price || 0) * 1.18),
           avatar: lead.avatar,
-          attendance: 0,
         })
         .select()
         .single()
@@ -682,11 +688,12 @@ export function DataProvider({ children }) {
       .eq('id', invoiceId)
       .select()
       .single()
-    if (error) { console.error('recordPayment error', error); return }
+    if (error) { console.error('recordPayment error', error); return false }
     const mapped = mapInvoiceFromDb(data)
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
     syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
     if (installments.some((i) => i.invoice_id === invoiceId)) await applyPaymentToSchedule(invoiceId, amount)
+    return true
   }, [invoices, syncStudentFee, installments, applyPaymentToSchedule])
 
   const createInvoice = useCallback(async (invoiceData) => {
@@ -703,7 +710,7 @@ export function DataProvider({ children }) {
       followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp,
       leadActivities, addActivity,
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
-      packages, setPackages, addPackage, updatePackage,
+      packages, setPackages, addPackage, updatePackage, deletePackage,
       invoices, setInvoices, recordPayment, createInvoice, updateInvoiceDueDate,
       installments,
       teamMembers,

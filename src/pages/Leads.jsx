@@ -974,17 +974,16 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               </div>
 
               <div className="space-y-6">
-                {/* Lead Score */}
+                {/* Priority — was previously shown as a fabricated "Lead
+                    Score" with a precise-looking "% match" and progress bar,
+                    both computed from nothing but this same priority value.
+                    Shown plainly now instead of implying a scoring engine
+                    that doesn't exist. */}
                 <div className={`rounded-xl p-5 ${cardClass}`}>
-                  <h3 className={`text-sm font-semibold mb-4 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Lead Score</h3>
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className={`text-2xl font-bold ${iconColorMap[score.color]}`}>{score.label}</span>
-                    <span className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{score.pct}% match</span>
-                  </div>
-                  <div className={`w-full h-3 rounded-full overflow-hidden ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
-                    <motion.div initial={{ width: 0 }} animate={{ width: `${score.pct}%` }} transition={{ duration: 0.8, ease: 'easeOut' }}
-                      className={`h-full rounded-full ${scoreBarColor[score.color]}`} />
-                  </div>
+                  <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Priority</h3>
+                  <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${scoreBarColor[score.color]}/10 ${iconColorMap[score.color]}`}>
+                    <span className={`w-2 h-2 rounded-full ${scoreBarColor[score.color]}`} />{score.label}
+                  </span>
                 </div>
 
                 {/* Quick Timeline */}

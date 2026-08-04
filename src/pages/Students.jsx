@@ -374,7 +374,7 @@ function Students() {
       name: addForm.name, email: addForm.email, phone: addForm.phone,
       course: addForm.course, batch_id: batch?.id || null, batch: batch?.name || 'Unassigned',
       enroll_date: new Date().toISOString().slice(0, 10), status: 'active',
-      fee_paid: 0, fee_total: Number(addForm.feeTotal) || 0, avatar, attendance: 0,
+      fee_paid: 0, fee_total: Number(addForm.feeTotal) || 0, avatar,
     })
     setShowAddModal(false)
     setAddForm({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
