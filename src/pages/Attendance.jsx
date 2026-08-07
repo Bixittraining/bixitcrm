@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, Users, ClipboardCheck, ChevronRight, ArrowLeft } from 'lucide-react'
+import { GraduationCap, Users, ClipboardCheck, ChevronRight, ArrowLeft, Calendar } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import AttendanceRegister from '../components/attendance/AttendanceRegister'
 
 const todayStr = new Date().toISOString().slice(0, 10)
+const todayLabel = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 
 function pctFor(records) {
   return records.length ? Math.round((records.filter((r) => r.status === 'present').length / records.length) * 100) : null
@@ -43,22 +44,22 @@ function BatchPicker({ batches, students, attendance, isDark, onSelect }) {
 function StudentsTab({ isDark }) {
   const { batches, students, attendance, markAttendance } = useData()
   const [selectedBatchId, setSelectedBatchId] = useState(null)
-  const [attDate, setAttDate] = useState(todayStr)
 
   const batch = batches.find((b) => b.id === selectedBatchId)
   const roster = useMemo(() => (batch ? students.filter((s) => s.batch_id === batch.id) : []), [students, batch])
 
-  const minAttDate = batch?.start_date || null
-  const maxAttDate = batch?.end_date && batch.end_date < todayStr ? batch.end_date : todayStr
-  const batchStarted = !minAttDate || todayStr >= minAttDate
+  // Attendance can only be marked for today — no backdating or postdating,
+  // so a past class day can't be retroactively marked Present after the fact.
+  const batchStarted = !batch?.start_date || todayStr >= batch.start_date
+  const batchEnded = batch?.end_date && todayStr > batch.end_date
 
   const dayAttendance = useMemo(
-    () => attendance.filter((a) => a.batch_id === batch?.id && a.date === attDate).map((a) => ({ ...a, personId: a.student_id })),
-    [attendance, batch, attDate]
+    () => attendance.filter((a) => a.batch_id === batch?.id && a.date === todayStr).map((a) => ({ ...a, personId: a.student_id })),
+    [attendance, batch]
   )
 
   if (!batch) {
-    return <BatchPicker batches={batches} students={students} attendance={attendance} isDark={isDark} onSelect={(b) => { setSelectedBatchId(b.id); setAttDate(todayStr) }} />
+    return <BatchPicker batches={batches} students={students} attendance={attendance} isDark={isDark} onSelect={(b) => setSelectedBatchId(b.id)} />
   }
 
   return (
@@ -68,25 +69,24 @@ function StudentsTab({ isDark }) {
           className={`inline-flex items-center gap-1.5 text-sm font-medium ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-900'}`}>
           <ArrowLeft className="w-3.5 h-3.5" />{batch.name}
         </button>
-        <input
-          type="date"
-          value={attDate}
-          min={minAttDate || undefined}
-          max={maxAttDate}
-          onChange={(e) => setAttDate(e.target.value)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
-        />
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'bg-dark-800 text-dark-200' : 'bg-dark-100 text-dark-700'}`}>
+          <Calendar className="w-3.5 h-3.5" />{todayLabel} &middot; Today
+        </span>
       </div>
       {!batchStarted ? (
         <p className={`text-sm text-center py-10 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
           Attendance opens once this batch starts on {new Date(batch.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
         </p>
+      ) : batchEnded ? (
+        <p className={`text-sm text-center py-10 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+          This batch ended on {new Date(batch.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} — attendance is closed.
+        </p>
       ) : (
         <AttendanceRegister
           roster={roster}
           records={dayAttendance}
-          date={attDate}
-          onMark={(studentId, status) => markAttendance(batch.id, attDate, [{ studentId, status }])}
+          date={todayStr}
+          onMark={(studentId, status) => markAttendance(batch.id, todayStr, [{ studentId, status }])}
           isDark={isDark}
           statusKeys={['present', 'absent']}
           contextKey={batch.id}
@@ -98,11 +98,10 @@ function StudentsTab({ isDark }) {
 
 function StaffTab({ isDark }) {
   const { teamMembers, staffAttendance, markStaffAttendance } = useData()
-  const [attDate, setAttDate] = useState(todayStr)
 
   const dayAttendance = useMemo(
-    () => staffAttendance.filter((a) => a.date === attDate).map((a) => ({ ...a, personId: a.staff_id })),
-    [staffAttendance, attDate]
+    () => staffAttendance.filter((a) => a.date === todayStr).map((a) => ({ ...a, personId: a.staff_id })),
+    [staffAttendance]
   )
 
   const roster = teamMembers.map((m) => ({ id: m.id, name: m.name }))
@@ -111,19 +110,15 @@ function StaffTab({ isDark }) {
     <div>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
         <p className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Team Attendance</p>
-        <input
-          type="date"
-          value={attDate}
-          max={todayStr}
-          onChange={(e) => setAttDate(e.target.value)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
-        />
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'bg-dark-800 text-dark-200' : 'bg-dark-100 text-dark-700'}`}>
+          <Calendar className="w-3.5 h-3.5" />{todayLabel} &middot; Today
+        </span>
       </div>
       <AttendanceRegister
         roster={roster}
         records={dayAttendance}
-        date={attDate}
-        onMark={(staffId, status) => markStaffAttendance(attDate, [{ staffId, status }])}
+        date={todayStr}
+        onMark={(staffId, status) => markStaffAttendance(todayStr, [{ staffId, status }])}
         isDark={isDark}
         statusKeys={['present', 'absent', 'leave']}
         contextKey="staff"

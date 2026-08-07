@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -46,33 +46,20 @@ export default function BatchDetail() {
   const roster = useMemo(() => students.filter((s) => s.batch_id === batch?.id), [students, batch])
 
   const todayStr = new Date().toISOString().slice(0, 10)
-  const [attDate, setAttDate] = useState(todayStr)
+  const todayLabel = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 
   const batchAttendance = useMemo(() => attendance.filter((a) => a.batch_id === batch?.id), [attendance, batch])
   const dayAttendance = useMemo(
-    () => batchAttendance.filter((a) => a.date === attDate).map((a) => ({ ...a, personId: a.student_id })),
-    [batchAttendance, attDate]
+    () => batchAttendance.filter((a) => a.date === todayStr).map((a) => ({ ...a, personId: a.student_id })),
+    [batchAttendance, todayStr]
   )
 
-  // Attendance only makes sense inside the batch's own date range — a batch
-  // starting 5 Aug shouldn't accept marks dated 31 Jul just because "today"
-  // happened to be before start. Clamp the picker to [start_date, min(today,
-  // end_date)] instead of only capping at today.
-  const minAttDate = batch?.start_date || null
-  const maxAttDate = batch?.end_date && batch.end_date < todayStr ? batch.end_date : todayStr
-  const batchStarted = !minAttDate || todayStr >= minAttDate
+  // Attendance can only be marked for today — no backdating or postdating,
+  // so a past class day can't be retroactively marked Present after the fact.
+  const batchStarted = !batch?.start_date || todayStr >= batch.start_date
+  const batchEnded = batch?.end_date && todayStr > batch.end_date
 
-  useEffect(() => {
-    if (!batch) return
-    setAttDate((d) => {
-      if (minAttDate && d < minAttDate) return minAttDate
-      if (maxAttDate && d > maxAttDate) return maxAttDate
-      return d
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batch?.id, minAttDate, maxAttDate])
-
-  const handleMark = (studentId, status) => markAttendance(batch.id, attDate, [{ studentId, status }])
+  const handleMark = (studentId, status) => markAttendance(batch.id, todayStr, [{ studentId, status }])
 
   const attendedDays = new Set(batchAttendance.map((a) => a.date)).size
   const attendancePct = batchAttendance.length
@@ -197,26 +184,30 @@ export default function BatchDetail() {
         </motion.div>
       )}
 
-      {roster.length > 0 && batchStarted && (
+      {roster.length > 0 && batchStarted && batchEnded && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 text-center ${cardClass}`}>
+          <ClipboardCheck className={`w-8 h-8 mx-auto mb-2 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+          <p className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+            This batch ended on {new Date(batch.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} — attendance is closed.
+          </p>
+        </motion.div>
+      )}
+
+      {roster.length > 0 && batchStarted && !batchEnded && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 overflow-hidden ${cardClass}`}>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
               <ClipboardCheck className="w-4 h-4" />Take Attendance
             </h3>
-            <input
-              type="date"
-              value={attDate}
-              min={minAttDate || undefined}
-              max={maxAttDate}
-              onChange={(e) => setAttDate(e.target.value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${isDark ? 'bg-dark-800 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}
-            />
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'bg-dark-800 text-dark-200' : 'bg-dark-100 text-dark-700'}`}>
+              <Calendar className="w-3.5 h-3.5" />{todayLabel} &middot; Today
+            </span>
           </div>
 
           <AttendanceRegister
             roster={roster}
             records={dayAttendance}
-            date={attDate}
+            date={todayStr}
             onMark={handleMark}
             isDark={isDark}
             statusKeys={['present', 'absent']}

@@ -94,6 +94,15 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { console.error('signIn error', error); return { data, error } }
     console.log('signIn success', data.user.email)
+    // A tab close or expired refresh token never calls signOut(), so a prior
+    // session can be left open indefinitely. Close out any stale open rows
+    // for this user before starting a new one, so at most one "Still online"
+    // row ever exists per user instead of one per login attempt.
+    await supabase
+      .from('user_sessions')
+      .update({ logout_at: new Date().toISOString() })
+      .eq('user_id', data.user.id)
+      .is('logout_at', null)
     const { data: sessionRow, error: sessionErr } = await supabase
       .from('user_sessions')
       .insert({ user_id: data.user.id })

@@ -71,7 +71,7 @@ const REPORT_TYPES = [
   { key: 'batches', label: 'Batches', icon: Layers },
   { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
   { key: 'student_attendance', label: 'Student Attendance', icon: ClipboardCheck },
-  { key: 'attendance', label: 'Team Attendance', icon: CalendarCheck },
+  { key: 'attendance', label: 'Team Login Activity', icon: CalendarCheck },
   { key: 'performance', label: 'Sales Activity', icon: TrendingUp },
   { key: 'funnel', label: 'Sales Funnel', icon: Target },
 ]
@@ -500,7 +500,7 @@ export default function Reports() {
       (rbUser === 'all' || s.user_id === rbUser)
     )
     return {
-      title: 'Team Attendance Report',
+      title: 'Team Login Activity Report',
       columns: ['Team Member', 'Login Date', 'Login Time', 'Logout Date', 'Logout Time', 'Duration'],
       rows: rows.map((s) => {
         const name = teamMembers.find((m) => m.id === s.user_id)?.name || 'Unknown'

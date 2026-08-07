@@ -170,7 +170,7 @@ export default function TeamMemberDetail() {
             {/* Attendance */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-2xl p-5 ${cardClass}`}>
               <h3 className={`text-sm font-semibold mb-4 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
-                <Calendar className="w-4 h-4" />Attendance
+                <Calendar className="w-4 h-4" />Login Activity
               </h3>
               {loading ? (
                 <p className={`text-sm text-center py-8 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Loading...</p>
