@@ -9,7 +9,7 @@ import { useData } from '../context/DataContext'
 
 const roleLabels = { admin: 'Administrator', manager: 'Manager', sales: 'Sales Executive' }
 
-export default function TeamPerformance() {
+export default function TeamPerformance({ embedded = false }) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const { isAdmin } = useAuth()
@@ -65,10 +65,12 @@ export default function TeamPerformance() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Team Performance</h1>
-        <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Lead volume and conversion per team member</p>
-      </motion.div>
+      {!embedded && (
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Team Performance</h1>
+          <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Lead volume and conversion per team member</p>
+        </motion.div>
+      )}
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[

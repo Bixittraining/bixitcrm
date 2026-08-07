@@ -104,8 +104,8 @@ export default function TeamMemberDetail() {
       <div className={`rounded-2xl p-12 text-center ${cardClass}`}>
         <Users className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
         <p className={`text-sm font-medium ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>Team member not found</p>
-        <button onClick={() => navigate('/team-activity')} className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary-500 hover:text-primary-400">
-          <ArrowLeft className="w-4 h-4" />Back to Team Activity
+        <button onClick={() => navigate('/attendance')} className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary-500 hover:text-primary-400">
+          <ArrowLeft className="w-4 h-4" />Back to Attendance &amp; Productivity
         </button>
       </div>
     )
@@ -113,9 +113,9 @@ export default function TeamMemberDetail() {
 
   return (
     <div className="space-y-6">
-      <motion.button whileHover={{ x: -3 }} onClick={() => navigate('/team-activity')}
+      <motion.button whileHover={{ x: -3 }} onClick={() => navigate('/attendance')}
         className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-900'}`}>
-        <ArrowLeft className="w-4 h-4" />Back to Team Activity
+        <ArrowLeft className="w-4 h-4" />Back to Attendance &amp; Productivity
       </motion.button>
 
       {member && (

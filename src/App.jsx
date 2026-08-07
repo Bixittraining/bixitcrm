@@ -23,9 +23,7 @@ const Billing = lazy(() => import('./pages/Billing'))
 const Pipeline = lazy(() => import('./pages/Pipeline'))
 const Reports = lazy(() => import('./pages/Reports'))
 const Conversations = lazy(() => import('./pages/Conversations'))
-const TeamActivity = lazy(() => import('./pages/TeamActivity'))
 const TeamMemberDetail = lazy(() => import('./pages/TeamMemberDetail'))
-const TeamPerformance = lazy(() => import('./pages/TeamPerformance'))
 const Settings = lazy(() => import('./pages/Settings'))
 
 function FullScreenSpinner() {
@@ -63,9 +61,7 @@ function AppRoutes() {
               <Route path="pipeline" element={<Pipeline />} />
               <Route path="reports" element={<Reports />} />
               <Route path="conversations" element={<Conversations />} />
-              <Route path="team-activity" element={<TeamActivity />} />
               <Route path="team-activity/:memberId" element={<TeamMemberDetail />} />
-              <Route path="team-performance" element={<TeamPerformance />} />
               <Route path="settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
