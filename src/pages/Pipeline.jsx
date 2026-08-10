@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -18,14 +19,12 @@ import {
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import { LEAD_STATUSES, PIPELINE_STAGE_KEYS } from '../lib/leadStatus'
 
-const PIPELINE_STAGES = [
-  { key: 'new', label: 'Inquiry', color: 'sky' },
-  { key: 'contacted', label: 'Contacted', color: 'accent' },
-  { key: 'qualified', label: 'Qualified', color: 'violet' },
-  { key: 'negotiation', label: 'Negotiation', color: 'rose' },
-  { key: 'enrolled', label: 'Enrolled', color: 'emerald' },
-]
+// Same source as Leads.jsx's status dropdown/badges — this used to be its
+// own separate hardcoded 5-stage list (labeling "new" as "Inquiry", which
+// Leads.jsx called "New") that had already drifted out of sync.
+const PIPELINE_STAGES = PIPELINE_STAGE_KEYS.map((key) => ({ key, label: LEAD_STATUSES[key].label, color: LEAD_STATUSES[key].color }))
 
 const COLOR_MAP = {
   sky: {
@@ -53,6 +52,26 @@ const COLOR_MAP = {
     badge: 'bg-emerald-500/15 text-emerald-600', badgeDark: 'bg-emerald-500/20 text-emerald-400',
     avatar: 'bg-emerald-500/15 text-emerald-600', avatarDark: 'bg-emerald-500/20 text-emerald-400',
   },
+  primary: {
+    dot: 'bg-primary-500', border: 'border-t-primary-500',
+    badge: 'bg-primary-500/15 text-primary-600', badgeDark: 'bg-primary-500/20 text-primary-400',
+    avatar: 'bg-primary-500/15 text-primary-600', avatarDark: 'bg-primary-500/20 text-primary-400',
+  },
+  indigo: {
+    dot: 'bg-indigo-500', border: 'border-t-indigo-500',
+    badge: 'bg-indigo-500/15 text-indigo-600', badgeDark: 'bg-indigo-500/20 text-indigo-400',
+    avatar: 'bg-indigo-500/15 text-indigo-600', avatarDark: 'bg-indigo-500/20 text-indigo-400',
+  },
+  cyan: {
+    dot: 'bg-cyan-500', border: 'border-t-cyan-500',
+    badge: 'bg-cyan-500/15 text-cyan-600', badgeDark: 'bg-cyan-500/20 text-cyan-400',
+    avatar: 'bg-cyan-500/15 text-cyan-600', avatarDark: 'bg-cyan-500/20 text-cyan-400',
+  },
+  amber: {
+    dot: 'bg-amber-500', border: 'border-t-amber-500',
+    badge: 'bg-amber-500/15 text-amber-600', badgeDark: 'bg-amber-500/20 text-amber-400',
+    avatar: 'bg-amber-500/15 text-amber-600', avatarDark: 'bg-amber-500/20 text-amber-400',
+  },
 }
 
 const PRIORITY_COLORS = { high: 'bg-rose-500', medium: 'bg-accent-500', low: 'bg-emerald-500' }
@@ -70,14 +89,22 @@ const cardVariants = {
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 }
 
-function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev }) {
+const PRIORITY_LABELS = { high: 'Hot', medium: 'Warm', low: 'Cold' }
+
+// Card shows exactly six things — name, course, assigned exec, priority,
+// next follow-up, package value — and nothing else. It used to also show
+// a source badge and creation date, which the brief explicitly says to
+// drop in favor of the info someone actually needs at a glance.
+function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev, onOpen, assignedName, nextFollowUpLabel, packageValue }) {
   const colors = COLOR_MAP[stageColor]
-  const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+  const formatINR = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v)
+  const stop = (fn) => (e) => { e.stopPropagation(); fn() }
 
   return (
     <motion.div
       variants={cardVariants}
       layout
+      onClick={onOpen}
       whileHover={{ y: -4, boxShadow: isDark ? '0 8px 25px rgba(0,0,0,0.4)' : '0 8px 25px rgba(0,0,0,0.1)' }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       className={`group relative rounded-xl p-4 cursor-pointer transition-colors duration-200 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'}`}
@@ -90,36 +117,39 @@ function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev }) {
           {lead.avatar}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h4 className={`text-sm font-semibold truncate ${isDark ? 'text-dark-100' : 'text-dark-900'}`}>{lead.name}</h4>
-            <span className={`w-2 h-2 rounded-full shrink-0 ${PRIORITY_COLORS[lead.priority]}`} title={`${lead.priority} priority`} />
-          </div>
+          <h4 className={`text-sm font-semibold truncate ${isDark ? 'text-dark-100' : 'text-dark-900'}`}>{lead.name}</h4>
           <p className={`text-xs mt-0.5 truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.course}</p>
         </div>
       </div>
-      <div className="flex items-center justify-between mb-3">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium ${isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-100 text-dark-600'}`}>
-          {lead.source}
-        </span>
-        <span className={`text-[11px] ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{formatDate(lead.date)}</span>
+      <div className={`space-y-1.5 mb-3 text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">Assigned: {assignedName || 'Unassigned'}</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium shrink-0 ${isDark ? colors.avatarDark : colors.avatar}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_COLORS[lead.priority]}`} />{PRIORITY_LABELS[lead.priority] || lead.priority}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{nextFollowUpLabel ? `Follow-up: ${nextFollowUpLabel}` : 'No follow-up scheduled'}</span>
+          {packageValue > 0 && <span className={`font-semibold shrink-0 ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{formatINR(packageValue)}</span>}
+        </div>
       </div>
       <div className={`flex items-center gap-1 pt-3 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
         <button
-          onClick={() => window.open(`tel:${lead.phone}`)}
+          onClick={stop(() => window.open(`tel:${lead.phone}`))}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-emerald-400' : 'hover:bg-dark-100 text-dark-500 hover:text-emerald-600'}`}
           title="Call"
         >
           <Phone className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => window.open(`mailto:${lead.email}`)}
+          onClick={stop(() => window.open(`mailto:${lead.email}`))}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-sky-400' : 'hover:bg-dark-100 text-dark-500 hover:text-sky-600'}`}
           title="Email"
         >
           <Mail className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => onMovePrev(lead)}
+          onClick={stop(() => onMovePrev(lead))}
           disabled={lead.status === 'new' || lead.status === 'enrolled'}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-primary-400' : 'hover:bg-dark-100 text-dark-500 hover:text-primary-600'}`}
           title={lead.status === 'enrolled' ? "Can't revert an enrolled lead — it already has a student & invoice" : lead.status === 'new' ? 'Already at the first stage' : 'Move back to previous stage'}
@@ -127,14 +157,14 @@ function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev }) {
           <ArrowLeft className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => onMoveNext(lead)}
+          onClick={stop(() => onMoveNext(lead))}
           className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-primary-400' : 'hover:bg-dark-100 text-dark-500 hover:text-primary-600'}`}
           title="Move to next stage"
         >
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
         <div className="flex-1" />
-        <button className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-dark-200' : 'hover:bg-dark-100 text-dark-500 hover:text-dark-700'}`} title="More options">
+        <button onClick={stop(onOpen)} className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${isDark ? 'hover:bg-dark-800 text-dark-400 hover:text-dark-200' : 'hover:bg-dark-100 text-dark-500 hover:text-dark-700'}`} title="Open lead">
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -142,8 +172,15 @@ function LeadCard({ lead, stageColor, isDark, onMoveNext, onMovePrev }) {
   )
 }
 
-function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onMovePrev, onAddLead }) {
+function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onMovePrev, onAddLead, onOpenLead, teamMembers, followUps, packages }) {
   const colors = COLOR_MAP[stage.color]
+  const today = new Date().toISOString().slice(0, 10)
+  const formatFollowUpDate = (dateStr) => {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    if (dateStr === today) return 'Today'
+    if (dateStr === tomorrow) return 'Tomorrow'
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+  }
 
   return (
     <motion.div
@@ -161,9 +198,21 @@ function PipelineColumn({ stage, stageLeads, isDark, onMoveNext, onMovePrev, onA
       </div>
       <motion.div className="flex flex-col gap-3 px-3 pb-3 overflow-y-auto max-h-[calc(100vh-340px)] kanban-scrollbar" variants={containerVariants} initial="hidden" animate="visible">
         <AnimatePresence mode="popLayout">
-          {stageLeads.map(lead => (
-            <LeadCard key={lead.id} lead={lead} stageColor={stage.color} isDark={isDark} onMoveNext={onMoveNext} onMovePrev={onMovePrev} />
-          ))}
+          {stageLeads.map(lead => {
+            const assignedName = teamMembers.find((m) => m.id === lead.assigned_to)?.name
+            const nextFollowUp = followUps
+              .filter((f) => f.lead === lead.name && f.status === 'pending')
+              .sort((a, b) => a.date.localeCompare(b.date))[0]
+            const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+            return (
+              <LeadCard key={lead.id} lead={lead} stageColor={stage.color} isDark={isDark} onMoveNext={onMoveNext} onMovePrev={onMovePrev}
+                onOpen={() => onOpenLead(lead)}
+                assignedName={assignedName}
+                nextFollowUpLabel={nextFollowUp ? formatFollowUpDate(nextFollowUp.date) : null}
+                packageValue={matchingPackage?.price || 0}
+              />
+            )
+          })}
         </AnimatePresence>
       </motion.div>
       <div className="px-3 pb-3 mt-auto">
@@ -295,7 +344,8 @@ function SettingsModal({ isDark, onClose }) {
 export default function Pipeline() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads, addLead, updateLeadStatus, enrollLead, packages } = useData()
+  const navigate = useNavigate()
+  const { leads, addLead, updateLeadStatus, enrollLead, packages, teamMembers, followUps } = useData()
 
   const [showAddLead, setShowAddLead] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -304,8 +354,12 @@ export default function Pipeline() {
 
   const showToastMsg = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  const pipelineLeads = leads.filter(l => l.status !== 'lost')
+  // Lost and Nurture are closed/alternative outcomes, not active pipeline
+  // stages — they don't get a Kanban column, same as before for Lost;
+  // Nurture is new and follows the same rule.
+  const pipelineLeads = leads.filter(l => l.status !== 'lost' && l.status !== 'nurture')
   const getStageLeads = (statusKey) => pipelineLeads.filter(l => l.status === statusKey)
+  const handleOpenLead = (lead) => navigate('/leads', { state: { openLeadId: lead.id } })
 
   const handleAddLead = async (formData) => {
     const avatar = formData.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
@@ -426,6 +480,10 @@ export default function Pipeline() {
             onMoveNext={handleMoveNext}
             onMovePrev={handleMovePrev}
             onAddLead={handleColumnAddLead}
+            onOpenLead={handleOpenLead}
+            teamMembers={teamMembers}
+            followUps={followUps}
+            packages={packages}
           />
         ))}
       </motion.div>

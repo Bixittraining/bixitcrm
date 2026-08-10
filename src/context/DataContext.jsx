@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { emitAutomationEvent, AUTOMATION_EVENTS, isBelowAttendanceThreshold } from '../lib/automation'
 import { isClassScheduledOn } from '../lib/schedule'
 import { logAuditEvent } from '../lib/audit'
+import { statusLabel } from '../lib/leadStatus'
 
 const DataContext = createContext()
 
@@ -235,6 +236,10 @@ export function DataProvider({ children }) {
 
   const updateLeadStatus = useCallback(async (leadId, newStatus, description) => {
     const prevLead = leads.find((l) => l.id === leadId)
+    // Same status re-selected (e.g. a re-render firing the same choice
+    // twice) is a no-op, not a real transition — skip the write and the
+    // timeline entry entirely rather than logging "changed from X to X".
+    if (prevLead && prevLead.status === newStatus) return
     const { data, error } = await supabase
       .from('leads')
       .update({ status: newStatus })
@@ -243,7 +248,7 @@ export function DataProvider({ children }) {
       .single()
     if (error) { console.error('updateLeadStatus error', error); return }
     setLeads((prev) => prev.map((l) => l.id === leadId ? mapLeadFromDb(data) : l))
-    addActivity(leadId, prevLead?.status, newStatus, description || `Status changed from ${prevLead?.status || '—'} to ${newStatus}`)
+    addActivity(leadId, prevLead?.status, newStatus, description || `Status changed from ${statusLabel(prevLead?.status) || '—'} to ${statusLabel(newStatus)}`)
     if (newStatus === 'enrolled' || newStatus === 'lost') closePendingFollowUps(data.name)
   }, [leads, addActivity, closePendingFollowUps])
 

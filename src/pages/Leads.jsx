@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, Plus, Upload, Download, Pencil, Phone, UserPlus, Users, UserCheck,
-  MessageSquare, GraduationCap, UserX, ChevronDown, ChevronLeft, ChevronRight, X,
+  Search, Plus, Upload, Download, Pencil, Phone, Users, UserCheck,
+  GraduationCap, UserX, ChevronDown, ChevronLeft, ChevronRight, X,
   Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
   Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed, SlidersHorizontal
@@ -15,16 +15,13 @@ import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import SendEmailModal from '../components/SendEmailModal'
 import AnchoredMenu from '../components/AnchoredMenu'
 import { supabase } from '../lib/supabase'
+import { LEAD_STATUSES, ALL_STATUS_KEYS, PIPELINE_STAGE_KEYS } from '../lib/leadStatus'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
-const statusConfig = {
-  new: { label: 'New', color: 'sky', icon: UserPlus },
-  contacted: { label: 'Contacted', color: 'accent', icon: MessageSquare },
-  qualified: { label: 'Qualified', color: 'emerald', icon: UserCheck },
-  negotiation: { label: 'Negotiation', color: 'violet', icon: Users },
-  enrolled: { label: 'Enrolled', color: 'primary', icon: GraduationCap },
-  lost: { label: 'Lost', color: 'rose', icon: UserX },
-}
+// Single source of truth is lib/leadStatus.jsx (shared with Pipeline.jsx)
+// — this used to be its own separate hardcoded copy that had already
+// drifted from Pipeline's (different label for "new", missing stages).
+const statusConfig = LEAD_STATUSES
 
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
@@ -84,6 +81,10 @@ const badgeStylesDark = {
   violet: 'bg-violet-500/20 text-violet-400 border border-violet-500/30',
   primary: 'bg-primary-500/20 text-primary-400 border border-primary-500/30',
   rose: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+  indigo: 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30',
+  cyan: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
+  amber: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+  slate: 'bg-dark-600/30 text-dark-300 border border-dark-500/30',
 }
 const badgeStylesLight = {
   sky: 'bg-sky-50 text-sky-600 border border-sky-200',
@@ -92,25 +93,36 @@ const badgeStylesLight = {
   violet: 'bg-violet-50 text-violet-600 border border-violet-200',
   primary: 'bg-primary-50 text-primary-600 border border-primary-200',
   rose: 'bg-rose-50 text-rose-600 border border-rose-200',
+  indigo: 'bg-indigo-50 text-indigo-600 border border-indigo-200',
+  cyan: 'bg-cyan-50 text-cyan-600 border border-cyan-200',
+  amber: 'bg-amber-50 text-amber-600 border border-amber-200',
+  slate: 'bg-dark-100 text-dark-600 border border-dark-200',
 }
 const avatarColorsDark = {
   sky: 'bg-sky-500/20 text-sky-400', accent: 'bg-accent-500/20 text-accent-400',
   emerald: 'bg-emerald-500/20 text-emerald-400', violet: 'bg-violet-500/20 text-violet-400',
   primary: 'bg-primary-500/20 text-primary-400', rose: 'bg-rose-500/20 text-rose-400',
+  indigo: 'bg-indigo-500/20 text-indigo-400', cyan: 'bg-cyan-500/20 text-cyan-400',
+  amber: 'bg-amber-500/20 text-amber-400', slate: 'bg-dark-600/30 text-dark-300',
 }
 const avatarColorsLight = {
   sky: 'bg-sky-100 text-sky-700', accent: 'bg-accent-100 text-accent-700',
   emerald: 'bg-emerald-100 text-emerald-700', violet: 'bg-violet-100 text-violet-700',
   primary: 'bg-primary-100 text-primary-700', rose: 'bg-rose-100 text-rose-700',
+  indigo: 'bg-indigo-100 text-indigo-700', cyan: 'bg-cyan-100 text-cyan-700',
+  amber: 'bg-amber-100 text-amber-700', slate: 'bg-dark-100 text-dark-600',
 }
 const avatarGradients = {
   sky: 'from-sky-500 to-sky-600', accent: 'from-accent-500 to-accent-600',
   emerald: 'from-emerald-500 to-emerald-600', violet: 'from-violet-500 to-violet-600',
   primary: 'from-primary-500 to-primary-600', rose: 'from-rose-500 to-rose-600',
+  indigo: 'from-indigo-500 to-indigo-600', cyan: 'from-cyan-500 to-cyan-600',
+  amber: 'from-amber-500 to-amber-600', slate: 'from-dark-500 to-dark-600',
 }
 const iconColorMap = {
   sky: 'text-sky-500', accent: 'text-accent-500', emerald: 'text-emerald-500',
   violet: 'text-violet-500', primary: 'text-primary-500', rose: 'text-rose-500',
+  indigo: 'text-indigo-500', cyan: 'text-cyan-500', amber: 'text-amber-500',
   slate: 'text-dark-500',
 }
 const bgSubtleMap = (isDark) => ({
@@ -120,7 +132,10 @@ const bgSubtleMap = (isDark) => ({
   violet: isDark ? 'bg-violet-500/10' : 'bg-violet-50',
   primary: isDark ? 'bg-primary-500/10' : 'bg-primary-50',
   rose: isDark ? 'bg-rose-500/10' : 'bg-rose-50',
-  slate: isDark ? 'bg-dark-500/10' : 'bg-dark-100',
+  indigo: isDark ? 'bg-indigo-500/10' : 'bg-indigo-50',
+  cyan: isDark ? 'bg-cyan-500/10' : 'bg-cyan-50',
+  amber: isDark ? 'bg-amber-500/10' : 'bg-amber-50',
+  slate: isDark ? 'bg-dark-600/20' : 'bg-dark-100',
 })
 
 // ─── HELPERS ──────────────────────────────────────────────────────────
@@ -231,7 +246,9 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark, anchor
   return (
     <AnchoredMenu anchorEl={anchorEl} onClose={onClose}>
       <div className={`w-40 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
-        {Object.entries(statusConfig).filter(([key]) => key !== 'enrolled').map(([key, cfg]) => (
+        {ALL_STATUS_KEYS.filter((key) => key !== 'enrolled').map((key) => {
+          const cfg = statusConfig[key]
+          return (
           <button key={key} onClick={() => onSelect(key)}
             className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
               key === currentStatus
@@ -242,7 +259,8 @@ function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark, anchor
             <cfg.icon className="w-3.5 h-3.5" />{cfg.label}
             {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
           </button>
-        ))}
+          )
+        })}
         {currentStatus !== 'enrolled' && (
           <p className={`px-3 pt-1.5 mt-1 border-t text-[11px] leading-snug ${isDark ? 'border-dark-700/60 text-dark-500' : 'border-dark-100 text-dark-400'}`}>
             To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.
@@ -781,6 +799,50 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
   )
 }
 
+// Simple horizontal "where is this lead right now" stepper — the whole
+// point is a counsellor can look at it for two seconds and know the
+// stage, not learn a workflow. Reuses the same statusConfig (label/color)
+// as everywhere else; no separate status system for this view.
+function LeadStageStepper({ status, isDark }) {
+  if (status === 'lost' || status === 'nurture') {
+    const cfg = statusConfig[status]
+    return (
+      <div className={`flex items-center gap-2 px-4 py-3 rounded-xl ${isDark ? bgSubtleMap(true)[cfg.color] : bgSubtleMap(false)[cfg.color]}`}>
+        <cfg.icon className={`w-4 h-4 ${iconColorMap[cfg.color]}`} />
+        <span className={`text-sm font-semibold ${iconColorMap[cfg.color]}`}>{cfg.label}</span>
+        <span className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>— this lead is closed, not moving through the active pipeline</span>
+      </div>
+    )
+  }
+  const currentIdx = PIPELINE_STAGE_KEYS.indexOf(status)
+  return (
+    <div className="flex items-center overflow-x-auto pb-1 -mb-1">
+      {PIPELINE_STAGE_KEYS.map((key, i) => {
+        const cfg = statusConfig[key]
+        const done = i < currentIdx
+        const current = i === currentIdx
+        return (
+          <div key={key} className="flex items-center shrink-0">
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+              current
+                ? isDark ? badgeStylesDark[cfg.color] : badgeStylesLight[cfg.color]
+                : done
+                  ? isDark ? 'text-dark-400' : 'text-dark-500'
+                  : isDark ? 'text-dark-600' : 'text-dark-300'
+            }`}>
+              {current && <cfg.icon className="w-3 h-3" />}
+              {cfg.label}
+            </div>
+            {i < PIPELINE_STAGE_KEYS.length - 1 && (
+              <div className={`w-4 sm:w-6 h-px shrink-0 ${done ? (isDark ? 'bg-dark-500' : 'bg-dark-300') : isDark ? 'bg-dark-700' : 'bg-dark-200'}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
 function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote }) {
   const navigate = useNavigate()
@@ -936,6 +998,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
             </p>
           )}
         </div>
+      </motion.div>
+
+      {/* Lifecycle Stage */}
+      <motion.div variants={itemVariants} className={`rounded-2xl p-4 ${cardClass}`}>
+        <LeadStageStepper status={lead.status} isDark={isDark} />
       </motion.div>
 
       {/* Stats Row */}
