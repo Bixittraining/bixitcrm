@@ -39,6 +39,8 @@ export default function BatchFormModal({ batch, isDark, teamMembers, onClose, on
     end_time: batch?.end_time || '',
     capacity: batch?.capacity ?? 30,
     status: batch?.status || 'upcoming',
+    class_mode: batch?.class_mode || '',
+    meeting_info: batch?.meeting_info || '',
   })
   const inputClass = isDark
     ? 'bg-dark-800 border-dark-700 text-dark-100 placeholder-dark-500 focus:border-primary-500 focus:ring-primary-500/20'
@@ -141,6 +143,24 @@ export default function BatchFormModal({ batch, isDark, teamMembers, onClose, on
               Class runs {formatTime12h(form.start_time)} – {formatTime12h(form.end_time)}
             </p>
           )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Class Mode</label>
+              <select value={form.class_mode} onChange={(e) => handleChange('class_mode', e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`}>
+                <option value="">Not set</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Room / Meeting Info</label>
+              <input type="text" value={form.meeting_info} onChange={(e) => handleChange('meeting_info', e.target.value)}
+                placeholder={form.class_mode === 'online' ? 'Meeting link' : 'Room number'}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+          </div>
           <div>
             <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Status</label>
             <div className="flex gap-2">

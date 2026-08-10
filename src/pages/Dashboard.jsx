@@ -6,12 +6,16 @@ import {
 } from 'recharts'
 import {
   Users, GraduationCap, IndianRupee, TrendingUp, TrendingDown, ArrowUpRight,
-  UserPlus, CreditCard, Phone, BookOpen, CalendarPlus, Plus, ChevronRight
+  UserPlus, CreditCard, Phone, BookOpen, CalendarPlus, Plus, ChevronRight,
+  ClipboardCheck, UserCheck, UserX, AlarmClock, CheckCircle2, PhoneCall, Clock3,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
+import { calculateTeamProductivity } from '../lib/productivity'
+import { getProductivityScope } from '../lib/permissions'
 
 // ---------- helpers ----------
 const formatCurrency = (val) => {
@@ -217,6 +221,139 @@ function CustomPieLegend({ payload, theme, leadSourceData }) {
   )
 }
 
+const todayStr = new Date().toISOString().slice(0, 10)
+
+function DashTile({ icon: Icon, label, value, color, bg, theme, onClick }) {
+  return (
+    <motion.button type="button" variants={cardVariants} whileHover={{ y: -2 }} onClick={onClick}
+      className={`text-left rounded-2xl p-4 transition-colors ${theme === 'dark' ? 'bg-dark-900 border border-dark-700/60 hover:border-dark-600' : 'bg-white border border-dark-200/60 shadow-sm hover:border-dark-300'}`}>
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <p className={`text-xs font-medium truncate ${theme === 'dark' ? 'text-dark-400' : 'text-dark-500'}`}>{label}</p>
+          <p className={`text-xl font-bold mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-dark-900'}`}>{value}</p>
+        </div>
+        <div className={`p-2 rounded-lg shrink-0 ${bg}`}><Icon size={18} className={color} /></div>
+      </div>
+    </motion.button>
+  )
+}
+
+// Management-level Attendance & Productivity widgets for the main
+// Dashboard. Deliberately does NOT recompute attendance percentages or
+// productivity formulas here — those already live in
+// components/attendance/AttendanceOverview.jsx and lib/productivity.js.
+// This only does today-scoped counting (present/absent/late — one-line
+// filters, not "calculation logic") and reuses calculateTeamProductivity
+// for anything beyond that, exactly as the brief requires.
+function AttendanceProductivityWidgets({ theme, navigate }) {
+  const { profile } = useAuth()
+  const { leads, followUps, students, invoices, installments, leadNotes, studentNotes, emailMessages, attendance, staffAttendance, batches } = useData()
+  const scope = getProductivityScope(profile)
+
+  const [profiles, setProfiles] = useState([])
+  const [sessions, setSessions] = useState([])
+  useEffect(() => {
+    supabase.from('profiles').select('*').then(({ data, error }) => { if (!error) setProfiles(data || []) })
+    // Working hours needs other people's sessions, which RLS only allows
+    // an admin to read — skip the fetch entirely for anyone else rather
+    // than firing a request that will just come back empty.
+    if (profile?.roleCode === 'admin') {
+      supabase.from('user_sessions').select('user_id,login_at,logout_at')
+        .gte('login_at', `${todayStr}T00:00:00`).lte('login_at', `${todayStr}T23:59:59`)
+        .then(({ data, error }) => { if (!error) setSessions(data || []) })
+    }
+  }, [profile?.roleCode])
+
+  const todayStudentAtt = attendance.filter((a) => a.date === todayStr)
+  const todayStaffAtt = staffAttendance.filter((a) => a.date === todayStr)
+  const countBy = (records, status) => records.filter((r) => r.status === status).length
+
+  const avgWorkingHours = useMemo(() => {
+    if (!sessions.length) return null
+    const now = Date.now()
+    const totalMs = sessions.reduce((sum, s) => sum + (new Date(s.logout_at || now) - new Date(s.login_at)), 0)
+    return (totalMs / sessions.length / 3600000).toFixed(1)
+  }, [sessions])
+
+  const productivityData = useMemo(() => ({
+    leads, followUps, students, invoices, installments, leadNotes, studentNotes, emailMessages, attendance, staffAttendance, batches, profiles,
+  }), [leads, followUps, students, invoices, installments, leadNotes, studentNotes, emailMessages, attendance, staffAttendance, batches, profiles])
+
+  // "Sales Team Activity" is company-wide, so it's scoped the same way
+  // the Productivity tab itself is — everyone still sees their own
+  // numbers via the "own" branch, just not the whole team's.
+  const salesEmployeeIds = useMemo(
+    () => (scope === 'own' ? (profile?.id ? [profile.id] : []) : null),
+    [scope, profile?.id]
+  )
+  const salesResults = useMemo(
+    () => calculateTeamProductivity(productivityData, { employeeIds: salesEmployeeIds, from: todayStr, to: todayStr })
+      .filter((r) => r.sales),
+    [productivityData, salesEmployeeIds]
+  )
+  const salesTotals = useMemo(() => {
+    const totals = { leadsContacted: 0, followUpsCompleted: 0, tasksCompleted: 0, admissions: 0, revenue: 0, callsMissing: false }
+    salesResults.forEach((r) => {
+      Object.keys(totals).forEach((k) => { if (k !== 'callsMissing' && !r.sales[k]?.missing) totals[k] += r.sales[k]?.value || 0 })
+      if (r.sales.callsMade.missing) totals.callsMissing = true
+    })
+    return totals
+  }, [salesResults])
+
+  const cardClass = theme === 'dark' ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
+  const goto = (tab, extra) => navigate('/attendance', { state: { tab, ...extra } })
+
+  return (
+    <>
+      <motion.div variants={cardVariants} className="flex items-center justify-between">
+        <h2 className={`text-base font-semibold ${theme === 'dark' ? 'text-dark-50' : 'text-dark-900'}`}>Attendance &amp; Productivity Today</h2>
+        <button onClick={() => navigate('/attendance')} className="text-xs font-medium text-primary-500 hover:text-primary-400 inline-flex items-center gap-1">
+          View full module<ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </motion.div>
+
+      <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-4" variants={containerVariants}>
+        <DashTile icon={UserCheck} label="Students Present Today" value={countBy(todayStudentAtt, 'present')} color="text-emerald-500" bg={theme === 'dark' ? 'bg-emerald-500/10' : 'bg-emerald-50'} theme={theme} onClick={() => goto('students')} />
+        <DashTile icon={UserX} label="Students Absent Today" value={countBy(todayStudentAtt, 'absent')} color="text-rose-500" bg={theme === 'dark' ? 'bg-rose-500/10' : 'bg-rose-50'} theme={theme} onClick={() => goto('students')} />
+        <DashTile icon={AlarmClock} label="Late Students" value={countBy(todayStudentAtt, 'late')} color="text-amber-500" bg={theme === 'dark' ? 'bg-amber-500/10' : 'bg-amber-50'} theme={theme} onClick={() => goto('students')} />
+        <DashTile icon={ClipboardCheck} label="Student Attendance" value={todayStudentAtt.length ? `${Math.round((countBy(todayStudentAtt, 'present') / todayStudentAtt.length) * 100)}%` : '—'} color="text-primary-500" bg={theme === 'dark' ? 'bg-primary-500/10' : 'bg-primary-50'} theme={theme} onClick={() => goto('overview')} />
+
+        <DashTile icon={UserCheck} label="Staff Present Today" value={countBy(todayStaffAtt, 'present')} color="text-emerald-500" bg={theme === 'dark' ? 'bg-emerald-500/10' : 'bg-emerald-50'} theme={theme} onClick={() => goto('staff')} />
+        <DashTile icon={UserX} label="Staff Absent Today" value={countBy(todayStaffAtt, 'absent')} color="text-rose-500" bg={theme === 'dark' ? 'bg-rose-500/10' : 'bg-rose-50'} theme={theme} onClick={() => goto('staff')} />
+        <DashTile icon={AlarmClock} label="Late Staff" value={countBy(todayStaffAtt, 'late')} color="text-amber-500" bg={theme === 'dark' ? 'bg-amber-500/10' : 'bg-amber-50'} theme={theme} onClick={() => goto('staff')} />
+        <DashTile icon={Clock3} label="Avg. Staff Working Hours" value={avgWorkingHours != null ? `${avgWorkingHours}h` : '—'} color="text-violet-500" bg={theme === 'dark' ? 'bg-violet-500/10' : 'bg-violet-50'} theme={theme} onClick={() => goto('login')} />
+      </motion.div>
+
+      <motion.div variants={cardVariants} className={`rounded-2xl p-5 ${cardClass}`}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-sm font-semibold ${theme === 'dark' ? 'text-dark-200' : 'text-dark-800'}`}>{scope === 'own' ? 'Your Productivity Today' : 'Sales Team Activity Today'}</h3>
+          <button onClick={() => goto('productivity', { productivityView: 'sales' })} className="text-xs font-medium text-primary-500 hover:text-primary-400 inline-flex items-center gap-1">
+            Sales Productivity<ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
+          {[
+            { label: "Today's Calls", value: salesTotals.callsMissing ? 'Telephony integration required' : '—', icon: PhoneCall, small: salesTotals.callsMissing },
+            { label: "Today's Follow-ups", value: followUps.filter((f) => f.date === todayStr).length, icon: Phone },
+            { label: 'Leads Contacted', value: salesTotals.leadsContacted, icon: UserPlus, onClick: () => navigate('/leads') },
+            { label: 'Follow-ups Completed', value: salesTotals.followUpsCompleted, icon: CheckCircle2, onClick: () => navigate('/follow-ups') },
+            { label: 'Admissions', value: salesTotals.admissions, icon: GraduationCap, onClick: () => navigate('/students') },
+            { label: 'Revenue Generated', value: `Rs ${salesTotals.revenue.toLocaleString('en-IN')}`, icon: IndianRupee, onClick: () => navigate('/billing') },
+          ].map((m) => (
+            <button key={m.label} onClick={m.onClick} disabled={!m.onClick} className={`text-left ${m.onClick ? 'cursor-pointer' : 'cursor-default'}`}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <m.icon className={`w-3.5 h-3.5 ${theme === 'dark' ? 'text-dark-500' : 'text-dark-400'}`} />
+                <span className={`text-[11px] ${theme === 'dark' ? 'text-dark-400' : 'text-dark-500'}`}>{m.label}</span>
+              </div>
+              <p className={`font-bold ${m.small ? 'text-xs' : 'text-lg'} ${theme === 'dark' ? 'text-white' : 'text-dark-900'}`}>{m.value}</p>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </>
+  )
+}
+
 // ========== MAIN COMPONENT ==========
 export default function Dashboard() {
   const { theme } = useTheme()
@@ -371,6 +508,9 @@ export default function Dashboard() {
           <StatCard key={card.label} {...card} theme={theme} />
         ))}
       </motion.div>
+
+      {/* --------- ATTENDANCE & PRODUCTIVITY WIDGETS --------- */}
+      <AttendanceProductivityWidgets theme={theme} navigate={navigate} />
 
       {/* --------- CHARTS ROW --------- */}
       <motion.div

@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { emitAutomationEvent, AUTOMATION_EVENTS, isBelowAttendanceThreshold } from '../lib/automation'
+import { isClassScheduledOn } from '../lib/schedule'
+import { logAuditEvent } from '../lib/audit'
 
 const DataContext = createContext()
 
@@ -365,6 +367,13 @@ export function DataProvider({ children }) {
   const markAttendance = useCallback(async (batchId, date, records) => {
     const { data: { user } } = await supabase.auth.getUser()
     const markerName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const batch = batches.find((b) => b.id === batchId)
+    // Scheduled-vs-not is captured as real metadata (not enforced as a
+    // hard block yet — see the implementation report) so it's visible in
+    // the UI and audit trail rather than silently indistinguishable from
+    // a normal class day.
+    const scheduled = batch ? isClassScheduledOn(batch, date) : null
+    const previousByKey = new Map(attendance.map((a) => [`${a.student_id}_${a.date}`, a]))
     const rows = records.map((r) => ({
       batch_id: batchId,
       student_id: r.studentId,
@@ -373,6 +382,8 @@ export function DataProvider({ children }) {
       marked_by: user?.id || null,
       marked_by_name: markerName,
       marked_at: new Date().toISOString(),
+      is_override: scheduled === false,
+      override_reason: scheduled === false ? (r.overrideReason || null) : null,
     }))
     const { data, error } = await supabase
       .from('attendance')
@@ -389,10 +400,21 @@ export function DataProvider({ children }) {
     // Fire-and-forget, outside the state updater (which React may invoke
     // more than once, e.g. in StrictMode — side effects don't belong
     // there). Attendance marking has already succeeded and returns to the
-    // UI regardless of what automation does with it below. This only ever
-    // knows "an event happened" — never anything about WhatsApp/email/etc,
-    // see lib/automation.js for what (if anything) runs from here.
+    // UI regardless of what automation/audit logging does with it below.
+    // This only ever knows "an event happened" — never anything about
+    // WhatsApp/email/etc, see lib/automation.js for what (if anything)
+    // runs from here.
     data.forEach((row) => {
+      const previous = previousByKey.get(`${row.student_id}_${row.date}`)
+      if (!previous || previous.status !== row.status) {
+        logAuditEvent({
+          userId: user?.id, userName: markerName,
+          action: previous ? 'Attendance Corrected' : 'Attendance Marked',
+          module: 'student_attendance', entityType: 'student', entityId: row.student_id,
+          oldValue: previous ? { status: previous.status } : null,
+          newValue: { status: row.status, date: row.date },
+        })
+      }
       emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_ATTENDANCE_MARKED, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance', sourceId: row.id, payload: { status: row.status, date: row.date } })
       if (row.status === 'absent') {
         emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_ABSENT, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance', sourceId: row.id, payload: { date: row.date } })
@@ -407,13 +429,14 @@ export function DataProvider({ children }) {
       }
     })
     return true
-  }, [teamMembers])
+  }, [teamMembers, batches, attendance])
 
   // Same upsert-the-whole-day pattern as student attendance, but for staff
   // — a third status ('leave') is valid here where it isn't for students.
   const markStaffAttendance = useCallback(async (date, records) => {
     const { data: { user } } = await supabase.auth.getUser()
     const markerName = teamMembers.find((m) => m.id === user?.id)?.name || 'Unknown'
+    const previousByKey = new Map(staffAttendance.map((a) => [`${a.staff_id}_${a.date}`, a]))
     const rows = records.map((r) => ({
       staff_id: r.staffId,
       date,
@@ -433,6 +456,16 @@ export function DataProvider({ children }) {
       return [...data, ...kept]
     })
     data.forEach((row) => {
+      const previous = previousByKey.get(`${row.staff_id}_${row.date}`)
+      if (!previous || previous.status !== row.status) {
+        logAuditEvent({
+          userId: user?.id, userName: markerName,
+          action: previous ? 'Staff Attendance Corrected' : 'Staff Attendance Marked',
+          module: 'staff_attendance', entityType: 'staff', entityId: row.staff_id,
+          oldValue: previous ? { status: previous.status } : null,
+          newValue: { status: row.status, date: row.date },
+        })
+      }
       if (row.status === 'absent') {
         emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STAFF_ABSENT, entityType: 'staff', entityId: row.staff_id, sourceTable: 'staff_attendance', sourceId: row.id, payload: { date: row.date } })
       }
@@ -441,7 +474,7 @@ export function DataProvider({ children }) {
       }
     })
     return true
-  }, [teamMembers])
+  }, [teamMembers, staffAttendance])
 
   // ── EMAIL (real send via Gmail SMTP, replaces mailto: links) ────
   const sendEmail = useCallback(async ({ to, subject, body, leadId, studentId }) => {

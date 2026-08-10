@@ -3,9 +3,11 @@ import {
   Users, User, ClipboardCheck, GraduationCap, CalendarCheck, CheckSquare,
   Activity, Layers, TrendingUp, Calendar, Loader2, AlertCircle,
 } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
 import { useData } from '../../context/DataContext'
 import { supabase } from '../../lib/supabase'
 import { calculateEmployeeProductivity, calculateTeamProductivity, TRAINER_ACTIVITY_METRICS } from '../../lib/productivity'
+import { getProductivityScope } from '../../lib/permissions'
 
 const todayStr = new Date().toISOString().slice(0, 10)
 const roleLabels = { admin: 'Administrator', manager: 'Manager', sales: 'Sales Executive' }
@@ -54,10 +56,15 @@ function formatMetric(metric) {
 // engine) — not an invented score. Change that one constant to change
 // what counts toward it; nothing here recomputes its own formula.
 export default function TrainerProductivity({ isDark }) {
+  const { profile } = useAuth()
   const { leads, followUps, students, invoices, installments, leadNotes, studentNotes, emailMessages, attendance, staffAttendance, batches } = useData()
+  // Same viewer-role scoping as Sales Productivity — a sales rep who also
+  // happens to instruct a batch still only sees their own trainer numbers,
+  // not everyone's, per lib/permissions.js.
+  const scope = getProductivityScope(profile)
 
-  const [viewMode, setViewMode] = useState('team')
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null)
+  const [viewMode, setViewMode] = useState(scope === 'own' ? 'individual' : 'team')
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(scope === 'own' ? profile?.id : null)
   const [period, setPeriod] = useState('Today')
   const [customFrom, setCustomFrom] = useState(todayStr)
   const [customTo, setCustomTo] = useState(todayStr)
@@ -79,8 +86,9 @@ export default function TrainerProductivity({ isDark }) {
   const trainers = useMemo(() => profiles.filter((p) => batches.some((b) => b.instructor_id === p.id)), [profiles, batches])
 
   useEffect(() => {
+    if (scope === 'own') { setSelectedEmployeeId(profile?.id); return }
     if (!selectedEmployeeId && trainers.length) setSelectedEmployeeId(trainers[0].id)
-  }, [trainers, selectedEmployeeId])
+  }, [trainers, selectedEmployeeId, scope, profile])
 
   const { from, to } = useMemo(() => resolvePeriod(period, customFrom, customTo), [period, customFrom, customTo])
 
@@ -113,19 +121,23 @@ export default function TrainerProductivity({ isDark }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:flex-wrap">
-        <div className={`flex items-center rounded-xl p-1 w-fit ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
-          <button onClick={() => setViewMode('individual')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'individual' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
-            <User className="w-4 h-4" />Individual View
-          </button>
-          <button onClick={() => setViewMode('team')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'team' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
-            <Users className="w-4 h-4" />Team View
-          </button>
-        </div>
+        {scope === 'own' ? (
+          <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Showing your own productivity</p>
+        ) : (
+          <div className={`flex items-center rounded-xl p-1 w-fit ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
+            <button onClick={() => setViewMode('individual')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'individual' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+              <User className="w-4 h-4" />Individual View
+            </button>
+            <button onClick={() => setViewMode('team')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'team' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+              <Users className="w-4 h-4" />Team View
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 flex-wrap">
-          {viewMode === 'individual' && (
+          {viewMode === 'individual' && scope !== 'own' && (
             <select value={selectedEmployeeId || ''} onChange={(e) => setSelectedEmployeeId(e.target.value)} className={inputCls}>
               {trainers.length === 0 && <option value="">No trainers</option>}
               {trainers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}

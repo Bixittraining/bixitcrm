@@ -4,10 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Layers, Plus, X, Users, Calendar, Clock, Pencil, Trash2, User,
   CheckCircle2, AlertCircle, PlayCircle, Hourglass, GraduationCap, Eye,
+  LayoutGrid, CalendarDays,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
+import { formatClassDays, formatClassTime } from '../lib/schedule'
 import BatchFormModal from '../components/batches/BatchFormModal'
 
 const statusConfig = {
@@ -51,6 +53,7 @@ export default function Batches() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
   const [notification, setNotification] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [viewMode, setViewMode] = useState('grid')
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
@@ -143,7 +146,54 @@ export default function Batches() {
         ))}
       </motion.div>
 
-      {filteredBatches.length === 0 ? (
+      <div className={`flex items-center rounded-xl p-1 w-fit ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
+        <button onClick={() => setViewMode('grid')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'grid' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+          <LayoutGrid className="w-4 h-4" />Batches
+        </button>
+        <button onClick={() => setViewMode('schedule')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'schedule' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+          <CalendarDays className="w-4 h-4" />Class Schedule
+        </button>
+      </div>
+
+      {viewMode === 'schedule' ? (
+        filteredBatches.length === 0 ? (
+          <div className={`rounded-2xl p-12 text-center ${cardClass}`}>
+            <CalendarDays className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+            <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No batches to show a schedule for.</p>
+          </div>
+        ) : (
+          <div className={`rounded-2xl overflow-hidden ${cardClass}`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className={isDark ? 'bg-dark-800/80' : 'bg-dark-50/80'}>
+                    {['Batch', 'Course', 'Trainer', 'Class Days', 'Class Time', 'Start Date', 'End Date', 'Mode'].map((h) => (
+                      <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isDark ? 'divide-dark-800' : 'divide-dark-100'}`}>
+                  {filteredBatches.map((b) => (
+                    <tr key={b.id} onClick={() => navigate(`/batches/${b.id}`)}
+                      className={`cursor-pointer transition-colors ${isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'}`}>
+                      <td className={`px-4 py-3 font-medium whitespace-nowrap ${isDark ? 'text-white' : 'text-dark-900'}`}>{b.name}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.course}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{instructorName(b) || 'Unassigned'}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatClassDays(b)}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatClassTime(b)}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.start_date || '—'}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.end_date || '—'}</td>
+                      <td className={`px-4 py-3 whitespace-nowrap capitalize ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{b.class_mode || 'Not set'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      ) : filteredBatches.length === 0 ? (
         <div className={`rounded-2xl p-12 text-center ${cardClass}`}>
           <Layers className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
           <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
