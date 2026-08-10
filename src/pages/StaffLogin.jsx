@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Sparkles, AlertCircle } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Users, AlertCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
-export default function Login() {
+// Same accounts and sign-in flow as the admin login — this is a distinct
+// screen for staff (managers/sales) to land on, not a separate access
+// boundary. Sky accent instead of the admin login's crimson so the two
+// are visually distinguishable at a glance.
+export default function StaffLogin() {
   const { signIn, sessionExpired, clearSessionExpired } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,7 +30,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=1920&q=80)' }}
+        style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1920&q=80)' }}
       />
       <div className="absolute inset-0 bg-dark-950/75 backdrop-blur-[2px]" />
 
@@ -47,9 +51,9 @@ export default function Login() {
           />
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
             <div className="flex items-center justify-center gap-2 text-dark-400">
-              <Sparkles size={14} className="text-accent-500" />
-              <span className="text-sm">Education CRM Platform</span>
-              <Sparkles size={14} className="text-accent-500" />
+              <Users size={14} className="text-sky-500" />
+              <span className="text-sm">Team Portal</span>
+              <Users size={14} className="text-sky-500" />
             </div>
           </motion.div>
         </div>
@@ -60,8 +64,8 @@ export default function Login() {
           transition={{ delay: 0.4 }}
           className="bg-dark-900/80 backdrop-blur-2xl border border-dark-700/60 rounded-3xl p-8 shadow-2xl"
         >
-          <h2 className="text-xl font-bold text-white mb-1">Welcome back</h2>
-          <p className="text-dark-400 text-sm mb-6">Sign in to your account to continue</p>
+          <h2 className="text-xl font-bold text-white mb-1">Staff Sign In</h2>
+          <p className="text-dark-400 text-sm mb-6">Sign in to manage your leads, follow-ups, and attendance</p>
 
           {sessionExpired && (
             <motion.div
@@ -84,7 +88,7 @@ export default function Login() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="you@academy.com"
-                  className="w-full pl-11 pr-4 py-3 bg-dark-800/80 border border-dark-700 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                  className="w-full pl-11 pr-4 py-3 bg-dark-800/80 border border-dark-700 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all"
                 />
               </div>
             </div>
@@ -98,7 +102,7 @@ export default function Login() {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="w-full pl-11 pr-12 py-3 bg-dark-800/80 border border-dark-700 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                  className="w-full pl-11 pr-12 py-3 bg-dark-800/80 border border-dark-700 rounded-xl text-sm text-dark-100 placeholder-dark-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 transition-all"
                 />
                 <button
                   type="button"
@@ -123,10 +127,10 @@ export default function Login() {
 
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500/50" />
+                <input type="checkbox" className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-sky-500 focus:ring-sky-500/50" />
                 <span className="text-sm text-dark-400">Remember me</span>
               </label>
-              <button type="button" className="text-sm text-primary-400 hover:text-primary-300 font-medium">
+              <button type="button" className="text-sm text-sky-400 hover:text-sky-300 font-medium">
                 Forgot password?
               </button>
             </div>
@@ -136,7 +140,7 @@ export default function Login() {
               disabled={isLoading}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-semibold shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 transition-shadow disabled:opacity-60"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white rounded-xl font-semibold shadow-lg shadow-sky-500/25 hover:shadow-xl hover:shadow-sky-500/30 transition-shadow disabled:opacity-60"
             >
               {isLoading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -145,7 +149,6 @@ export default function Login() {
               )}
             </motion.button>
           </form>
-
         </motion.div>
 
         <motion.p
@@ -154,8 +157,8 @@ export default function Login() {
           transition={{ delay: 0.7 }}
           className="text-center text-sm mt-6"
         >
-          <Link to="/staff-login" className="text-dark-400 hover:text-primary-400 transition-colors">
-            Staff member? Sign in here &rarr;
+          <Link to="/" className="text-dark-400 hover:text-sky-400 transition-colors">
+            Administrator? Sign in here &rarr;
           </Link>
         </motion.p>
 

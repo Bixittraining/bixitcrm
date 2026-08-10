@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { DataProvider } from './context/DataContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
+import StaffLogin from './pages/StaffLogin'
 
 // Login/Layout load eagerly (needed immediately); everything behind auth is
 // code-split per route so a first visit only downloads Dashboard's code,
@@ -38,36 +39,47 @@ function AppRoutes() {
   const { session, profile, loading, signOut } = useAuth()
 
   if (loading) return <FullScreenSpinner />
-  if (!session) return <Login />
+
+  // Admin and staff sign in through different-looking screens (same
+  // accounts underneath — this is branding/wording, not an access
+  // boundary), so path-based routing has to exist even before a session
+  // exists. That's why BrowserRouter wraps the whole app now instead of
+  // only the authenticated half.
+  if (!session) {
+    return (
+      <Routes>
+        <Route path="/staff-login" element={<StaffLogin />} />
+        <Route path="*" element={<Login />} />
+      </Routes>
+    )
+  }
   if (!profile) return <FullScreenSpinner />
 
   return (
     <DataProvider>
-      <BrowserRouter>
-        <Suspense fallback={<FullScreenSpinner />}>
-          <Routes>
-            <Route path="/" element={<Layout onLogout={signOut} />}>
-              <Route index element={<Dashboard />} />
-              <Route path="leads" element={<Leads />} />
-              <Route path="follow-ups" element={<FollowUps />} />
-              <Route path="students" element={<Students />} />
-              <Route path="batches" element={<Batches />} />
-              <Route path="batches/:batchId" element={<BatchDetail />} />
-              <Route path="attendance" element={<Attendance />} />
-              <Route path="packages" element={<Packages />} />
-              <Route path="packages/compare" element={<PackageCompare />} />
-              <Route path="packages/:packageId" element={<PackageDetail />} />
-              <Route path="billing" element={<Billing />} />
-              <Route path="pipeline" element={<Pipeline />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="conversations" element={<Conversations />} />
-              <Route path="team-activity/:memberId" element={<TeamMemberDetail />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
+      <Suspense fallback={<FullScreenSpinner />}>
+        <Routes>
+          <Route path="/" element={<Layout onLogout={signOut} />}>
+            <Route index element={<Dashboard />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="follow-ups" element={<FollowUps />} />
+            <Route path="students" element={<Students />} />
+            <Route path="batches" element={<Batches />} />
+            <Route path="batches/:batchId" element={<BatchDetail />} />
+            <Route path="attendance" element={<Attendance />} />
+            <Route path="packages" element={<Packages />} />
+            <Route path="packages/compare" element={<PackageCompare />} />
+            <Route path="packages/:packageId" element={<PackageDetail />} />
+            <Route path="billing" element={<Billing />} />
+            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="conversations" element={<Conversations />} />
+            <Route path="team-activity/:memberId" element={<TeamMemberDetail />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
     </DataProvider>
   )
 }
@@ -76,7 +88,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppRoutes />
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
   )
