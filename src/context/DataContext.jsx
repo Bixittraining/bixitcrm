@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { emitAutomationEvent, AUTOMATION_EVENTS, isBelowAttendanceThreshold } from '../lib/automation'
 
 const DataContext = createContext()
 
@@ -378,10 +379,32 @@ export function DataProvider({ children }) {
       .upsert(rows, { onConflict: 'student_id,date' })
       .select()
     if (error) { console.error('markAttendance error', error); return false }
+    let mergedAttendance
     setAttendance((prev) => {
       const touchedIds = new Set(data.map((d) => `${d.student_id}_${d.date}`))
       const kept = prev.filter((a) => !touchedIds.has(`${a.student_id}_${a.date}`))
-      return [...data, ...kept]
+      mergedAttendance = [...data, ...kept]
+      return mergedAttendance
+    })
+    // Fire-and-forget, outside the state updater (which React may invoke
+    // more than once, e.g. in StrictMode — side effects don't belong
+    // there). Attendance marking has already succeeded and returns to the
+    // UI regardless of what automation does with it below. This only ever
+    // knows "an event happened" — never anything about WhatsApp/email/etc,
+    // see lib/automation.js for what (if anything) runs from here.
+    data.forEach((row) => {
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_ATTENDANCE_MARKED, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance', sourceId: row.id, payload: { status: row.status, date: row.date } })
+      if (row.status === 'absent') {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_ABSENT, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance', sourceId: row.id, payload: { date: row.date } })
+      }
+      if (row.status === 'late') {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_LATE, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance', sourceId: row.id, payload: { date: row.date } })
+      }
+      const history = mergedAttendance.filter((a) => a.student_id === row.student_id)
+      const belowPct = isBelowAttendanceThreshold(history)
+      if (belowPct != null) {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_ATTENDANCE_BELOW_THRESHOLD, entityType: 'student', entityId: row.student_id, sourceTable: 'attendance_threshold', sourceId: `${row.student_id}_${row.date}`, payload: { attendancePct: belowPct } })
+      }
     })
     return true
   }, [teamMembers])
@@ -408,6 +431,14 @@ export function DataProvider({ children }) {
       const touchedIds = new Set(data.map((d) => `${d.staff_id}_${d.date}`))
       const kept = prev.filter((a) => !touchedIds.has(`${a.staff_id}_${a.date}`))
       return [...data, ...kept]
+    })
+    data.forEach((row) => {
+      if (row.status === 'absent') {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STAFF_ABSENT, entityType: 'staff', entityId: row.staff_id, sourceTable: 'staff_attendance', sourceId: row.id, payload: { date: row.date } })
+      }
+      if (row.status === 'late') {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STAFF_LATE, entityType: 'staff', entityId: row.staff_id, sourceTable: 'staff_attendance', sourceId: row.id, payload: { date: row.date } })
+      }
     })
     return true
   }, [teamMembers])

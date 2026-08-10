@@ -12,11 +12,13 @@ import {
   TrendingUp, Users, Target, Wallet, ChevronDown, Download,
   FileText, DollarSign, Filter, UserCheck, CalendarCheck,
   ArrowUpRight, ArrowDownRight, Sparkles, Layers, FileSpreadsheet,
-  FileType2, AlertCircle, X, ClipboardCheck,
+  FileType2, AlertCircle, X, ClipboardCheck, Presentation,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { useData } from '../context/DataContext'
 import { supabase } from '../lib/supabase'
+import { calculateTeamProductivity } from '../lib/productivity'
 
 const REPORT_COURSE_OPTIONS = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
@@ -56,6 +58,19 @@ const STUDENT_ATTENDANCE_STATUS_FILTER_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
   { value: 'present', label: 'Present' },
   { value: 'absent', label: 'Absent' },
+  { value: 'late', label: 'Late' },
+  { value: 'half_day', label: 'Half Day' },
+  { value: 'leave', label: 'Leave' },
+]
+
+const STAFF_ATTENDANCE_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'present', label: 'Present' },
+  { value: 'absent', label: 'Absent' },
+  { value: 'late', label: 'Late' },
+  { value: 'half_day', label: 'Half Day' },
+  { value: 'leave', label: 'Leave' },
+  { value: 'wfh', label: 'WFH' },
 ]
 
 const PRIORITY_FILTER_OPTIONS = [
@@ -65,15 +80,23 @@ const PRIORITY_FILTER_OPTIONS = [
   { value: 'low', label: 'Low' },
 ]
 
+// adminOnly report types are hidden from the type selector entirely for
+// non-admins (not just "disabled") — the underlying data (other people's
+// login sessions, everyone's productivity/revenue) is exactly what's
+// already admin-gated in the Attendance & Productivity module itself, so
+// Reports can't be a side door around that.
 const REPORT_TYPES = [
   { key: 'leads', label: 'Leads', icon: Filter },
   { key: 'students', label: 'Students', icon: UserCheck },
   { key: 'batches', label: 'Batches', icon: Layers },
   { key: 'fees', label: 'Fees & Billing', icon: DollarSign },
   { key: 'student_attendance', label: 'Student Attendance', icon: ClipboardCheck },
-  { key: 'attendance', label: 'Team Login Activity', icon: CalendarCheck },
+  { key: 'staff_attendance', label: 'Staff Attendance', icon: Users },
+  { key: 'attendance', label: 'Login Activity', icon: CalendarCheck, adminOnly: true },
   { key: 'performance', label: 'Sales Activity', icon: TrendingUp },
   { key: 'funnel', label: 'Sales Funnel', icon: Target },
+  { key: 'sales_productivity', label: 'Sales Productivity', icon: DollarSign, adminOnly: true },
+  { key: 'trainer_productivity', label: 'Trainer Productivity', icon: Presentation, adminOnly: true },
 ]
 
 // Stage progression a lead can be tracked through — excludes "Lost" since
@@ -85,6 +108,9 @@ const FUNNEL_STAGES = [
   { key: 'negotiation', label: 'Negotiation' },
   { key: 'enrolled', label: 'Enrolled' },
 ]
+
+const ROLE_LABELS = { admin: 'Administrator', manager: 'Manager', sales: 'Sales Executive' }
+function roleLabelFor(role) { return ROLE_LABELS[role] || role }
 
 function inReportDateRange(dateStr, from, to) {
   if (!from && !to) return true
@@ -311,7 +337,11 @@ function downloadCSV(filename, csv) {
 
 export default function Reports() {
   const { theme } = useTheme()
-  const { students, leads, invoices, installments, batches, teamMembers, followUps, leadActivities, attendance } = useData()
+  const { isAdmin } = useAuth()
+  const {
+    students, leads, invoices, installments, batches, teamMembers, followUps, leadActivities, attendance,
+    staffAttendance, leadNotes, studentNotes, emailMessages,
+  } = useData()
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [showDateMenu, setShowDateMenu] = useState(false)
   const [notification, setNotification] = useState(null)
@@ -328,14 +358,35 @@ export default function Reports() {
   const [rbStatus, setRbStatus] = useState('all')
   const [rbPriority, setRbPriority] = useState('all')
   const [rbUser, setRbUser] = useState('all')
+  const [rbDepartment, setRbDepartment] = useState('all')
   const [sessions, setSessions] = useState([])
+
+  // DataContext's shared teamMembers only carries id/name/role — Department
+  // (and the productivity reports, which need role too) require the
+  // richer fetch already used the same way in Staff Attendance/Login
+  // Activity/Sales & Trainer Productivity.
+  const [profiles, setProfiles] = useState([])
 
   useEffect(() => {
     supabase.from('user_sessions').select('*').order('login_at', { ascending: false }).then(({ data, error }) => {
       if (error) { console.error('user_sessions error', error); return }
       setSessions(data || [])
     })
+    supabase.from('profiles').select('*').order('name', { ascending: true }).then(({ data, error }) => {
+      if (error) { console.error('profiles error', error); return }
+      setProfiles(data || [])
+    })
   }, [])
+
+  // A non-admin's local state could otherwise still be pointed at an
+  // admin-only report type (e.g. a stale selection from before a role
+  // change) — reset it the moment that's no longer allowed instead of
+  // trusting the type-selector UI alone to prevent it.
+  useEffect(() => {
+    if (!isAdmin && REPORT_TYPES.find((rt) => rt.key === reportType)?.adminOnly) setReportType('leads')
+  }, [isAdmin, reportType])
+
+  const departmentOptions = useMemo(() => ['all', ...new Set(profiles.map((p) => p.department).filter(Boolean))], [profiles])
 
   // Filters reset to a safe default whenever the report type changes, since
   // e.g. a "Priority" or "Batch" filter from Leads doesn't mean anything on
@@ -435,7 +486,7 @@ export default function Reports() {
         const followUpsCompleted = followUps.filter((f) => f.status === 'completed' && leadAssigneeByName.get(f.lead) === member.id).length
         const conversionRate = total > 0 ? Math.round((enrolled / total) * 100) : 0
         return [
-          member.name, member.role === 'admin' ? 'Administrator' : member.role === 'manager' ? 'Manager' : 'Sales Executive',
+          member.name, roleLabelFor(member.role),
           total, byStatus('new'), byStatus('contacted'), byStatus('qualified'), byStatus('negotiation'), enrolled, byStatus('lost'),
           followUpsCompleted, `${conversionRate}%`,
         ]
@@ -487,36 +538,104 @@ export default function Reports() {
           const batch = batches.find((b) => b.id === a.batch_id)
           return [
             student?.name || 'Unknown', student?.course || '—', batch?.name || 'Unassigned',
-            a.date, a.status === 'present' ? 'Present' : 'Absent',
+            a.date, STUDENT_ATTENDANCE_STATUS_FILTER_OPTIONS.find((o) => o.value === a.status)?.label || a.status,
             a.marked_at ? new Date(a.marked_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—',
             a.marked_by_name || '—',
           ]
         }),
       }
     }
-    // attendance (team login/logout)
-    const rows = sessions.filter((s) =>
-      inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
-      (rbUser === 'all' || s.user_id === rbUser)
-    )
-    return {
-      title: 'Team Login Activity Report',
-      columns: ['Team Member', 'Login Date', 'Login Time', 'Logout Date', 'Logout Time', 'Duration'],
-      rows: rows.map((s) => {
-        const name = teamMembers.find((m) => m.id === s.user_id)?.name || 'Unknown'
-        const loginD = new Date(s.login_at)
-        const logoutD = s.logout_at ? new Date(s.logout_at) : null
-        return [
-          name,
-          loginD.toLocaleDateString('en-IN'),
-          loginD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-          logoutD ? logoutD.toLocaleDateString('en-IN') : '—',
-          logoutD ? logoutD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Still logged in',
-          logoutD ? formatDuration(logoutD - loginD) : '—',
-        ]
-      }),
+    if (reportType === 'staff_attendance') {
+      const rows = staffAttendance.filter((a) => {
+        const member = profiles.find((p) => p.id === a.staff_id)
+        return inReportDateRange(a.date, rbDateFrom, rbDateTo) &&
+          (rbDepartment === 'all' || member?.department === rbDepartment) &&
+          (rbUser === 'all' || a.staff_id === rbUser) &&
+          (rbStatus === 'all' || a.status === rbStatus)
+      })
+      return {
+        title: 'Staff Attendance Report',
+        columns: ['Employee', 'Department', 'Date', 'Status', 'Marked At', 'Marked By'],
+        rows: rows.map((a) => {
+          const member = profiles.find((p) => p.id === a.staff_id)
+          return [
+            member?.name || 'Unknown', member?.department || '—', a.date,
+            STAFF_ATTENDANCE_STATUS_FILTER_OPTIONS.find((o) => o.value === a.status)?.label || a.status,
+            a.marked_at ? new Date(a.marked_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—',
+            a.marked_by_name || '—',
+          ]
+        }),
+      }
     }
-  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, leads, students, batches, invoices, installments, teamMembers, sessions, followUps, leadActivities, attendance])
+    if (reportType === 'attendance') {
+      // Login Activity — admin-only report type, already enforced by the
+      // type selector and the reset effect above; sessions itself is
+      // already scoped by RLS to what the viewer is allowed to see.
+      const rows = sessions.filter((s) => {
+        const member = profiles.find((p) => p.id === s.user_id)
+        return inReportDateRange(s.login_at, rbDateFrom, rbDateTo) &&
+          (rbUser === 'all' || s.user_id === rbUser) &&
+          (rbDepartment === 'all' || member?.department === rbDepartment)
+      })
+      return {
+        title: 'Login Activity Report',
+        columns: ['Team Member', 'Department', 'Login Date', 'Login Time', 'Logout Date', 'Logout Time', 'Duration'],
+        rows: rows.map((s) => {
+          const member = profiles.find((p) => p.id === s.user_id)
+          const loginD = new Date(s.login_at)
+          const logoutD = s.logout_at ? new Date(s.logout_at) : null
+          return [
+            member?.name || 'Unknown', member?.department || '—',
+            loginD.toLocaleDateString('en-IN'),
+            loginD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+            logoutD ? logoutD.toLocaleDateString('en-IN') : '—',
+            logoutD ? logoutD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Still logged in',
+            logoutD ? formatDuration(logoutD - loginD) : '—',
+          ]
+        }),
+      }
+    }
+    if (reportType === 'sales_productivity' || reportType === 'trainer_productivity') {
+      // Same engine used by the Attendance & Productivity module's Sales/
+      // Trainer Productivity tabs — this report is a filtered export of
+      // that exact calculation, not a second implementation of it.
+      const productivityData = { leads, followUps, students, invoices, installments, leadNotes, studentNotes, emailMessages, attendance, staffAttendance, batches, profiles }
+      const results = calculateTeamProductivity(productivityData, {
+        department: rbDepartment === 'all' ? null : rbDepartment,
+        employeeIds: rbUser === 'all' ? null : [rbUser],
+        from: rbDateFrom || null,
+        to: rbDateTo || null,
+      }).filter((r) => (reportType === 'sales_productivity' ? r.sales : r.trainer))
+
+      const fmt = (metric) => (!metric || metric.missing ? (metric?.reason ? 'Telephony integration required' : '—') : metric.value)
+
+      if (reportType === 'sales_productivity') {
+        return {
+          title: 'Sales Productivity Report',
+          columns: ['Employee', 'Role', 'Leads Contacted', 'Calls', 'Follow-ups Completed', 'Tasks Completed', 'Admissions', 'Revenue', 'Conversion %'],
+          rows: results.map((r) => [
+            r.employee.name, roleLabelFor(r.employee.role),
+            fmt(r.sales.leadsContacted), fmt(r.sales.callsMade), fmt(r.sales.followUpsCompleted),
+            fmt(r.sales.tasksCompleted), fmt(r.sales.admissions), fmt(r.sales.revenue),
+            r.sales.conversionRate.missing ? '—' : `${r.sales.conversionRate.value ?? '—'}%`,
+          ]),
+        }
+      }
+      return {
+        title: 'Trainer Productivity Report',
+        columns: ['Employee', 'Department', 'Classes Conducted', 'Students Handled', 'Attendance Marked', 'Tasks Completed', 'Overall Activity'],
+        rows: results.map((r) => [
+          r.employee.name, r.employee.department || '—',
+          fmt(r.trainer.classesConducted), fmt(r.trainer.studentsHandled), fmt(r.trainer.attendanceMarked),
+          fmt(r.trainer.academicTasksCompleted), fmt(r.trainer.overallActivity),
+        ]),
+      }
+    }
+    // Unreachable in practice — every REPORT_TYPES key has its own branch
+    // above — but returns something sane rather than crashing if a new
+    // type is ever added to REPORT_TYPES without a matching branch here.
+    return { title: 'Report', columns: [], rows: [] }
+  }, [reportType, rbDateFrom, rbDateTo, rbCourse, rbBatch, rbStatus, rbPriority, rbUser, rbDepartment, leads, students, batches, invoices, installments, teamMembers, sessions, followUps, leadActivities, attendance, staffAttendance, profiles, leadNotes, studentNotes, emailMessages])
 
   const handleReportDownload = (format) => {
     const { title, columns, rows } = builtReport
@@ -835,7 +954,7 @@ export default function Reports() {
 
           {/* Report type tabs */}
           <div className="flex flex-wrap gap-2 mb-5">
-            {REPORT_TYPES.map((rt) => (
+            {REPORT_TYPES.filter((rt) => !rt.adminOnly || isAdmin).map((rt) => (
               <button
                 key={rt.key}
                 onClick={() => setReportType(rt.key)}
@@ -895,7 +1014,7 @@ export default function Reports() {
               </div>
             )}
 
-            {['leads', 'students', 'batches', 'fees', 'student_attendance'].includes(reportType) && (
+            {['leads', 'students', 'batches', 'fees', 'student_attendance', 'staff_attendance'].includes(reportType) && (
               <div>
                 <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Status</label>
                 <select value={rbStatus} onChange={(e) => setRbStatus(e.target.value)}
@@ -904,18 +1023,29 @@ export default function Reports() {
                     : reportType === 'students' ? STUDENT_STATUS_FILTER_OPTIONS
                     : reportType === 'batches' ? BATCH_STATUS_FILTER_OPTIONS
                     : reportType === 'student_attendance' ? STUDENT_ATTENDANCE_STATUS_FILTER_OPTIONS
+                    : reportType === 'staff_attendance' ? STAFF_ATTENDANCE_STATUS_FILTER_OPTIONS
                     : FEE_STATUS_FILTER_OPTIONS
                   ).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
             )}
 
-            {(reportType === 'attendance' || reportType === 'performance') && (
+            {['staff_attendance', 'attendance', 'sales_productivity', 'trainer_productivity'].includes(reportType) && (
               <div>
-                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Team Member</label>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Department</label>
+                <select value={rbDepartment} onChange={(e) => setRbDepartment(e.target.value)}
+                  className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
+                  {departmentOptions.map((d) => <option key={d} value={d}>{d === 'all' ? 'All Departments' : d}</option>)}
+                </select>
+              </div>
+            )}
+
+            {(reportType === 'attendance' || reportType === 'performance' || reportType === 'staff_attendance' || reportType === 'sales_productivity' || reportType === 'trainer_productivity') && (
+              <div>
+                <label className={`block text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Employee</label>
                 <select value={rbUser} onChange={(e) => setRbUser(e.target.value)}
                   className={`w-full px-2.5 py-2 rounded-lg border text-xs outline-none cursor-pointer focus:ring-2 focus:ring-primary-500/20 ${isDark ? 'bg-dark-900 border-dark-700 text-dark-100' : 'bg-white border-dark-200 text-dark-900'}`}>
-                  <option value="all">All Team Members</option>
+                  <option value="all">All Employees</option>
                   {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </div>
