@@ -164,6 +164,30 @@ function attendanceMarked(data, employeeId, from, to) {
 
 function academicTasksCompleted() { return missing('No assignments/academic-tasks entity exists in this CRM yet.') }
 
+// How many batches this trainer is actively running right now — distinct
+// from studentsHandled (roster size) and classesConducted (attendance-days
+// taken). A real, simple count from batches.instructor_id, not a log of
+// batch edits (no such audit trail exists).
+function batchActivities(data, employeeId) {
+  const count = data.batches.filter((b) => b.instructor_id === employeeId).length
+  return computed(count, 'batches.instructor_id = employee (current count, not date-ranged — a batch doesn\'t stop being "theirs" between classes)')
+}
+
+function courseProgress() { return missing('No curriculum/syllabus-completion tracking exists in this CRM yet.') }
+
+// Overall Activity is a transparent, equal-weighted SUM of the countable
+// (non-missing) trainer metrics for the range — not a 0-100 "score", not
+// weighted by importance, nothing hidden. Change TRAINER_ACTIVITY_METRICS
+// to change what counts toward it; that's the one place this is defined.
+export const TRAINER_ACTIVITY_METRICS = ['classesConducted', 'attendanceMarked', 'batchActivities']
+
+function overallActivity(bucket) {
+  const included = TRAINER_ACTIVITY_METRICS.filter((k) => !bucket[k].missing)
+  if (included.length === 0) return missing('No countable trainer activity metrics available.')
+  const total = included.reduce((sum, k) => sum + (bucket[k].value || 0), 0)
+  return computed(total, `sum of ${included.join(' + ')} for the range — equal-weighted, no scoring formula`)
+}
+
 // "CRM Activities" for the Admin bucket — real, attributable actions that
 // don't already belong to a Sales metric: notes logged and emails sent.
 // lead_activities (the status-change timeline) is deliberately excluded —
@@ -198,12 +222,16 @@ export function computeSalesBucket(data, employeeId, from, to) {
 }
 
 export function computeTrainerBucket(data, employeeId, from, to) {
-  return {
+  const bucket = {
     classesConducted: classesConducted(data, employeeId, from, to),
     studentsHandled: studentsHandled(data, employeeId),
     attendanceMarked: attendanceMarked(data, employeeId, from, to),
     academicTasksCompleted: academicTasksCompleted(),
+    batchActivities: batchActivities(data, employeeId),
+    courseProgress: courseProgress(),
   }
+  bucket.overallActivity = overallActivity(bucket)
+  return bucket
 }
 
 export function computeAdminBucket(data, employeeId, from, to) {

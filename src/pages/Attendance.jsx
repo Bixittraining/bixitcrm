@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LayoutGrid, GraduationCap, Users, LogIn, Target } from 'lucide-react'
+import { LayoutGrid, GraduationCap, Users, LogIn, Target, IndianRupee, Presentation } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import AttendanceOverview from '../components/attendance/AttendanceOverview'
@@ -7,12 +7,14 @@ import StudentAttendanceTable from '../components/attendance/StudentAttendanceTa
 import StaffAttendanceList from '../components/attendance/StaffAttendanceList'
 import LoginActivityList from '../components/attendance/LoginActivityList'
 import SalesProductivity from '../components/attendance/SalesProductivity'
+import TrainerProductivity from '../components/attendance/TrainerProductivity'
 
 export default function Attendance() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const { isAdmin } = useAuth()
   const [tab, setTab] = useState('overview')
+  const [productivityView, setProductivityView] = useState('sales')
 
   // Employee login/logout tracking, work activity, and productivity reports
   // used to live as three separate top-level modules (Team Activity, Team
@@ -49,7 +51,22 @@ export default function Attendance() {
       {tab === 'students' && <StudentAttendanceTable isDark={isDark} />}
       {tab === 'staff' && <StaffAttendanceList isDark={isDark} />}
       {tab === 'login' && isAdmin && <LoginActivityList isDark={isDark} />}
-      {tab === 'productivity' && isAdmin && <SalesProductivity isDark={isDark} />}
+
+      {tab === 'productivity' && isAdmin && (
+        <div className="space-y-5">
+          <div className={`flex items-center rounded-xl p-1 w-fit ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
+            <button onClick={() => setProductivityView('sales')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${productivityView === 'sales' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+              <IndianRupee className="w-4 h-4" />Sales
+            </button>
+            <button onClick={() => setProductivityView('trainer')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${productivityView === 'trainer' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+              <Presentation className="w-4 h-4" />Trainer
+            </button>
+          </div>
+          {productivityView === 'sales' ? <SalesProductivity isDark={isDark} /> : <TrainerProductivity isDark={isDark} />}
+        </div>
+      )}
     </div>
   )
 }
