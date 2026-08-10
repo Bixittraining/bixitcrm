@@ -7,6 +7,7 @@ import { useData } from '../../context/DataContext'
 import { STATUS, STATUS_KEYS, StatusChip } from './attendanceStatus'
 import ConfirmModal from './ConfirmModal'
 import BatchAttendanceView from './BatchAttendanceView'
+import StudentAttendanceDetail from './StudentAttendanceDetail'
 
 const todayStr = new Date().toISOString().slice(0, 10)
 
@@ -14,6 +15,7 @@ export default function StudentAttendanceTable({ isDark }) {
   const { canManageTeam } = useAuth()
   const { batches, students, attendance, markAttendance } = useData()
 
+  const [selectedStudentId, setSelectedStudentId] = useState(null)
   const [selectedBatchId, setSelectedBatchId] = useState(null)
   const [date, setDate] = useState(todayStr)
   const [batchFilter, setBatchFilter] = useState('all')
@@ -96,6 +98,10 @@ export default function StudentAttendanceTable({ isDark }) {
   const unmarkedCount = rows.filter((r) => !r.record).length
 
   const inputCls = `px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`
+
+  if (selectedStudentId != null) {
+    return <StudentAttendanceDetail studentId={selectedStudentId} onBack={() => setSelectedStudentId(null)} isDark={isDark} />
+  }
 
   if (selectedBatchId != null) {
     return (
@@ -197,7 +203,12 @@ export default function StudentAttendanceTable({ isDark }) {
                   const canEdit = isToday && (!record || canManageTeam)
                   return (
                     <tr key={student.id} className={isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'}>
-                      <td className={`px-4 py-3 font-medium whitespace-nowrap ${isDark ? 'text-white' : 'text-dark-900'}`}>{student.name}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button onClick={() => setSelectedStudentId(student.id)}
+                          className={`font-medium hover:underline ${isDark ? 'text-white hover:text-primary-400' : 'text-dark-900 hover:text-primary-600'}`}>
+                          {student.name}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {batch ? (
                           <button onClick={() => setSelectedBatchId(batch.id)}

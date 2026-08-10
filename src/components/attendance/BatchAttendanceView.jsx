@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useData } from '../../context/DataContext'
 import { STATUS, STATUS_KEYS, StatusChip } from './attendanceStatus'
 import ConfirmModal from './ConfirmModal'
+import StudentAttendanceDetail from './StudentAttendanceDetail'
 
 const todayStr = new Date().toISOString().slice(0, 10)
 
@@ -22,6 +23,7 @@ export default function BatchAttendanceView({ batchId, initialDate, onBack, isDa
   const { canManageTeam } = useAuth()
   const { batches, students, teamMembers, attendance, markAttendance } = useData()
 
+  const [selectedStudentId, setSelectedStudentId] = useState(null)
   const [date, setDate] = useState(initialDate || todayStr)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -82,6 +84,10 @@ export default function BatchAttendanceView({ batchId, initialDate, onBack, isDa
 
   const inputCls = `px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
+
+  if (selectedStudentId != null) {
+    return <StudentAttendanceDetail studentId={selectedStudentId} onBack={() => setSelectedStudentId(null)} isDark={isDark} />
+  }
 
   if (!batch) {
     return (
@@ -198,7 +204,12 @@ export default function BatchAttendanceView({ batchId, initialDate, onBack, isDa
                   const canEdit = isToday && (!record || canManageTeam)
                   return (
                     <tr key={student.id} className={isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'}>
-                      <td className={`px-4 py-3 font-medium whitespace-nowrap ${isDark ? 'text-white' : 'text-dark-900'}`}>{student.name}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button onClick={() => setSelectedStudentId(student.id)}
+                          className={`font-medium hover:underline ${isDark ? 'text-white hover:text-primary-400' : 'text-dark-900 hover:text-primary-600'}`}>
+                          {student.name}
+                        </button>
+                      </td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{student.phone || '—'}</td>
                       <td className="px-4 py-3"><StatusChip status={record?.status} isDark={isDark} /></td>
                       <td className={`px-4 py-3 whitespace-nowrap ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
