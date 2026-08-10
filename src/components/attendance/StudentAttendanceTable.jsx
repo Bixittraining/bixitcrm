@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import {
-  Search, X, Calendar, Check, AlertCircle, Loader2,
+  Search, X, Calendar, Check, AlertCircle, Loader2, List, CalendarDays,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useData } from '../../context/DataContext'
@@ -8,6 +8,7 @@ import { STATUS, STATUS_KEYS, StatusChip } from './attendanceStatus'
 import ConfirmModal from './ConfirmModal'
 import BatchAttendanceView from './BatchAttendanceView'
 import StudentAttendanceDetail from './StudentAttendanceDetail'
+import AttendanceCalendar from './AttendanceCalendar'
 
 const todayStr = new Date().toISOString().slice(0, 10)
 
@@ -15,6 +16,7 @@ export default function StudentAttendanceTable({ isDark }) {
   const { canManageTeam } = useAuth()
   const { batches, students, attendance, markAttendance } = useData()
 
+  const [viewMode, setViewMode] = useState('daily')
   const [selectedStudentId, setSelectedStudentId] = useState(null)
   const [selectedBatchId, setSelectedBatchId] = useState(null)
   const [date, setDate] = useState(todayStr)
@@ -116,6 +118,22 @@ export default function StudentAttendanceTable({ isDark }) {
 
   return (
     <div className="space-y-5">
+      {/* View toggle */}
+      <div className={`flex items-center rounded-xl p-1 w-fit ${isDark ? 'bg-dark-800' : 'bg-dark-100'}`}>
+        <button onClick={() => setViewMode('daily')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'daily' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+          <List className="w-4 h-4" />Daily View
+        </button>
+        <button onClick={() => setViewMode('calendar')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'calendar' ? 'bg-primary-600 text-white shadow-sm' : isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>
+          <CalendarDays className="w-4 h-4" />Calendar &amp; History
+        </button>
+      </div>
+
+      {viewMode === 'calendar' && <AttendanceCalendar isDark={isDark} />}
+
+      {viewMode === 'daily' && (
+      <>
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
         <div className="relative">
@@ -262,6 +280,8 @@ export default function StudentAttendanceTable({ isDark }) {
           onConfirm={handleBulkPresent}
           onCancel={() => setConfirmBulk(false)}
         />
+      )}
+      </>
       )}
     </div>
   )
