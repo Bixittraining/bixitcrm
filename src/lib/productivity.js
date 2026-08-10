@@ -92,6 +92,23 @@ function tasksCompleted(data, employeeId, from, to) {
   return { ...result, source: result.source + ' (no separate task entity exists — follow-ups are the closest real equivalent)' }
 }
 
+// Denominator for conversion rate — every lead assigned to this employee
+// in range, regardless of status. Not exposed as its own metric (not on
+// the requested list) but used below.
+function totalLeadsAssigned(data, employeeId, from, to) {
+  return data.leads.filter((l) => l.assigned_to === employeeId && inRange(l.date, from, to)).length
+}
+
+// Admissions ÷ total leads assigned in range, the same definition already
+// used by TeamPerformance.jsx's conversionRate — reused, not reinvented.
+function conversionRate(data, employeeId, from, to) {
+  const total = totalLeadsAssigned(data, employeeId, from, to)
+  const won = admissions(data, employeeId, from, to)
+  if (won.missing) return won
+  if (total === 0) return computed(null, 'no leads assigned in range')
+  return computed(Math.round((won.value / total) * 100), 'admissions ÷ total leads assigned in range (assigned_to = employee, leads.date in range)')
+}
+
 function callsMade() { return missing('No telephony integration exists in this CRM — adding this would mean showing a fabricated number.') }
 function connectedCalls() { return missing('Same as calls made — no telephony/call data exists.') }
 function talkTime() { return missing('Same as calls made — no telephony/call data exists.') }
@@ -173,8 +190,10 @@ export function computeSalesBucket(data, employeeId, from, to) {
     connectedCalls: connectedCalls(),
     talkTime: talkTime(),
     followUpsCompleted: followUpsCompleted(data, employeeId, from, to),
+    tasksCompleted: tasksCompleted(data, employeeId, from, to),
     admissions: admissions(data, employeeId, from, to),
     revenue: revenue(data, employeeId, from, to),
+    conversionRate: conversionRate(data, employeeId, from, to),
   }
 }
 

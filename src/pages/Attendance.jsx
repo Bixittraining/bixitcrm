@@ -6,7 +6,7 @@ import AttendanceOverview from '../components/attendance/AttendanceOverview'
 import StudentAttendanceTable from '../components/attendance/StudentAttendanceTable'
 import StaffAttendanceList from '../components/attendance/StaffAttendanceList'
 import LoginActivityList from '../components/attendance/LoginActivityList'
-import TeamPerformance from './TeamPerformance'
+import SalesProductivity from '../components/attendance/SalesProductivity'
 
 export default function Attendance() {
   const { theme } = useTheme()
@@ -49,7 +49,7 @@ export default function Attendance() {
       {tab === 'students' && <StudentAttendanceTable isDark={isDark} />}
       {tab === 'staff' && <StaffAttendanceList isDark={isDark} />}
       {tab === 'login' && isAdmin && <LoginActivityList isDark={isDark} />}
-      {tab === 'productivity' && isAdmin && <TeamPerformance embedded />}
+      {tab === 'productivity' && isAdmin && <SalesProductivity isDark={isDark} />}
     </div>
   )
 }
