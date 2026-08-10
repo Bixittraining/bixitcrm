@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, Users, ClipboardCheck, ChevronRight, ArrowLeft, Calendar, LogIn, Target } from 'lucide-react'
+import { LayoutGrid, GraduationCap, Users, ClipboardCheck, ChevronRight, ArrowLeft, Calendar, LogIn, Target } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useData } from '../context/DataContext'
 import AttendanceRegister from '../components/attendance/AttendanceRegister'
+import AttendanceOverview from '../components/attendance/AttendanceOverview'
 import TeamActivity from './TeamActivity'
 import TeamPerformance from './TeamPerformance'
 
@@ -135,7 +136,7 @@ export default function Attendance() {
   const isDark = theme === 'dark'
   const { isAdmin } = useAuth()
   const { attendance, staffAttendance, batches, teamMembers } = useData()
-  const [tab, setTab] = useState('students')
+  const [tab, setTab] = useState('overview')
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
@@ -157,6 +158,7 @@ export default function Attendance() {
   // for the same team, so they're tabs of one module now instead of three
   // separate sidebar entries.
   const tabs = [
+    { key: 'overview', label: 'Overview', icon: LayoutGrid },
     { key: 'students', label: 'Student Attendance', icon: GraduationCap },
     { key: 'staff', label: 'Staff Attendance', icon: Users },
     ...(isAdmin ? [
@@ -204,6 +206,7 @@ export default function Attendance() {
         </motion.div>
       )}
 
+      {tab === 'overview' && <AttendanceOverview onNavigateTab={setTab} isDark={isDark} />}
       {tab === 'login' && isAdmin && <TeamActivity embedded />}
       {tab === 'productivity' && isAdmin && <TeamPerformance embedded />}
     </div>
