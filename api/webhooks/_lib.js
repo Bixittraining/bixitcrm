@@ -85,6 +85,11 @@ export async function insertLead(admin, { name, email, phone, course, source, no
     return { error: 'Lead requires a name and at least an email or phone' }
   }
 
+  // Meta/Google/JustDial/WhatsApp leads usually carry a phone number with
+  // no email at all, so an email-only duplicate check misses the exact
+  // case that matters most here — the same phone number submitting again
+  // (e.g. clicking the same ad twice) was silently creating a second lead
+  // row instead of being recognized as the existing one.
   if (email) {
     const { data: existing, error: lookupError } = await admin
       .from('leads')
@@ -93,6 +98,30 @@ export async function insertLead(admin, { name, email, phone, course, source, no
       .maybeSingle()
     if (lookupError) return { error: lookupError.message }
     if (existing) return { data: existing, duplicate: true }
+  }
+  if (phone) {
+    const { data: existing, error: lookupError } = await admin
+      .from('leads')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle()
+    if (lookupError) return { error: lookupError.message }
+    if (existing) return { data: existing, duplicate: true }
+  }
+
+  // Not a duplicate lead, but this phone/email might already belong to an
+  // enrolled student inquiring about a different course — that's a real,
+  // legitimate new lead (don't block it), but staff should see the
+  // context immediately rather than treating them as a first-time
+  // contact. Matched by email first (more reliable), phone as fallback.
+  let existingStudentNote = ''
+  const studentMatch = email
+    ? (await admin.from('students').select('name,course').eq('email', email).maybeSingle()).data
+    : phone
+      ? (await admin.from('students').select('name,course').eq('phone', phone).maybeSingle()).data
+      : null
+  if (studentMatch) {
+    existingStudentNote = `⚠ Existing student — already enrolled in ${studentMatch.course}. This inquiry is for a different course.\n\n`
   }
 
   // Webhook leads have no "creating user" to fall back on, so round-robin
@@ -108,7 +137,7 @@ export async function insertLead(admin, { name, email, phone, course, source, no
     status: 'new',
     priority,
     date: todayISODate(),
-    notes: notes || '',
+    notes: existingStudentNote + (notes || ''),
     avatar: avatarFromName(name),
     assigned_to: assignedTo || null,
   }

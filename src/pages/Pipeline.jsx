@@ -307,15 +307,17 @@ export default function Pipeline() {
   const pipelineLeads = leads.filter(l => l.status !== 'lost')
   const getStageLeads = (statusKey) => pipelineLeads.filter(l => l.status === statusKey)
 
-  const handleAddLead = (formData) => {
+  const handleAddLead = async (formData) => {
     const avatar = formData.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-    addLead({
+    const result = await addLead({
       id: Date.now(),
       ...formData,
       avatar,
       date: new Date().toISOString().slice(0, 10),
       notes: '',
     })
+    if (result?.duplicate) { showToastMsg(`Already exists as a lead: ${result.existing.name} (${result.existing.status})`); return }
+    if (result?.error) { showToastMsg(`Couldn't add lead: ${result.error}`); return }
     showToastMsg(`Lead "${formData.name}" added to pipeline`)
   }
 

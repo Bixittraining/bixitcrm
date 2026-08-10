@@ -632,17 +632,48 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
 
 // ─── ADD LEAD MODAL ──────────────────────────────────────────────────
 function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
+  const { leads, students } = useData()
   const [form, setForm] = useState({ name: '', email: '', phone: '', course: '', source: '', priority: 'medium', notes: '' })
   const [formError, setFormError] = useState('')
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
+
+  // Same phone/email submitted again (a lead clicking the same ad twice, a
+  // staff member re-entering someone who already inquired) used to just
+  // silently create a second, disconnected lead row. Checked live as the
+  // user types so it's caught before submission, not after.
+  const duplicateLead = useMemo(() => {
+    const email = form.email.trim().toLowerCase()
+    if (form.phone.length !== 10 && !email) return null
+    return leads.find((l) =>
+      (form.phone.length === 10 && l.phone === form.phone) ||
+      (email && l.email?.toLowerCase() === email)
+    ) || null
+  }, [leads, form.phone, form.email])
+
+  // Not a duplicate lead, but this person might already be an enrolled
+  // student inquiring about a different course — a legitimate new lead,
+  // just one staff should see the context for, not silently create as if
+  // this were a first-time contact.
+  const existingStudent = useMemo(() => {
+    if (duplicateLead) return null
+    const email = form.email.trim().toLowerCase()
+    if (form.phone.length !== 10 && !email) return null
+    return students.find((s) =>
+      (form.phone.length === 10 && s.phone === form.phone) ||
+      (email && s.email?.toLowerCase() === email)
+    ) || null
+  }, [students, duplicateLead, form.phone, form.email])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     if (form.phone.length !== 10) { setFormError('Phone number must be exactly 10 digits'); return }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { setFormError('Enter a valid email address'); return }
+    if (duplicateLead) { setFormError('This phone/email already belongs to an existing lead — see above instead of creating a duplicate'); return }
     setFormError('')
     const nameParts = form.name.trim().split(' ')
     const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : form.name.trim().slice(0, 2).toUpperCase()
-    onAdd({ ...form, id: Date.now(), avatar, status: 'new', date: new Date().toISOString().slice(0, 10) })
+    const notes = existingStudent ? `⚠ Existing student — already enrolled in ${existingStudent.course}. This inquiry is for a different course.\n\n${form.notes}` : form.notes
+    onAdd({ ...form, notes, id: Date.now(), avatar, status: 'new', date: new Date().toISOString().slice(0, 10) })
     setForm({ name: '', email: '', phone: '', course: '', source: '', priority: 'medium', notes: '' })
   }
 
@@ -680,6 +711,18 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
             </div>
           </div>
           {formError && <p className="text-xs font-medium text-rose-500 -mt-2">{formError}</p>}
+          {duplicateLead && (
+            <div className={`flex items-start gap-2 -mt-1 px-3 py-2.5 rounded-lg text-xs ${isDark ? 'bg-rose-500/10 text-rose-300' : 'bg-rose-50 text-rose-700'}`}>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Already a lead: <b>{duplicateLead.name}</b> ({duplicateLead.status}) — this exact phone or email is already in the system. Open that lead instead of adding a duplicate.</span>
+            </div>
+          )}
+          {!duplicateLead && existingStudent && (
+            <div className={`flex items-start gap-2 -mt-1 px-3 py-2.5 rounded-lg text-xs ${isDark ? 'bg-sky-500/10 text-sky-300' : 'bg-sky-50 text-sky-700'}`}>
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Existing student: <b>{existingStudent.name}</b> is already enrolled in {existingStudent.course}. This will be added as a new inquiry for a different course.</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course Interested</label>
@@ -728,8 +771,8 @@ function AddLeadModal({ isDark, onClose, onAdd, inputClass }) {
             <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
             >Cancel</motion.button>
-            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
+            <motion.button type="submit" disabled={!!duplicateLead} whileHover={{ scale: duplicateLead ? 1 : 1.03 }} whileTap={{ scale: duplicateLead ? 1 : 0.97 }}
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow-lg transition-all ${duplicateLead ? 'bg-dark-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-primary-500/25'}`}
             >Add Lead</motion.button>
           </div>
         </form>
@@ -1600,14 +1643,19 @@ function Leads() {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target.result
       const lines = text.trim().split('\n')
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
       let imported = 0
-      lines.slice(1).forEach((line) => {
+      let skipped = 0
+      // Sequential, not Promise.all — each addLead call checks against the
+      // leads already in state, and two rows in the same file sharing a
+      // phone/email need the first one to have actually landed in state
+      // before the second is checked, or both would look "new".
+      for (const line of lines.slice(1)) {
         const cols = line.split(',').map(c => c.trim())
-        if (cols.length < 3) return
+        if (cols.length < 3) continue
         const nameIdx = headers.indexOf('name')
         const emailIdx = headers.indexOf('email')
         const phoneIdx = headers.indexOf('phone')
@@ -1618,15 +1666,19 @@ function Leads() {
         const phone = cols[phoneIdx >= 0 ? phoneIdx : 2] || ''
         const course = cols[courseIdx >= 0 ? courseIdx : 3] || 'Full Stack Development'
         const source = cols[sourceIdx >= 0 ? sourceIdx : 4] || 'Website'
-        if (!name) return
+        if (!name) continue
         const nameParts = name.trim().split(' ')
         const avatar = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
           : name.trim().slice(0, 2).toUpperCase()
-        addLead({ id: Date.now() + imported, name, email, phone, course, source, avatar, status: 'new', priority: 'medium', date: new Date().toISOString().slice(0, 10), notes: '' })
-        imported++
-      })
-      showNotification(imported > 0 ? `${imported} lead(s) imported successfully` : 'No valid leads found in file', imported > 0 ? 'success' : 'error')
+        const result = await addLead({ id: Date.now() + imported + skipped, name, email, phone, course, source, avatar, status: 'new', priority: 'medium', date: new Date().toISOString().slice(0, 10), notes: '' })
+        if (result?.duplicate) skipped++
+        else if (result?.data) imported++
+      }
+      const parts = []
+      if (imported > 0) parts.push(`${imported} lead(s) imported`)
+      if (skipped > 0) parts.push(`${skipped} skipped as already existing`)
+      showNotification(parts.length ? parts.join(', ') : 'No valid leads found in file', imported > 0 ? 'success' : 'error')
     }
     reader.readAsText(file)
     e.target.value = ''
@@ -1702,7 +1754,13 @@ function Leads() {
     return counts
   }, [leadsData])
 
-  const handleAddLead = (newLead) => { addLead(newLead); setShowAddModal(false); showNotification(`${newLead.name} added as a new lead`) }
+  const handleAddLead = async (newLead) => {
+    const result = await addLead(newLead)
+    if (result?.duplicate) { showNotification(`Already exists as a lead: ${result.existing.name} (${result.existing.status})`, 'error'); return }
+    if (result?.error) { showNotification(`Couldn't add lead: ${result.error}`, 'error'); return }
+    setShowAddModal(false)
+    showNotification(`${newLead.name} added as a new lead`)
+  }
 
   const handleEditSave = (updatedLead) => {
     updateLead(updatedLead)
