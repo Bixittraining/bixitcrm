@@ -1583,6 +1583,16 @@ function Leads() {
     }
   }, [location.state, location.pathname, navigate, leadsData])
 
+  // Clicking "Leads" in the sidebar while already viewing a lead's profile
+  // is the same URL, so React Router alone won't close it — the sidebar
+  // sends a resetView signal for exactly this case.
+  useEffect(() => {
+    if (location.state?.resetView) {
+      setSelectedLead(null)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate])
+
   const showNotification = useCallback((message, type = 'success') => setNotification({ message, type }), [])
   const importFileRef = useRef(null)
 

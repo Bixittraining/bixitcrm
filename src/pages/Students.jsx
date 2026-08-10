@@ -344,6 +344,12 @@ function Students() {
     } else if (location.state?.filterCourse) {
       setCourseFilter(location.state.filterCourse)
       navigate(location.pathname, { replace: true, state: {} })
+    } else if (location.state?.resetView) {
+      // Clicking "Students" in the sidebar while already viewing a profile
+      // is the same URL, so React Router alone won't close it — the
+      // sidebar sends a resetView signal for exactly this case.
+      setSelectedStudent(null)
+      navigate(location.pathname, { replace: true, state: {} })
     }
   }, [location.state, location.pathname, navigate, students])
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })

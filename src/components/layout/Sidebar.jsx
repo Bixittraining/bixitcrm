@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
@@ -76,6 +76,21 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
   const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin)
   const isDark = theme === 'dark'
   const isDesktop = useIsDesktop()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // Leads and Students render their detail view in place (same URL) instead
+  // of a separate route, so clicking the sidebar link while already on that
+  // page is a no-op for React Router — same path, nothing re-renders, and
+  // the open lead/student never closes. Force a fresh navigation with a
+  // reset signal in state so those pages know to drop back to the list.
+  const handleNavClick = (item) => (e) => {
+    onNavigate?.()
+    if (location.pathname === item.to) {
+      e.preventDefault()
+      navigate(item.to, { replace: true, state: { resetView: Date.now() } })
+    }
+  }
   // The icon-only collapsed look is a desktop-only affordance. On mobile the drawer
   // must always show full labels — it's either fully open or fully off-screen, never
   // stuck half-open — regardless of whatever the desktop collapse preference is set to.
@@ -158,7 +173,7 @@ export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate 
                 <NavLink
                   to={item.to}
                   end={item.to === '/'}
-                  onClick={onNavigate}
+                  onClick={handleNavClick(item)}
                   className={({ isActive }) =>
                     `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
                     ${showCollapsed ? 'justify-center' : ''}
