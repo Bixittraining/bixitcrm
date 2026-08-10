@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import AttendanceOverview from '../components/attendance/AttendanceOverview'
 import StudentAttendanceTable from '../components/attendance/StudentAttendanceTable'
 import StaffAttendanceList from '../components/attendance/StaffAttendanceList'
-import TeamActivity from './TeamActivity'
+import LoginActivityList from '../components/attendance/LoginActivityList'
 import TeamPerformance from './TeamPerformance'
 
 export default function Attendance() {
@@ -48,7 +48,7 @@ export default function Attendance() {
       {tab === 'overview' && <AttendanceOverview onNavigateTab={setTab} isDark={isDark} />}
       {tab === 'students' && <StudentAttendanceTable isDark={isDark} />}
       {tab === 'staff' && <StaffAttendanceList isDark={isDark} />}
-      {tab === 'login' && isAdmin && <TeamActivity embedded />}
+      {tab === 'login' && isAdmin && <LoginActivityList isDark={isDark} />}
       {tab === 'productivity' && isAdmin && <TeamPerformance embedded />}
     </div>
   )
