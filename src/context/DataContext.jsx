@@ -385,10 +385,19 @@ export function DataProvider({ children }) {
       is_override: scheduled === false,
       override_reason: scheduled === false ? (r.overrideReason || null) : null,
     }))
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('attendance')
       .upsert(rows, { onConflict: 'student_id,date' })
       .select()
+    // Migration 0033 (is_override/override_reason columns) may not be
+    // applied yet on this database — attendance marking has to keep
+    // working regardless of migration timing, so retry without those two
+    // fields rather than leaving the whole feature broken until someone
+    // runs the SQL. PostgREST reports an unknown column as 42703/PGRST204.
+    if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+      const legacyRows = rows.map(({ is_override: _io, override_reason: _or, ...rest }) => rest)
+      ;({ data, error } = await supabase.from('attendance').upsert(legacyRows, { onConflict: 'student_id,date' }).select())
+    }
     if (error) { console.error('markAttendance error', error); return false }
     let mergedAttendance
     setAttendance((prev) => {
