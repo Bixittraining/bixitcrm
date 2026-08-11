@@ -13,10 +13,15 @@ import {
   ChevronRight,
   X,
   CheckCircle2,
+  Pencil,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { useData } from '../context/DataContext'
 import PackageFormModal from '../components/packages/PackageFormModal'
+import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { categoryGradients, categoryBadgeColors, categoryBadgeColorsLight, formatPrice } from '../lib/packageStyles'
 
 const categories = ['All', 'Development', 'Data & AI', 'Design', 'Marketing', 'Infrastructure', 'Security']
@@ -38,7 +43,7 @@ const cardVariants = {
   },
 }
 
-function PackageCard({ pkg, theme, onViewDetails }) {
+function PackageCard({ pkg, theme, isAdmin, onViewDetails, onEdit, onDelete }) {
   const { students } = useData()
   const isDark = theme === 'dark'
   const gradient = categoryGradients[pkg.category] || 'from-primary-500 to-primary-700'
@@ -55,12 +60,30 @@ function PackageCard({ pkg, theme, onViewDetails }) {
       layout
       whileHover={{ y: -6, scale: 1.015 }}
       transition={{ type: 'spring', stiffness: 300, damping: 24 }}
-      className={`group rounded-2xl overflow-hidden ${
+      className={`group relative rounded-2xl overflow-hidden ${
         isDark
           ? 'bg-dark-900 border border-dark-700/60 hover:shadow-2xl hover:shadow-primary-500/10'
           : 'bg-white border border-dark-200/60 shadow-sm hover:shadow-xl hover:shadow-dark-200/40'
       } transition-shadow`}
     >
+      {/* Edit/Delete — admin-only, same gate as the package detail page's
+          own Edit/Delete. Sits above the banner so it never competes with
+          the category badge for the same corner. */}
+      {isAdmin && (
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(pkg) }}
+            title="Edit Package"
+            className="p-1.5 rounded-lg bg-black/30 backdrop-blur-sm text-white hover:bg-black/50 transition-colors"
+          ><Pencil className="w-3.5 h-3.5" /></button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(pkg) }}
+            title="Delete Package"
+            className="p-1.5 rounded-lg bg-black/30 backdrop-blur-sm text-white hover:bg-rose-500/80 transition-colors"
+          ><Trash2 className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+
       {/* Top Gradient Banner */}
       <div className={`relative h-28 bg-gradient-to-r ${gradient} p-5`}>
         <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-medium ${badgeColor}`}>
@@ -154,9 +177,13 @@ export default function Packages() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const navigate = useNavigate()
-  const { packages, addPackage } = useData()
+  const { isAdmin } = useAuth()
+  const { packages, students, addPackage, updatePackage, deletePackage } = useData()
   const [activeCategory, setActiveCategory] = useState('All')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingPackage, setEditingPackage] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState(null)
 
   const showToast = (msg, type = 'success') => {
@@ -255,7 +282,10 @@ export default function Packages() {
               key={pkg.id}
               pkg={pkg}
               theme={theme}
+              isAdmin={isAdmin}
               onViewDetails={(p) => navigate(`/packages/${p.id}`)}
+              onEdit={setEditingPackage}
+              onDelete={setDeleteTarget}
             />
           ))}
         </motion.div>
@@ -290,6 +320,69 @@ export default function Packages() {
               showToast(`Package "${pkg.name}" created successfully`)
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Package Modal */}
+      <AnimatePresence>
+        {editingPackage && (
+          <PackageFormModal
+            pkg={editingPackage}
+            isDark={isDark}
+            onClose={() => setEditingPackage(null)}
+            onSave={(updates) => {
+              updatePackage(editingPackage.id, updates)
+              showToast(`Package "${updates.name || editingPackage.name}" updated`)
+              setEditingPackage(null)
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Delete Package Confirm */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => !deleting && setDeleteTarget(null)}>
+            <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-sm rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-rose-500">
+                  <AlertTriangle className="w-5 h-5" />
+                  <h2 className="text-base font-bold">Delete package?</h2>
+                </div>
+                <button onClick={() => setDeleteTarget(null)} className={`p-1 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={18} /></button>
+              </div>
+              <p className={`text-sm mb-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                <strong>{deleteTarget.name}</strong> will be permanently removed. This can't be undone.
+              </p>
+              {(() => {
+                const enrolledCount = students.filter((s) => s.course === deleteTarget.name).length
+                return enrolledCount > 0 ? (
+                  <p className="text-sm text-rose-500 mb-2">
+                    {enrolledCount} student{enrolledCount === 1 ? ' is' : 's are'} currently enrolled in this course — their records won't be deleted, but this package will no longer show their real capacity/enrollment.
+                  </p>
+                ) : null
+              })()}
+              <div className="flex justify-end gap-3 pt-3">
+                <button onClick={() => setDeleteTarget(null)} disabled={deleting}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium border disabled:opacity-60 ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                <button
+                  onClick={async () => {
+                    setDeleting(true)
+                    const ok = await deletePackage(deleteTarget.id)
+                    setDeleting(false)
+                    if (ok) { showToast(`Package "${deleteTarget.name}" deleted`); setDeleteTarget(null) }
+                  }}
+                  disabled={deleting}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 transition-colors disabled:opacity-60">
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
