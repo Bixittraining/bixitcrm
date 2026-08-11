@@ -157,6 +157,29 @@ function formatINR(amount) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount)
 }
 
+function formatTime12h(time24) {
+  if (!time24) return ''
+  const [h, m] = time24.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+// A batch has no "Morning/Afternoon/Evening/Weekend" field of its own —
+// that's derived from its real schedule (schedule_days + start_time), same
+// convention Batches' own form uses (Mon..Sun day keys, 24h start/end
+// time). Weekend takes priority over time-of-day since a lead choosing
+// "Weekend" cares about the day, not the hour.
+function batchTimingBucket(batch) {
+  const days = batch.schedule_days || []
+  if (days.length > 0 && days.every((d) => d === 'Sat' || d === 'Sun')) return 'Weekend'
+  if (!batch.start_time) return null
+  const hour = parseInt(batch.start_time.slice(0, 2), 10)
+  if (hour < 12) return 'Morning'
+  if (hour < 17) return 'Afternoon'
+  return 'Evening'
+}
+
 function relativeDate(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
   if (diff === 0) return 'Today'
@@ -1570,7 +1593,7 @@ function LeadStageStepper({ status, isDark }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onCall, onChangeStatus, onSharePackage, onPackageShared, onAssign, onTakeOver, onAddNoteAction, onNurture, onLost, onNotInterested, onReopen, onConfirmAdmission, onDiscountChange, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, addActivity, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote, students }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onCall, onChangeStatus, onSharePackage, onPackageShared, onAssign, onTakeOver, onAddNoteAction, onNurture, onLost, onNotInterested, onReopen, onConfirmAdmission, onDiscountChange, onBatchTimingChange, onSpecialRequirementsChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, addActivity, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote, students }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
   const [timelineFilter, setTimelineFilter] = useState('all')
@@ -1578,6 +1601,8 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   const [addingDocCategory, setAddingDocCategory] = useState(null)
   const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
+  const [editingRequirements, setEditingRequirements] = useState(false)
+  const [requirementsText, setRequirementsText] = useState('')
   const [showActionMenu, setShowActionMenu] = useState(false)
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
   const [reschedulingId, setReschedulingId] = useState(null)
@@ -1587,6 +1612,17 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 
   const statusColor = getStatusColor(lead.status)
   const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+  // Real batches for this course, bucketed by their actual schedule — this
+  // is what "Preferred Batch Timing" reflects now instead of a static
+  // Morning/Afternoon/Evening/Weekend list with no connection to Batches.
+  const courseBatches = batches.filter((b) => b.course?.toLowerCase() === lead.course.toLowerCase())
+  const batchesByTiming = courseBatches.reduce((acc, b) => {
+    const bucket = batchTimingBucket(b)
+    if (!bucket) return acc
+    if (!acc[bucket]) acc[bucket] = []
+    acc[bucket].push(b)
+    return acc
+  }, {})
   const enrolledStudent = lead.status === 'enrolled' ? (students || []).find((s) => s.name === lead.name && s.course === lead.course) : null
   const enrolledBatch = enrolledStudent ? (batches || []).find((b) => b.id === enrolledStudent.batch_id) : null
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
@@ -1663,6 +1699,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
     if (!profileNoteText.trim()) return
     onAddNote(lead.id, profileNoteText.trim())
     setProfileNoteText('')
+  }
+
+  const handleSaveRequirements = () => {
+    onSpecialRequirementsChange(lead, requirementsText.trim())
+    setEditingRequirements(false)
   }
 
   const sourceIconMap = {
@@ -2065,15 +2106,35 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   </div>
                 </div>
                 <h4 className={`text-xs font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Preferred Batch Timing</h4>
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {['Morning', 'Afternoon', 'Evening', 'Weekend'].map((t) => (
-                    <button key={t} type="button" onClick={() => onBatchTimingChange(lead, t)} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      lead.batch_timing === t
-                        ? isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
-                        : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
-                    }`}>{t}</button>
-                  ))}
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {['Morning', 'Afternoon', 'Evening', 'Weekend'].map((t) => {
+                    const realBatches = batchesByTiming[t] || []
+                    const hasRealBatch = realBatches.length > 0
+                    return (
+                      <button key={t} type="button" onClick={() => onBatchTimingChange(lead, t)}
+                        title={hasRealBatch ? `${realBatches.length} batch${realBatches.length === 1 ? '' : 'es'} scheduled` : 'No batch scheduled yet for this timing'}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                          lead.batch_timing === t
+                            ? isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                            : isDark ? 'border-dark-700 text-dark-400 hover:border-dark-600' : 'border-dark-200 text-dark-500 hover:border-dark-300'
+                        } ${!hasRealBatch ? 'opacity-50' : ''}`}
+                      >
+                        {t}{hasRealBatch && ` (${realBatches.length})`}
+                      </button>
+                    )
+                  })}
                 </div>
+                {courseBatches.length === 0 ? (
+                  <p className={`text-xs mb-5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {lead.course} — timing options are still a preference tag until one exists.</p>
+                ) : lead.batch_timing && batchesByTiming[lead.batch_timing]?.length > 0 ? (
+                  <div className={`text-xs mb-5 space-y-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                    {batchesByTiming[lead.batch_timing].map((b) => (
+                      <p key={b.id}>Matches: <span className={isDark ? 'text-dark-200' : 'text-dark-700'}>{b.name}</span> · {(b.schedule_days || []).join('/')} · {formatTime12h(b.start_time)}–{formatTime12h(b.end_time)}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={`text-xs mb-5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No {lead.course} batch runs {lead.batch_timing || 'this timing'} yet.</p>
+                )}
                 <h4 className={`text-xs font-semibold mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Budget Range</h4>
                 <p className={`text-sm font-medium mb-5 ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>
                   {matchingPackage ? formatINR(matchingPackage.price) : 'Not specified'}
@@ -2081,10 +2142,29 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               </div>
               <div className="space-y-6">
                 <div className={`rounded-xl p-5 ${cardClass}`}>
-                  <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Special Requirements</h3>
-                  <div className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-50 text-dark-600'}`}>
-                    {lead.notes || 'No special requirements noted.'}
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Special Requirements</h3>
+                    {!editingRequirements && (
+                      <button onClick={() => { setRequirementsText(lead.notes || ''); setEditingRequirements(true) }}
+                        className={`text-xs font-medium ${isDark ? 'text-primary-400 hover:text-primary-300' : 'text-primary-600 hover:text-primary-700'}`}
+                      >{lead.notes ? 'Edit' : '+ Add'}</button>
+                    )}
                   </div>
+                  {editingRequirements ? (
+                    <div className="space-y-2">
+                      <textarea rows={4} value={requirementsText} onChange={(e) => setRequirementsText(e.target.value)}
+                        placeholder="e.g. Needs weekend batch, prefers Tamil-medium instruction, has a laptop already…"
+                        className={`w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+                      <div className="flex items-center gap-2">
+                        <button onClick={handleSaveRequirements} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">Save</button>
+                        <button onClick={() => setEditingRequirements(false)} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'text-dark-400 hover:text-dark-200' : 'text-dark-500 hover:text-dark-700'}`}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`rounded-lg p-3 text-sm whitespace-pre-wrap ${isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-50 text-dark-600'}`}>
+                      {lead.notes || 'No special requirements noted.'}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3091,6 +3171,12 @@ function Leads() {
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, batch_timing: newTiming } : prev))
   }
 
+  const handleSpecialRequirementsChange = (lead, text) => {
+    updateLead({ ...lead, notes: text })
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, notes: text } : prev))
+    showNotification('Requirements saved')
+  }
+
   // Admission Confirmation never writes anything itself — it just calls the
   // one chained workflow function and reports the result back to the modal
   // (student/invoice/whether a student already existed) for the success
@@ -3263,6 +3349,7 @@ function Leads() {
             onConfirmAdmission={handleConfirmAdmission}
             onDiscountChange={handleDiscountChange}
             onBatchTimingChange={handleBatchTimingChange}
+            onSpecialRequirementsChange={handleSpecialRequirementsChange}
             onGenerateFeeBill={generateFeeBill}
             onUnlockInvoice={unlockInvoice}
             isAdmin={isAdmin}
