@@ -2661,12 +2661,9 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                           </button>
                         ))}
                       </div>
-                      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                      <motion.button whileHover={lead.status === 'enrolled' ? { scale: 1.02 } : undefined} whileTap={lead.status === 'enrolled' ? { scale: 0.98 } : undefined}
+                        disabled={lead.status !== 'enrolled'}
                         onClick={async () => {
-                          if (lead.status !== 'enrolled') {
-                            showNotification('Please enroll the student first before generating a fee bill', 'error')
-                            return
-                          }
                           const planLabel = ['Full Payment', '2 Installments', '3 Installments'][feePlan]
                           const result = await onGenerateFeeBill(lead, matchingPackage, planLabel)
                           if (result?.blocked) {
