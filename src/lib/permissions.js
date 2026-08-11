@@ -23,7 +23,7 @@ export const ROLE_PERMISSIONS = {
     productivity: 'all',
     reports: ['view', 'export'],
     classSchedule: ['view', 'create', 'edit', 'delete'],
-    automation: ['view', 'create', 'edit', 'enable_disable'],
+    automation: ['view', 'create', 'edit', 'enable_disable', 'delete', 'view_logs', 'retry'],
   },
   manager: {
     studentAttendance: ['view', 'mark', 'edit', 'correct', 'export'],
@@ -32,7 +32,12 @@ export const ROLE_PERMISSIONS = {
     productivity: 'team',
     reports: ['view', 'export'],
     classSchedule: ['view'],
-    automation: ['view'],
+    // Managers can see workflows and logs (and retry a failed action — an
+    // operational fix, not a rule change) but not create/edit/enable/
+    // disable/delete a workflow — that stays admin-only, matching the
+    // spec's "Only authorized administrators... unless explicitly
+    // authorized" for rule changes specifically.
+    automation: ['view', 'view_logs', 'retry'],
   },
   sales: {
     // Matches existing behavior: any authenticated staff can mark

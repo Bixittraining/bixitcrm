@@ -14,6 +14,7 @@ import {
   BarChart3,
   MessageSquare,
   Settings,
+  Zap,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
+import { can } from '../../lib/permissions'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,6 +38,9 @@ const navItems = [
   { to: '/pipeline', label: 'Pipeline', icon: GitBranch },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/conversations', label: 'Conversations', icon: MessageSquare },
+  // Sales reps get automation: [] in ROLE_PERMISSIONS — this item just
+  // doesn't render for them, same pattern as the isAdmin filter below.
+  { to: '/automation', label: 'Automation', icon: Zap, permission: (profile) => can(profile, 'automation', 'view') },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -73,7 +78,7 @@ function useIsDesktop() {
 export default function Sidebar({ collapsed, setCollapsed, onLogout, onNavigate }) {
   const { theme, toggleTheme } = useTheme()
   const { profile, initials, isAdmin } = useAuth()
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin)
+  const visibleNavItems = navItems.filter((item) => (!item.adminOnly || isAdmin) && (!item.permission || item.permission(profile)))
   const isDark = theme === 'dark'
   const isDesktop = useIsDesktop()
   const location = useLocation()

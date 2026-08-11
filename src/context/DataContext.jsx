@@ -1,9 +1,13 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { emitAutomationEvent, AUTOMATION_EVENTS, isBelowAttendanceThreshold } from '../lib/automation'
+import {
+  emitAutomationEvent, AUTOMATION_EVENTS, isBelowAttendanceThreshold,
+  emitLeadCreatedEvent, emitLeadAssignedEvent, emitLeadStatusEvents, emitPaymentEvent, buildLeadEventPayload,
+} from '../lib/automation'
 import { isClassScheduledOn } from '../lib/schedule'
 import { logAuditEvent } from '../lib/audit'
-import { statusLabel } from '../lib/leadStatus'
+import { statusLabel, isPipelineStage, statusOrder } from '../lib/leadStatus'
+import { relativeDayAt } from '../lib/activityTypes'
 
 const DataContext = createContext()
 
@@ -22,6 +26,11 @@ function nextInvoiceId(list) {
   return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`
 }
 
+// Meeting outcomes that map directly to a pipeline stage of the same
+// meaning — only these advance lead status automatically (see
+// recordMeetingOutcome below). Every other outcome just gets logged.
+const MEETING_OUTCOME_STATUS = { 'Package Shared': 'package_shared' }
+
 export function DataProvider({ children }) {
   const [leads, setLeads] = useState([])
   const [followUps, setFollowUps] = useState([])
@@ -38,13 +47,15 @@ export function DataProvider({ children }) {
   const [attendance, setAttendance] = useState([])
   const [staffAttendance, setStaffAttendance] = useState([])
   const [emailMessages, setEmailMessages] = useState([])
+  const [automationWorkflows, setAutomationWorkflows] = useState([])
+  const [automationExecutions, setAutomationExecutions] = useState([])
   const [loading, setLoading] = useState(true)
 
   // ── INITIAL LOAD ─────────────────────────────────────────
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes, staffAttendanceRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes, staffAttendanceRes, automationWorkflowsRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -60,6 +71,9 @@ export function DataProvider({ children }) {
         supabase.from('attendance').select('*').order('date', { ascending: false }),
         supabase.from('email_messages').select('*').order('created_at', { ascending: false }),
         supabase.from('staff_attendance').select('*').order('date', { ascending: false }),
+        // Empty for sales (RLS only grants SELECT to admin/manager, see
+        // 0042_automation_engine.sql) — not an error, just zero rows.
+        supabase.from('automation_workflows').select('*, automation_workflow_conditions(*), automation_workflow_actions(*)').order('created_at', { ascending: false }),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -77,6 +91,7 @@ export function DataProvider({ children }) {
       if (attendanceRes.error) console.error('attendance error', attendanceRes.error)
       if (emailMessagesRes.error) console.error('email_messages error', emailMessagesRes.error)
       if (staffAttendanceRes.error) console.error('staff_attendance error', staffAttendanceRes.error)
+      if (automationWorkflowsRes.error) console.error('automation_workflows error', automationWorkflowsRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -96,7 +111,17 @@ export function DataProvider({ children }) {
       setAttendance(attendanceRes.data || [])
       setEmailMessages(emailMessagesRes.data || [])
       setStaffAttendance(staffAttendanceRes.data || [])
+      setAutomationWorkflows((automationWorkflowsRes.data || []).map(mapWorkflowFromDb))
       setLoading(false)
+
+      // Delayed/business-hours-deferred automation actions ("THEN ... after
+      // 1 day") have no cron to run them — this sweep is the substitute:
+      // whoever has the CRM open picks up anything due since it was last
+      // checked. Fire-and-forget, same as every other automation call; a
+      // failure here must never affect the rest of the app loading.
+      supabase.functions.invoke('automation-engine', { body: { mode: 'run_scheduled' } }).catch((err) => {
+        console.error('automation-engine run_scheduled invoke failed', err)
+      })
 
       // Reconcile stale data: a follow-up left "pending" for a lead that has
       // already reached a terminal outcome (enrolled/lost) is dead weight —
@@ -141,17 +166,34 @@ export function DataProvider({ children }) {
   function mapFollowUpFromDb(f) {
     return { ...f }
   }
+  // Conditions/actions come back from the embedded select unordered —
+  // sorted here once so every consumer (the builder, the list, a
+  // duplicate) can just read `.conditions`/`.actions` in the right order.
+  function mapWorkflowFromDb(w) {
+    return {
+      ...w,
+      conditions: (w.automation_workflow_conditions || []).slice().sort((a, b) => a.position - b.position),
+      actions: (w.automation_workflow_actions || []).slice().sort((a, b) => a.position - b.position),
+    }
+  }
 
   // ── LEAD ACTIVITIES (timeline) ────────────────────────────
-  const addActivity = useCallback(async (leadId, fromStatus, toStatus, description) => {
+  // activityType (optional 5th arg) is one of the ACTIVITY_TYPES keys from
+  // lib/activityTypes — it's what lets the Timeline show the right icon and
+  // be filtered reliably instead of guessing from the description text.
+  // Every addActivity call site in this file passes one; a missing type
+  // just falls back to a generic entry visible under "All".
+  const addActivity = useCallback(async (leadId, fromStatus, toStatus, description, activityType) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const actorName = teamMembers.find((m) => m.id === user?.id)?.name || null
     const { data, error } = await supabase
       .from('lead_activities')
-      .insert({ lead_id: leadId, from_status: fromStatus || null, to_status: toStatus || null, description })
+      .insert({ lead_id: leadId, from_status: fromStatus || null, to_status: toStatus || null, description, actor_id: user?.id || null, actor_name: actorName, activity_type: activityType || null })
       .select()
       .single()
     if (error) { console.error('addActivity error', error); return }
     setLeadActivities((prev) => [data, ...prev])
-  }, [])
+  }, [teamMembers])
 
   // A lead reaching a terminal outcome (enrolled/lost) means any follow-up
   // still marked "pending" for it is dead weight — auto-close it so it
@@ -179,18 +221,22 @@ export function DataProvider({ children }) {
     // Every new lead — manually added, CSV imported, whatever the source —
     // gets round-robin distributed across Sales Executives instead of
     // defaulting to whoever happened to create it. Falls back to the
-    // creating user only if there are no sales reps yet to assign to.
+    // creating user only if there are no sales reps yet to assign to. The
+    // acting user is also who LEAD_CREATED's automation payload credits as
+    // "who did this", regardless of who the lead itself lands on.
     const { data: rrData } = await supabase.rpc('assign_next_sales_rep')
-    let assignedTo = rrData || null
-    if (!assignedTo) {
-      const { data: { user } } = await supabase.auth.getUser()
-      assignedTo = user?.id || null
-    }
+    const { data: { user: actingUser } } = await supabase.auth.getUser()
+    const assignedTo = rrData || actingUser?.id || null
     const { data, error } = await supabase.from('leads').insert({ ...leadData, assigned_to: assignedTo }).select().single()
     if (error) { console.error('addLead error', error); return { error: error.message } }
     const mapped = mapLeadFromDb(data)
     setLeads((prev) => [mapped, ...prev])
-    addActivity(data.id, null, data.status, `Lead created from ${data.source}`)
+    addActivity(data.id, null, data.status, `Lead created from ${data.source}`, 'LEAD_CREATED')
+    // Automation Event — no WhatsApp/Email sent here; the future
+    // Automation Engine reacts to this (e.g. the Facebook-source example
+    // rule in AUTOMATION_RULES). Never awaited: an automation hiccup must
+    // never delay or fail lead creation itself.
+    emitLeadCreatedEvent({ lead: mapped, userId: actingUser?.id || null })
     return { data: mapped }
   }, [addActivity, leads])
 
@@ -207,8 +253,20 @@ export function DataProvider({ children }) {
     setLeads((prev) => prev.map((l) => l.id === leadId ? mapLeadFromDb(data) : l))
     const lead = leads.find((l) => l.id === leadId)
     const agentName = teamMembers.find((m) => m.id === user.id)?.name || 'A team member'
-    addActivity(leadId, lead?.status, lead?.status, `${agentName} took over this lead`)
+    addActivity(leadId, lead?.status, lead?.status, `${agentName} took over this lead`, 'LEAD_ASSIGNED')
+    emitLeadAssignedEvent({ lead: mapLeadFromDb(data), leadId, userId: user.id, assignedExecutive: user.id })
   }, [leads, teamMembers, addActivity])
+
+  // activity_type is inferred from the resulting status (enrolled/lost get
+  // their own distinct timeline type; everything else is a generic status
+  // change) so every caller — the Lost modal, the Nurture modal, the Edit
+  // Lead form — gets correctly classified without each one having to know
+  // the activity-type taxonomy itself.
+  function inferStatusActivityType(newStatus) {
+    if (newStatus === 'enrolled') return 'LEAD_ENROLLED'
+    if (newStatus === 'lost') return 'LEAD_LOST'
+    return 'STATUS_CHANGED'
+  }
 
   const updateLead = useCallback(async (updatedLead, activityDescription) => {
     const avatar = updatedLead.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
@@ -221,10 +279,15 @@ export function DataProvider({ children }) {
       .select()
       .single()
     if (error) { console.error('updateLead error', error); return }
-    setLeads((prev) => prev.map((l) => l.id === id ? mapLeadFromDb(data) : l))
+    const mapped = mapLeadFromDb(data)
+    setLeads((prev) => prev.map((l) => l.id === id ? mapped : l))
     if (prevLead && prevLead.status !== data.status) {
-      addActivity(id, prevLead.status, data.status, activityDescription || `Status changed from ${prevLead.status} to ${data.status}`)
+      const activityType = inferStatusActivityType(data.status)
+      addActivity(id, prevLead.status, data.status, activityDescription || `Status changed from ${prevLead.status} to ${data.status}`, activityType)
       if (data.status === 'enrolled' || data.status === 'lost') closePendingFollowUps(data.name)
+      supabase.auth.getUser().then(({ data: { user } }) =>
+        emitLeadStatusEvents({ lead: mapped, leadId: id, userId: user?.id || null, previousStatus: prevLead.status, newStatus: data.status, activityType })
+      )
     }
   }, [leads, addActivity, closePendingFollowUps])
 
@@ -234,7 +297,12 @@ export function DataProvider({ children }) {
     setLeads((prev) => prev.filter((l) => l.id !== leadId))
   }, [])
 
-  const updateLeadStatus = useCallback(async (leadId, newStatus, description) => {
+  // activityType lets a caller override the inferred type — reopenLead
+  // always wants LEAD_REOPENED regardless of which status it lands on, and
+  // markPackageShared always wants PACKAGE_SHARED even though the target
+  // status ("package_shared") would otherwise just infer a generic status
+  // change.
+  const updateLeadStatus = useCallback(async (leadId, newStatus, description, activityType) => {
     const prevLead = leads.find((l) => l.id === leadId)
     // Same status re-selected (e.g. a re-render firing the same choice
     // twice) is a no-op, not a real transition — skip the write and the
@@ -247,39 +315,146 @@ export function DataProvider({ children }) {
       .select()
       .single()
     if (error) { console.error('updateLeadStatus error', error); return }
-    setLeads((prev) => prev.map((l) => l.id === leadId ? mapLeadFromDb(data) : l))
-    addActivity(leadId, prevLead?.status, newStatus, description || `Status changed from ${statusLabel(prevLead?.status) || '—'} to ${statusLabel(newStatus)}`)
+    const mapped = mapLeadFromDb(data)
+    setLeads((prev) => prev.map((l) => l.id === leadId ? mapped : l))
+    const resolvedActivityType = activityType || inferStatusActivityType(newStatus)
+    addActivity(leadId, prevLead?.status, newStatus, description || `Status changed from ${statusLabel(prevLead?.status) || '—'} to ${statusLabel(newStatus)}`, resolvedActivityType)
     if (newStatus === 'enrolled' || newStatus === 'lost') closePendingFollowUps(data.name)
+    // Automation Event(s) — every status change funnels through this one
+    // function (Lead List, Lead Detail, Pipeline drag/move, Reopen, Package
+    // Shared all call it), so this is the single place that needs to know
+    // how to turn a transition into LEAD_STATUS_CHANGED + whichever
+    // milestone event applies. Never awaited — see emitAutomationEvent's
+    // failure-handling note.
+    supabase.auth.getUser().then(({ data: { user } }) =>
+      emitLeadStatusEvents({ lead: mapped, leadId, userId: user?.id || null, previousStatus: prevLead?.status, newStatus, activityType: resolvedActivityType })
+    )
   }, [leads, addActivity, closePendingFollowUps])
 
   // ── FOLLOW-UPS ───────────────────────────────────────────
+  // addFollowUp/updateFollowUp are the only two functions that ever touch
+  // the follow_ups table — every surface (Lead List, Lead Detail, the
+  // Follow-up module, Pipeline's read-only display) goes through these, so
+  // "who created it" / "who completed it" get stamped in exactly one place
+  // instead of every call site having to remember to do it.
   const addFollowUp = useCallback(async (followUp) => {
     const { id, ...fuData } = followUp
-    const { data, error } = await supabase.from('follow_ups').insert(fuData).select().single()
+    const { data: { user } } = await supabase.auth.getUser()
+    const payload = { ...fuData, created_by: fuData.created_by ?? user?.id ?? null }
+    const { data, error } = await supabase.from('follow_ups').insert(payload).select().single()
     if (error) { console.error('addFollowUp error', error); return }
-    setFollowUps((prev) => [mapFollowUpFromDb(data), ...prev])
+    const mapped = mapFollowUpFromDb(data)
+    setFollowUps((prev) => [mapped, ...prev])
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_CREATED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    if (mapped.type === 'meeting') {
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.COUNSELLING_SCHEDULED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    }
+    return mapped
   }, [])
 
   const updateFollowUp = useCallback(async (followUpId, updates) => {
+    const payload = { ...updates }
+    if (updates.status === 'completed' && !('completed_by' in updates)) {
+      const { data: { user } } = await supabase.auth.getUser()
+      payload.completed_by = user?.id ?? null
+      payload.completed_at = new Date().toISOString()
+    }
     const { data, error } = await supabase
       .from('follow_ups')
-      .update(updates)
+      .update(payload)
       .eq('id', followUpId)
       .select()
       .single()
     if (error) { console.error('updateFollowUp error', error); return }
+    const mapped = mapFollowUpFromDb(data)
     // Moves the touched follow-up to the front of the list so an action
     // (RNR, reschedule, mark complete) is visibly reflected immediately —
     // otherwise it silently stays buried in its old spot and reps re-do
     // the same action thinking nothing happened.
-    setFollowUps((prev) => [mapFollowUpFromDb(data), ...prev.filter((f) => f.id !== followUpId)])
-  }, [])
+    setFollowUps((prev) => [mapped, ...prev.filter((f) => f.id !== followUpId)])
+    const isMeeting = mapped.type === 'meeting'
+    const emit = (eventType) => emitAutomationEvent({ eventType, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    if (updates.status === 'completed') {
+      emit(AUTOMATION_EVENTS.FOLLOW_UP_COMPLETED)
+      if (isMeeting) emit(AUTOMATION_EVENTS.COUNSELLING_COMPLETED)
+      // Automatic "Follow-up Completed" timeline entry — meetings are
+      // excluded here since recordMeetingOutcome already logs its own
+      // richer "Meeting Completed" entry (with the outcome) right after
+      // calling this; logging both would duplicate the same fact twice.
+      if (!isMeeting) {
+        const lead = leads.find((l) => l.id === mapped.lead_id || l.name === mapped.lead)
+        if (lead) addActivity(lead.id, lead.status, lead.status, `${mapped.type ? mapped.type.charAt(0).toUpperCase() + mapped.type.slice(1) : 'Follow-up'} completed`, 'FOLLOWUP_COMPLETED')
+      }
+    } else if (updates.status === 'cancelled' && isMeeting) {
+      emit(AUTOMATION_EVENTS.COUNSELLING_CANCELLED)
+    } else if (updates.status === 'no_show' && isMeeting) {
+      emit(AUTOMATION_EVENTS.COUNSELLING_NO_SHOW)
+    }
+    return mapped
+  }, [leads, addActivity])
 
   const deleteFollowUp = useCallback(async (followUpId) => {
     const { error } = await supabase.from('follow_ups').delete().eq('id', followUpId)
     if (error) { console.error('deleteFollowUp error', error); return }
     setFollowUps((prev) => prev.filter((f) => f.id !== followUpId))
   }, [])
+
+  // The single creation path for a lead follow-up — Lead List's row action,
+  // Lead Detail's "Schedule Follow-up"/"Schedule Counselling", and the
+  // Follow-up module's own "Schedule Follow-up" modal all call this instead
+  // of writing to follow_ups themselves, so all three produce the exact
+  // same record shape and trigger the exact same side effects.
+  //
+  // form: { type, date, time, notes, priority, assignedTo?, meetingType? }
+  const scheduleFollowUp = useCallback(async (lead, form) => {
+    const timeStr = /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(form.time)
+      ? form.time
+      : new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    const isMeeting = form.type === 'meeting'
+    // A meeting and a call/email/whatsapp follow-up are different kinds of
+    // appointments — rescheduling one should never silently overwrite the
+    // other, so each only reuses an existing pending row of its own kind.
+    // This is also what "do not create duplicate meetings" means in
+    // practice: a lead can only ever have one pending meeting at a time.
+    const existing = followUps.find((f) => (f.lead_id === lead.id || f.lead === lead.name) && f.status === 'pending' && (f.type === 'meeting') === isMeeting)
+    const assignedTo = form.assignedTo || lead.assigned_to || null
+    const meetingType = isMeeting ? (form.meetingType || 'online') : null
+    const result = existing
+      ? await updateFollowUp(existing.id, { type: form.type, date: form.date, time: timeStr, notes: form.notes, priority: form.priority, status: 'pending', assigned_to: assignedTo, meeting_type: meetingType })
+      : await addFollowUp({ id: Date.now(), lead: lead.name, lead_id: lead.id, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority, assigned_to: assignedTo, meeting_type: meetingType })
+
+    const whenLabel = relativeDayAt(form.date, timeStr)
+    addActivity(lead.id, lead.status, lead.status, isMeeting
+      ? `Counselling scheduled — ${whenLabel}`
+      : `${form.type} follow-up scheduled — ${whenLabel}`, isMeeting ? 'MEETING_SCHEDULED' : 'FOLLOWUP_CREATED')
+    if (!lead.assigned_to) takeOverLead(lead.id)
+
+    // Central workflow rule: scheduling a counselling meeting nudges an
+    // active lead forward to "Counselling"; a plain follow-up nudges it to
+    // "Follow-up" — but only if the lead is still earlier in the pipeline.
+    // A lead already at Negotiation or beyond, or already closed/nurtured,
+    // never gets moved backward or touched just because something got
+    // scheduled.
+    const targetStatus = isMeeting ? 'counselling' : 'follow_up'
+    if (isPipelineStage(lead.status) && statusOrder(lead.status) < statusOrder(targetStatus)) {
+      updateLeadStatus(lead.id, targetStatus, isMeeting ? `Counselling scheduled — ${whenLabel}` : `Follow-up scheduled — ${whenLabel}`)
+    }
+    return result
+  }, [followUps, addFollowUp, updateFollowUp, addActivity, takeOverLead, updateLeadStatus])
+
+  // Records what happened at a counselling meeting and suggests — never
+  // forces — the next step. The one exception: "Package Shared" as an
+  // outcome IS the pipeline stage of the same name, so that one case
+  // advances status directly (still never backward, still never past a
+  // closed/nurtured lead) — every other outcome only gets logged.
+  const recordMeetingOutcome = useCallback(async (lead, meeting, outcome, notes) => {
+    await updateFollowUp(meeting.id, { status: 'completed', notes: notes ? `${outcome}: ${notes}` : outcome })
+    await addActivity(lead.id, lead.status, lead.status, `Counselling completed — Outcome: ${outcome}${notes ? `. ${notes}` : ''}`, 'MEETING_COMPLETED')
+    const targetStatus = MEETING_OUTCOME_STATUS[outcome]
+    if (targetStatus && isPipelineStage(lead.status) && statusOrder(lead.status) < statusOrder(targetStatus)) {
+      updateLeadStatus(lead.id, targetStatus, `Package shared during counselling`, 'PACKAGE_SHARED')
+    }
+  }, [updateFollowUp, addActivity, updateLeadStatus])
 
   // ── STUDENTS ─────────────────────────────────────────────
   const addStudent = useCallback(async (student) => {
@@ -552,9 +727,15 @@ export function DataProvider({ children }) {
       .select()
       .single()
     if (leadErr) { console.error('enrollLead: lead update error', leadErr); return }
-    setLeads((prev) => prev.map((l) => l.id === lead.id ? mapLeadFromDb(updatedLead) : l))
-    addActivity(lead.id, lead.status, 'enrolled', `Enrolled in ${lead.course}`)
+    const mappedLead = mapLeadFromDb(updatedLead)
+    setLeads((prev) => prev.map((l) => l.id === lead.id ? mappedLead : l))
+    addActivity(lead.id, lead.status, 'enrolled', `Enrolled in ${lead.course}`, 'LEAD_ENROLLED')
     closePendingFollowUps(lead.name)
+    // Automation Event — the Pipeline board's quick-enroll path. Same event
+    // confirmAdmission's fuller workflow emits below; deduplicated by the
+    // unique (event_type, source_table, source_id) constraint if somehow
+    // both paths ever fired for the same lead.
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.LEAD_ENROLLED, entityType: 'lead', entityId: lead.id, sourceTable: 'leads', sourceId: lead.id, payload: buildLeadEventPayload(mappedLead, { previousStatus: lead.status, newStatus: 'enrolled' }) })
 
     // 2. skip if this exact lead was already turned into a student — matching
     // on email alone is wrong: multiple different leads can share a
@@ -619,6 +800,25 @@ export function DataProvider({ children }) {
       setInvoices((prev) => [mapInvoiceFromDb(invoiceData), ...prev])
     }
   }, [students, invoices, addActivity, closePendingFollowUps, batches])
+
+  // Sharing a package is explicitly NOT enrollment — this only nudges
+  // status forward (never backward, never past a closed/nurtured lead),
+  // same central-rule shape as scheduleFollowUp's status advance.
+  const markPackageShared = useCallback(async (lead) => {
+    if (isPipelineStage(lead.status) && statusOrder(lead.status) < statusOrder('package_shared')) {
+      await updateLeadStatus(lead.id, 'package_shared', 'Package shared with lead', 'PACKAGE_SHARED')
+    }
+  }, [updateLeadStatus])
+
+  // Authorized users (checked by the caller — see the admin gate on the
+  // Reopen action) can bring a Lost/Nurture lead back into the active
+  // pipeline. Nothing about history is deleted: the previous status, new
+  // status, reason, actor, and timestamp all land in the timeline exactly
+  // like every other status change, just framed as a reopen.
+  const reopenLead = useCallback(async (lead, newStatus, reason) => {
+    const description = `Reopened — ${statusLabel(lead.status)} → ${statusLabel(newStatus)}${reason ? `. Reason: ${reason}` : ''}`
+    await updateLeadStatus(lead.id, newStatus, description, 'LEAD_REOPENED')
+  }, [updateLeadStatus])
 
   // A student's Fee Progress (Students page) reads students.fee_paid /
   // fee_total directly — it has nothing to do with the invoices table on
@@ -747,6 +947,7 @@ export function DataProvider({ children }) {
     setInvoices((prev) => [mapped, ...prev])
     syncStudentFee(lead.name, lead.course, 0, totalWithGst)
     createInstallmentSchedule(mapped.id, planLabel, totalWithGst, invoiceDate)
+    if (mapped.balance > 0) emitPaymentEvent({ eventType: AUTOMATION_EVENTS.PAYMENT_PENDING, lead, invoiceId: mapped.id, amount: mapped.balance })
     return { invoice: mapped }
   }, [invoices, syncStudentFee, createInstallmentSchedule, applyPaymentToSchedule])
 
@@ -766,14 +967,19 @@ export function DataProvider({ children }) {
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
   }, [])
 
-  const recordPayment = useCallback(async (invoiceId, amount, paymentMode, date) => {
+  // The one place a payment is ever written — Billing's payment form and
+  // the admission workflow both call this, so "Paid/Pending/Total" and the
+  // lead timeline stay correct no matter which surface recorded it.
+  const recordPayment = useCallback(async (invoiceId, amount, paymentMode, date, reference) => {
     const invoice = invoices.find((inv) => inv.id === invoiceId)
-    if (!invoice) return
+    if (!invoice) return false
     const newPaid = invoice.paid + amount
     const newBalance = invoice.amount - newPaid
+    const payload = { paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial', payment_mode: paymentMode || invoice.paymentMode, date: date || invoice.date }
+    if (reference !== undefined) payload.reference = reference || null
     const { data, error } = await supabase
       .from('invoices')
-      .update({ paid: newPaid, balance: newBalance, status: newBalance <= 0 ? 'paid' : 'partial', payment_mode: paymentMode || invoice.paymentMode, date: date || invoice.date })
+      .update(payload)
       .eq('id', invoiceId)
       .select()
       .single()
@@ -782,8 +988,99 @@ export function DataProvider({ children }) {
     setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? mapped : inv))
     syncStudentFee(mapped.student, mapped.course, mapped.paid, mapped.amount)
     if (installments.some((i) => i.invoice_id === invoiceId)) await applyPaymentToSchedule(invoiceId, amount)
+    const lead = leads.find((l) => l.name === mapped.student && l.course === mapped.course)
+    if (lead) {
+      addActivity(lead.id, lead.status, lead.status, `Payment received — ₹${amount.toLocaleString('en-IN')} via ${paymentMode || 'existing method'}${reference ? ` (Ref: ${reference})` : ''}`, 'PAYMENT_RECEIVED')
+      emitPaymentEvent({ eventType: AUTOMATION_EVENTS.PAYMENT_RECEIVED, lead, invoiceId, amount })
+    }
     return true
-  }, [invoices, syncStudentFee, installments, applyPaymentToSchedule])
+  }, [invoices, syncStudentFee, installments, applyPaymentToSchedule, leads, addActivity])
+
+  // The one and only path from "counsellor clicked Enroll" to a real
+  // admission: Student Conversion → Course Association → Package
+  // Association → Batch Assignment → Fee Plan → Payment → Lead = Enrolled
+  // → Timeline → Automation Event. Nothing before this function runs
+  // touches the database — the confirmation modal calls this exactly once,
+  // on confirm.
+  //
+  // options: { pkg, batchId, discountPercent, initialPayment, paymentMethod, referenceNumber, admissionDate }
+  const confirmAdmission = useCallback(async (lead, options) => {
+    const { pkg, batchId, discountPercent = 0, initialPayment = 0, paymentMethod = 'UPI', referenceNumber, admissionDate } = options
+    const enrollDate = admissionDate || new Date().toISOString().slice(0, 10)
+    const batch = batches.find((b) => b.id === batchId)
+    const basePrice = pkg?.price || 0
+    const discountedBase = basePrice * (1 - (discountPercent || 0) / 100)
+    const finalAmount = Math.round(discountedBase * 1.18)
+
+    // ── Duplicate protection — never create a second student for a lead
+    // that's already been converted. Match on name + course, same
+    // convention used everywhere else this link is made.
+    const existingStudent = students.find((s) => s.name === lead.name && s.course === lead.course)
+    let student = existingStudent
+
+    if (!existingStudent) {
+      const { data, error } = await supabase.from('students').insert({
+        name: lead.name, email: lead.email, phone: lead.phone, course: lead.course,
+        batch_id: batch?.id || null, batch: batch?.name || 'Unassigned',
+        enroll_date: enrollDate, status: 'active', fee_paid: 0, fee_total: finalAmount, avatar: lead.avatar,
+      }).select().single()
+      if (error) { console.error('confirmAdmission: student insert error', error); return { error: error.message } }
+      student = mapStudentFromDb(data)
+      setStudents((prev) => [student, ...prev])
+      addActivity(lead.id, lead.status, lead.status, `Student record created for ${lead.name} — course: ${lead.course}`)
+      if (batch) addActivity(lead.id, lead.status, lead.status, `Batch assigned: ${batch.name}`)
+    } else if (batch && existingStudent.batch_id !== batch.id) {
+      // Existing student found (duplicate protection) — still honor the
+      // batch chosen here if they didn't already have one, but never
+      // insert a second student record.
+      const { data, error } = await supabase.from('students').update({ batch_id: batch.id, batch: batch.name }).eq('id', existingStudent.id).select().single()
+      if (!error) {
+        student = mapStudentFromDb(data)
+        setStudents((prev) => prev.map((s) => s.id === student.id ? student : s))
+        addActivity(lead.id, lead.status, lead.status, `Batch assigned: ${batch.name}`)
+      }
+    }
+
+    // ── Fee Plan — reuse an existing invoice for this student+course
+    // instead of creating a duplicate fee bill.
+    let invoice = invoices.find((inv) => inv.student === lead.name && inv.course === lead.course)
+    if (!invoice) {
+      const invoiceId = nextInvoiceId(invoices)
+      const { data, error } = await supabase.from('invoices').insert({
+        id: invoiceId, student: lead.name, course: lead.course,
+        amount: finalAmount, paid: 0, balance: finalAmount,
+        date: enrollDate, due_date: new Date(new Date(enrollDate).getTime() + 30 * 86400000).toISOString().slice(0, 10),
+        status: 'partial', payment_mode: paymentMethod, discount_percent: discountPercent,
+      }).select().single()
+      if (error) { console.error('confirmAdmission: invoice insert error', error); return { error: error.message } }
+      invoice = mapInvoiceFromDb(data)
+      setInvoices((prev) => [invoice, ...prev])
+      addActivity(lead.id, lead.status, lead.status, `Fee bill created — ₹${finalAmount.toLocaleString('en-IN')}${discountPercent ? ` (${discountPercent}% discount applied)` : ''}`, 'FEE_BILL_CREATED')
+      // Only worth flagging as "pending" if the initial payment collected
+      // right here won't already cover it in full — recordPayment below
+      // fires its own PAYMENT_RECEIVED regardless.
+      if (finalAmount - initialPayment > 0) emitPaymentEvent({ eventType: AUTOMATION_EVENTS.PAYMENT_PENDING, lead, invoiceId: invoice.id, amount: finalAmount - initialPayment })
+    }
+
+    // ── Payment — the initial amount collected at admission, through the
+    // exact same recordPayment path every other payment goes through.
+    if (initialPayment > 0) {
+      await recordPayment(invoice.id, initialPayment, paymentMethod, enrollDate, referenceNumber)
+    }
+
+    // ── Lead = Enrolled
+    const { data: updatedLead, error: leadErr } = await supabase.from('leads').update({ status: 'enrolled' }).eq('id', lead.id).select().single()
+    if (leadErr) { console.error('confirmAdmission: lead update error', leadErr); return { error: leadErr.message } }
+    setLeads((prev) => prev.map((l) => l.id === lead.id ? mapLeadFromDb(updatedLead) : l))
+    addActivity(lead.id, lead.status, 'enrolled', `Admission confirmed — enrolled in ${lead.course}`, 'LEAD_ENROLLED')
+    closePendingFollowUps(lead.name)
+
+    // ── Automation Event — no WhatsApp/Email sent here; the future
+    // Automation Engine reacts to this event for that.
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.LEAD_ENROLLED, entityType: 'lead', entityId: lead.id, sourceTable: 'leads', sourceId: lead.id })
+
+    return { student, invoice, wasExistingStudent: !!existingStudent }
+  }, [students, invoices, batches, addActivity, recordPayment, closePendingFollowUps])
 
   const createInvoice = useCallback(async (invoiceData) => {
     const { data, error } = await supabase.from('invoices').insert(invoiceData).select().single()
@@ -793,12 +1090,124 @@ export function DataProvider({ children }) {
     return mapped
   }, [])
 
+  // ── AUTOMATION WORKFLOWS ────────────────────────────────────────────
+  // CRUD only — matching/condition-checking/action-execution never happens
+  // here or anywhere else in the frontend. This is the admin-facing
+  // "define the workflow" side; the automation-engine Edge Function
+  // (triggered from emitAutomationEvent in lib/automation.js) is the only
+  // thing that ever reads these rows to decide what runs.
+  const refetchWorkflow = useCallback(async (workflowId) => {
+    const { data, error } = await supabase
+      .from('automation_workflows')
+      .select('*, automation_workflow_conditions(*), automation_workflow_actions(*)')
+      .eq('id', workflowId)
+      .single()
+    if (error) { console.error('refetchWorkflow error', error); return null }
+    const mapped = mapWorkflowFromDb(data)
+    setAutomationWorkflows((prev) => [mapped, ...prev.filter((w) => w.id !== workflowId)])
+    return mapped
+  }, [])
+
+  // conditions/actions are replaced wholesale on every save — simplest
+  // correct way to handle reordering/removal without diffing, and these
+  // lists are short (a handful of rows) so the delete+reinsert is cheap.
+  const writeWorkflowChildren = useCallback(async (workflowId, conditions, actions) => {
+    await supabase.from('automation_workflow_conditions').delete().eq('workflow_id', workflowId)
+    await supabase.from('automation_workflow_actions').delete().eq('workflow_id', workflowId)
+    if (conditions?.length) {
+      const rows = conditions.map((c, i) => ({ workflow_id: workflowId, field: c.field, operator: c.operator, value: c.value ?? null, position: i }))
+      const { error } = await supabase.from('automation_workflow_conditions').insert(rows)
+      if (error) console.error('writeWorkflowChildren conditions error', error)
+    }
+    if (actions?.length) {
+      const rows = actions.map((a, i) => ({ workflow_id: workflowId, action_type: a.action_type, config: a.config || {}, delay_minutes: a.delay_minutes || 0, position: i }))
+      const { error } = await supabase.from('automation_workflow_actions').insert(rows)
+      if (error) console.error('writeWorkflowChildren actions error', error)
+    }
+  }, [])
+
+  const createWorkflow = useCallback(async ({ name, description, triggerEvent, status, conditions, actions }) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const createdByName = teamMembers.find((m) => m.id === user?.id)?.name || null
+    const { data, error } = await supabase.from('automation_workflows').insert({
+      name, description: description || null, trigger_event: triggerEvent, status: status || 'draft',
+      created_by: user?.id || null, created_by_name: createdByName,
+    }).select().single()
+    if (error) { console.error('createWorkflow error', error); return { error: error.message } }
+    await writeWorkflowChildren(data.id, conditions, actions)
+    return { data: await refetchWorkflow(data.id) }
+  }, [teamMembers, writeWorkflowChildren, refetchWorkflow])
+
+  const updateWorkflow = useCallback(async (workflowId, { name, description, triggerEvent, status, conditions, actions }) => {
+    const { error } = await supabase.from('automation_workflows').update({
+      name, description: description || null, trigger_event: triggerEvent, status, updated_at: new Date().toISOString(),
+    }).eq('id', workflowId)
+    if (error) { console.error('updateWorkflow error', error); return { error: error.message } }
+    await writeWorkflowChildren(workflowId, conditions, actions)
+    return { data: await refetchWorkflow(workflowId) }
+  }, [writeWorkflowChildren, refetchWorkflow])
+
+  // Draft/Active/Inactive (spec section 8) — only Active workflows are
+  // matched by the engine (see automation_workflows.status = 'active' in
+  // the Edge Function's query); this is the only place that flips it.
+  const setWorkflowStatus = useCallback(async (workflowId, status) => {
+    const { error } = await supabase.from('automation_workflows').update({ status, updated_at: new Date().toISOString() }).eq('id', workflowId)
+    if (error) { console.error('setWorkflowStatus error', error); return }
+    setAutomationWorkflows((prev) => prev.map((w) => w.id === workflowId ? { ...w, status } : w))
+  }, [])
+
+  const duplicateWorkflow = useCallback(async (workflowId) => {
+    const source = automationWorkflows.find((w) => w.id === workflowId)
+    if (!source) return { error: 'Workflow not found' }
+    return createWorkflow({
+      name: `${source.name} (Copy)`, description: source.description, triggerEvent: source.trigger_event, status: 'draft',
+      conditions: source.conditions, actions: source.actions,
+    })
+  }, [automationWorkflows, createWorkflow])
+
+  const deleteWorkflow = useCallback(async (workflowId) => {
+    const { error } = await supabase.from('automation_workflows').delete().eq('id', workflowId)
+    if (error) { console.error('deleteWorkflow error', error); return { error: error.message } }
+    setAutomationWorkflows((prev) => prev.filter((w) => w.id !== workflowId))
+    return { success: true }
+  }, [])
+
+  // Lazy-loaded (not part of the initial app-load batch) — execution
+  // history grows without bound, unlike the workflow definitions
+  // themselves, so only the Automation > Logs tab ever fetches it.
+  const fetchAutomationLogs = useCallback(async ({ limit = 100 } = {}) => {
+    const { data, error } = await supabase
+      .from('automation_executions')
+      .select('*, automation_execution_actions(*)')
+      .order('started_at', { ascending: false })
+      .limit(limit)
+    if (error) { console.error('fetchAutomationLogs error', error); return [] }
+    const mapped = (data || []).map((e) => ({
+      ...e,
+      actions: (e.automation_execution_actions || []).slice().sort((a, b) => a.position - b.position),
+    }))
+    setAutomationExecutions(mapped)
+    return mapped
+  }, [])
+
+  // Runs server-side (see automation-engine's 'retry' mode) — this just
+  // invokes it with the current session's token and re-reads the log
+  // afterward so the UI reflects the outcome. Never writes automation
+  // tables directly from the client.
+  const retryAutomationAction = useCallback(async (executionActionId) => {
+    const { data, error } = await supabase.functions.invoke('automation-engine', { body: { mode: 'retry', executionActionId } })
+    if (error) { console.error('retryAutomationAction error', error); return { error: error.message } }
+    if (data?.error) return { error: data.error }
+    await fetchAutomationLogs()
+    return { data }
+  }, [fetchAutomationLogs])
+
   return (
     <DataContext.Provider value={{
-      leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead,
-      followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp,
+      leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, reopenLead, takeOverLead,
+      followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp, scheduleFollowUp, recordMeetingOutcome,
       leadActivities, addActivity,
-      students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, generateFeeBill, unlockInvoice,
+      students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, confirmAdmission, markPackageShared, generateFeeBill, unlockInvoice,
       packages, setPackages, addPackage, updatePackage, deletePackage,
       invoices, setInvoices, recordPayment, createInvoice, updateInvoiceDueDate,
       installments,
@@ -809,6 +1218,8 @@ export function DataProvider({ children }) {
       attendance, markAttendance,
       staffAttendance, markStaffAttendance,
       emailMessages, sendEmail,
+      automationWorkflows, createWorkflow, updateWorkflow, setWorkflowStatus, duplicateWorkflow, deleteWorkflow,
+      automationExecutions, fetchAutomationLogs, retryAutomationAction,
       loading,
     }}>
       {children}

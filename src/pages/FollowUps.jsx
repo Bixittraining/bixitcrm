@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -33,6 +33,7 @@ import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import AnchoredMenu from '../components/AnchoredMenu'
+import { emitAutomationEvent, AUTOMATION_EVENTS } from '../lib/automation'
 
 const typeConfig = {
   call: { icon: Phone, color: 'sky', label: 'Call' },
@@ -50,6 +51,8 @@ const priorityConfig = {
 const statusConfig = {
   pending: { color: 'accent', label: 'Pending' },
   completed: { color: 'emerald', label: 'Completed' },
+  cancelled: { color: 'slate', label: 'Cancelled' },
+  no_show: { color: 'rose', label: 'No Show' },
 }
 
 const today = new Date().toISOString().split('T')[0]
@@ -74,7 +77,7 @@ function getWeekDates() {
 }
 
 // ─── ACTION DROPDOWN (per follow-up card) ──────────────────────────────
-function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, anchorEl, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onDelete }) {
+function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, anchorEl, onClose, onMarkComplete, onRNR, onLost, onTransferToStudent, onPresetReschedule, onCustomReschedule, onCallNow, onCancel, onDelete }) {
   const [customDate, setCustomDate] = useState('')
   const [customTime, setCustomTime] = useState('')
 
@@ -121,6 +124,7 @@ function FollowUpActionMenu({ fu, isDark, closedStatus, isLockedToOther, anchorE
             </div>
             <div className={dividerCls} />
             {item(<Phone className="w-3.5 h-3.5" />, 'Call Now', onCallNow)}
+            {fu.status === 'pending' && item(<X className="w-3.5 h-3.5" />, 'Cancel Follow-up', onCancel, isDark ? 'text-rose-400' : 'text-rose-600')}
             {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete', onDelete, isDark ? 'text-rose-400' : 'text-rose-600')}
           </>
         )}
@@ -185,13 +189,14 @@ export default function FollowUps() {
   const [dateTo, setDateTo] = useState('')
   const [bucketFilter, setBucketFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
-  const { followUps: localFollowUps, addFollowUp, updateFollowUp, updateLead, leads, enrollLead, deleteFollowUp, addActivity, teamMembers, takeOverLead, packages } = useData()
+  const { followUps: localFollowUps, updateFollowUp, scheduleFollowUp, updateLead, leads, enrollLead, deleteFollowUp, addActivity, teamMembers, takeOverLead, packages } = useData()
   const { isAdmin, user } = useAuth()
   const [notification, setNotification] = useState(null)
   const [showTransferConfirm, setShowTransferConfirm] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
   const [showLostModal, setShowLostModal] = useState(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(null)
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
@@ -202,6 +207,7 @@ export default function FollowUps() {
     time: '',
     priority: 'medium',
     notes: '',
+    assignedTo: '',
   })
   const [leadQuery, setLeadQuery] = useState('')
   const [showLeadPicker, setShowLeadPicker] = useState(false)
@@ -227,10 +233,11 @@ export default function FollowUps() {
     if (typeFilter !== 'all' && fu.type !== typeFilter) return false
     if (priorityFilter !== 'all' && fu.priority !== priorityFilter) return false
     if (statusFilter !== 'all' && fu.status !== statusFilter) return false
-    if (bucketFilter === 'today' && fu.date !== today) return false
+    if (bucketFilter === 'today' && !(fu.status === 'pending' && fu.date === today)) return false
     if (bucketFilter === 'pending' && fu.status !== 'pending') return false
     if (bucketFilter === 'completed' && fu.status !== 'completed') return false
     if (bucketFilter === 'overdue' && !(fu.date < today && fu.status === 'pending')) return false
+    if (bucketFilter === 'upcoming' && !(fu.status === 'pending' && fu.date > today)) return false
     if (bucketFilter === 'rnr' && !isRNR(fu)) return false
     if (bucketFilter === 'lost' && !isLostLead(fu)) return false
     // The main list is meant for plain follow-ups only — RNR and Lost Lead
@@ -242,14 +249,36 @@ export default function FollowUps() {
     return true
   })
 
-  const todayCount = localFollowUps.filter((f) => f.date === today).length
+  const todayCount = localFollowUps.filter((f) => f.status === 'pending' && f.date === today).length
   const pendingCount = localFollowUps.filter((f) => f.status === 'pending').length
   const completedCount = localFollowUps.filter((f) => f.status === 'completed').length
   const overdueCount = localFollowUps.filter(
     (f) => f.date < today && f.status === 'pending'
   ).length
+  const upcomingCount = localFollowUps.filter((f) => f.status === 'pending' && f.date > today).length
   const rnrCount = localFollowUps.filter(isRNR).length
   const lostCount = localFollowUps.filter(isLostLead).length
+
+  // Automation-ready: log that a follow-up was observed due-today or
+  // overdue, so a future reminder job has something to consume. No
+  // WhatsApp/Email is sent — every configured action for these events is
+  // still empty (see lib/automation.js). Safe to run on every load: the
+  // DB's unique(event_type, source_table, source_id) constraint means each
+  // follow-up only ever logs one FOLLOW_UP_DUE and one FOLLOW_UP_OVERDUE
+  // event no matter how many times this page re-renders.
+  useEffect(() => {
+    localFollowUps.filter((f) => f.status === 'pending' && f.date === today).forEach((f) => {
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_DUE, entityType: 'lead', entityId: f.lead_id ?? f.lead, sourceTable: 'follow_ups', sourceId: f.id })
+      // A nurtured lead's check-back date arriving is its own event too —
+      // same "registered, no channel yet" shape as everything else here.
+      if (getLeadFor(f)?.status === 'nurture') {
+        emitAutomationEvent({ eventType: AUTOMATION_EVENTS.NURTURE_DUE, entityType: 'lead', entityId: f.lead_id ?? f.lead, sourceTable: 'follow_ups', sourceId: f.id })
+      }
+    })
+    localFollowUps.filter((f) => f.status === 'pending' && f.date < today).forEach((f) => {
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_OVERDUE, entityType: 'lead', entityId: f.lead_id ?? f.lead, sourceTable: 'follow_ups', sourceId: f.id })
+    })
+  }, [localFollowUps])
 
   const weekDates = getWeekDates()
 
@@ -274,26 +303,36 @@ export default function FollowUps() {
     if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up marked COMPLETED`)
   }
 
+  // Cancel is a real status (kept on record), not a delete — matches the
+  // same choice made on Lead Detail's Follow-up/Meeting tabs.
+  const handleCancelFollowUp = (fu) => {
+    updateFollowUp(fu.id, { status: 'cancelled' })
+    const lead = getLeadFor(fu)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `${fu.type.toUpperCase()} follow-up cancelled`)
+    showToast('Follow-up cancelled')
+    setShowCancelConfirm(null)
+  }
+
+  // Same creation path as Lead List's "Schedule Follow-up" and Lead Detail's
+  // Follow-up/Counselling actions (DataContext.scheduleFollowUp) — so a
+  // follow-up made here is the exact same record shape, gets the same
+  // status-advance rule, and logs the same timeline entry as those do.
   const handleScheduleSubmit = (e) => {
     e.preventDefault()
-    const existing = localFollowUps.find((f) => f.lead === formData.lead)
-    if (existing) {
-      updateFollowUp(existing.id, { type: formData.type, date: formData.date, time: formData.time, notes: formData.notes, priority: formData.priority, status: 'pending' })
-    } else {
-      addFollowUp({
-        id: Date.now(),
-        lead: formData.lead,
-        type: formData.type,
-        date: formData.date,
-        time: formData.time,
-        notes: formData.notes,
-        status: 'pending',
-        priority: formData.priority,
-      })
-    }
-    setFormData({ lead: '', type: 'call', date: '', time: '', priority: 'medium', notes: '' })
+    const lead = leads.find((l) => l.name === formData.lead)
+    if (!lead) { showToast(`Lead "${formData.lead}" not found`, 'error'); return }
+    scheduleFollowUp(lead, {
+      type: formData.type,
+      date: formData.date,
+      time: formData.time,
+      notes: formData.notes,
+      priority: formData.priority,
+      assignedTo: formData.assignedTo || undefined,
+    })
+    setFormData({ lead: '', type: 'call', date: '', time: '', priority: 'medium', notes: '', assignedTo: '' })
     setLeadQuery('')
     setShowModal(false)
+    showToast(`Follow-up scheduled for ${lead.name}`)
   }
 
   const handleTransferToStudent = (fu) => {
@@ -408,13 +447,14 @@ export default function FollowUps() {
         className={`rounded-2xl ${cardClass}`}
       >
       <div className="p-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8 gap-3">
         {[
           { key: 'all', label: 'All', value: localFollowUps.filter((f) => !isRNR(f) && !isLostLead(f)).length, icon: ListFilter, colorClass: 'text-dark-400 bg-dark-500/10' },
           { key: 'today', label: 'Today', value: todayCount, icon: Calendar, colorClass: 'text-sky-500 bg-sky-500/10' },
-          { key: 'pending', label: 'Pending', value: pendingCount, icon: Clock, colorClass: 'text-accent-500 bg-accent-500/10' },
-          { key: 'completed', label: 'Completed', value: completedCount, icon: CheckCircle, colorClass: 'text-emerald-500 bg-emerald-500/10' },
           { key: 'overdue', label: 'Overdue', value: overdueCount, icon: AlertCircle, colorClass: 'text-rose-500 bg-rose-500/10' },
+          { key: 'upcoming', label: 'Upcoming', value: upcomingCount, icon: CalendarClock, colorClass: 'text-primary-500 bg-primary-500/10' },
+          { key: 'completed', label: 'Completed', value: completedCount, icon: CheckCircle, colorClass: 'text-emerald-500 bg-emerald-500/10' },
+          { key: 'pending', label: 'Pending', value: pendingCount, icon: Clock, colorClass: 'text-accent-500 bg-accent-500/10' },
           { key: 'rnr', label: 'RNR', value: rnrCount, icon: PhoneMissed, colorClass: 'text-amber-500 bg-amber-500/10' },
           { key: 'lost', label: 'Lost Lead', value: lostCount, icon: UserX, colorClass: 'text-rose-600 bg-rose-600/10' },
         ].map((stat, index) => (
@@ -575,6 +615,8 @@ export default function FollowUps() {
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="no_show">No Show</option>
               </select>
               <ChevronDown
                 className={`w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none ${
@@ -615,7 +657,7 @@ export default function FollowUps() {
               const statInfo = statusConfig[fu.status]
               const isOverdue = fu.date < today && fu.status === 'pending'
               const fuLead = getLeadFor(fu)
-              const assignedName = teamMembers.find((m) => m.id === fuLead?.assigned_to)?.name
+              const assignedName = teamMembers.find((m) => m.id === (fu.assigned_to || fuLead?.assigned_to))?.name
               const { last: lastFollowUp, next: nextFollowUp } = getLeadFollowUpHistory(fu.lead)
 
               return (
@@ -740,6 +782,10 @@ export default function FollowUps() {
                                 ? 'bg-rose-500/10 text-rose-500'
                                 : statInfo.color === 'accent'
                                 ? 'bg-accent-500/10 text-accent-500'
+                                : statInfo.color === 'slate'
+                                ? isDark ? 'bg-dark-700 text-dark-400' : 'bg-dark-100 text-dark-500'
+                                : statInfo.color === 'rose'
+                                ? 'bg-rose-500/10 text-rose-500'
                                 : 'bg-emerald-500/10 text-emerald-500'
                             }`}
                           >
@@ -792,6 +838,7 @@ export default function FollowUps() {
                                     showToast('Follow-up rescheduled')
                                   }}
                                   onCallNow={() => handleCallNow(fu)}
+                                  onCancel={() => setShowCancelConfirm(fu)}
                                   onDelete={() => handleDeleteFollowUp(fu.id)}
                                 />
                               )}
@@ -1001,6 +1048,46 @@ export default function FollowUps() {
                   <button onClick={() => handleTransferToStudent(showTransferConfirm)}
                     className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
                     Enroll Student
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cancel Follow-up Confirm Modal — cancel is a real status, kept on
+          record, never a silent delete. */}
+      <AnimatePresence>
+        {showCancelConfirm && (
+          <motion.div
+            variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          >
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCancelConfirm(null)} />
+            <motion.div
+              variants={modalCardVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className={`relative w-full max-w-sm rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className={`p-3 rounded-full mb-4 ${isDark ? 'bg-rose-500/15' : 'bg-rose-50'}`}>
+                  <X className="w-6 h-6 text-rose-500" />
+                </div>
+                <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>Cancel Follow-up</h3>
+                <p className={`text-sm mb-6 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                  Cancel the follow-up with <strong>{showCancelConfirm.lead}</strong>? It stays on record as cancelled — this can&apos;t be undone.
+                </p>
+                <div className="flex items-center gap-3 w-full">
+                  <button onClick={() => setShowCancelConfirm(null)}
+                    className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+                    Keep It
+                  </button>
+                  <button onClick={() => handleCancelFollowUp(showCancelConfirm)}
+                    className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 transition-all">
+                    Cancel Follow-up
                   </button>
                 </div>
               </div>
@@ -1238,6 +1325,23 @@ export default function FollowUps() {
                       )
                     })}
                   </div>
+                </div>
+
+                {/* Assigned Executive */}
+                <div>
+                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>
+                    Assigned Executive
+                  </label>
+                  <select
+                    value={formData.assignedTo}
+                    onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
+                    className={`w-full px-3 py-2.5 rounded-xl text-sm border cursor-pointer transition-all duration-200 ${
+                      isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'
+                    }`}
+                  >
+                    <option value="">Same as lead&apos;s assigned executive</option>
+                    {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
                 </div>
 
                 {/* Notes */}

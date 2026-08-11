@@ -3,10 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Plus, Upload, Download, Pencil, Phone, Users, UserCheck,
-  GraduationCap, UserX, ChevronDown, ChevronLeft, ChevronRight, X,
+  GraduationCap, UserX, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X,
   Trash2, Mail, Calendar, Clock, MapPin, Star, MessageCircle,
   PhoneCall, Video, CheckCircle2, AlertCircle, Package, IndianRupee, FileText,
-  Activity, ArrowLeft, Key, CreditCard, Award, Receipt, PhoneMissed, SlidersHorizontal
+  Activity, ArrowLeft, Key, CreditCard, Award, Receipt, SlidersHorizontal,
+  Eye, MoreHorizontal, UserCog, Moon, RotateCcw
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
@@ -16,6 +17,7 @@ import SendEmailModal from '../components/SendEmailModal'
 import AnchoredMenu from '../components/AnchoredMenu'
 import { supabase } from '../lib/supabase'
 import { LEAD_STATUSES, ALL_STATUS_KEYS, PIPELINE_STAGE_KEYS } from '../lib/leadStatus'
+import { TIMELINE_FILTERS, activityTypeInfo, relativeDayAt, dayGroupLabel } from '../lib/activityTypes'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 // Single source of truth is lib/leadStatus.jsx (shared with Pipeline.jsx)
@@ -26,7 +28,15 @@ const statusConfig = LEAD_STATUSES
 const priorityConfig = { high: 'rose', medium: 'accent', low: 'emerald' }
 const LEADS_PER_PAGE = 10
 const sourceOptions = ['All', 'Website', 'Google', 'Referral', 'Social', 'WhatsApp', 'Walk-in']
-const statusOptions = ['All', 'Today', 'Meeting', 'Not Attempted', 'Contacted', 'Qualified', 'Negotiation', 'Enrolled', 'Lost']
+// Status filter options are derived from the same lifecycle keys as the
+// pipeline/stepper (lib/leadStatus.jsx) — no separate hardcoded status list.
+const statusFilterOptions = [{ key: 'all', label: 'All Status' }, ...ALL_STATUS_KEYS.map((key) => ({ key, label: LEAD_STATUSES[key].label }))]
+const priorityFilterOptions = [{ key: 'All', label: 'All Priority' }, { key: 'high', label: 'High' }, { key: 'medium', label: 'Medium' }, { key: 'low', label: 'Low' }]
+const followUpDueOptions = ['All', 'Overdue', 'Today', 'Tomorrow', 'No follow-up']
+// The 7 cards the sales-list summary row shows — deliberately a subset of
+// the full lifecycle (Package Shared/Negotiation/Lost/Nurture stay reachable
+// via the Status filter instead) so the row never gets overcrowded.
+const SUMMARY_CARD_STATUS_KEYS = ['new', 'contacted', 'qualified', 'counselling', 'follow_up', 'enrolled']
 
 const courseOptions = [
   'Full Stack Development', 'Data Science & AI', 'UI/UX Design', 'Digital Marketing',
@@ -156,6 +166,205 @@ function relativeDate(dateStr) {
   return `${Math.floor(diff / 30)} months ago`
 }
 
+// A lead's "next follow-up" is its earliest still-pending follow-up/meeting
+// (matched by lead name, same convention used throughout this file already).
+function getNextFollowUp(leadName, followUpsData) {
+  const pending = followUpsData.filter((f) => f.lead === leadName && f.status === 'pending')
+  if (!pending.length) return null
+  return [...pending].sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`))[0]
+}
+
+function followUpDueInfo(fu) {
+  if (!fu) return { label: 'No follow-up', tone: 'none' }
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const fuDate = new Date(`${fu.date}T00:00:00`)
+  const diffDays = Math.round((fuDate - today) / 86400000)
+  if (diffDays < 0) return { label: 'Overdue', tone: 'overdue' }
+  if (diffDays === 0) return { label: 'Today', tone: 'today' }
+  if (diffDays === 1) return { label: 'Tomorrow', tone: 'tomorrow' }
+  return { label: fuDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), tone: 'later' }
+}
+
+// The single most useful thing to tell a sales executive: what to do next,
+// derived only from real pending follow-ups/meetings, real invoice balances,
+// and real lead status/call history — never a guessed or generic
+// recommendation. Fixed priority order (not AI, just ranked rules):
+//   1. Overdue follow-up/meeting  2. Due today  3. Scheduled meeting (future)
+//   4. Pending payment  5. Upcoming follow-up  6. No action (refined by
+//   status/call history so it still points at something real, e.g. a
+//   package-shared lead or a lead that's never been called).
+function getNextAction(lead, leadFollowUps, feeInvoice, hasCallActivity) {
+  const pending = (leadFollowUps || []).filter((f) => f.status === 'pending')
+    .sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`))
+  const nextItem = pending[0]
+  const info = nextItem ? followUpDueInfo(nextItem) : null
+  const followupKind = lead?.status === 'nurture' ? 'nurture' : 'followup'
+
+  // 1 + 2: whichever pending item is overdue or due today wins, regardless
+  // of whether it's a call/follow-up or a scheduled meeting.
+  if (nextItem && (info.tone === 'overdue' || info.tone === 'today')) {
+    return { kind: nextItem.type === 'meeting' ? 'meeting' : followupKind, item: nextItem, info }
+  }
+
+  // 3: a scheduled meeting further out still outranks a payment or a plain
+  // follow-up — counselling sessions are time-fixed commitments.
+  const nextMeeting = pending.find((f) => f.type === 'meeting')
+  if (nextMeeting) {
+    return { kind: 'meeting', item: nextMeeting, info: followUpDueInfo(nextMeeting) }
+  }
+
+  // 4: pending payment
+  if (feeInvoice && feeInvoice.balance > 0) {
+    return { kind: 'payment', item: feeInvoice }
+  }
+
+  // 5: upcoming (non-meeting) follow-up
+  if (nextItem) {
+    return { kind: followupKind, item: nextItem, info }
+  }
+
+  // 6: nothing scheduled — still point at something real instead of a
+  // generic "no action", based on actual status/contact history.
+  if (lead?.status === 'package_shared') return { kind: 'package_followup' }
+  if (!hasCallActivity && lead?.status !== 'enrolled' && lead?.status !== 'lost') return { kind: 'call_new' }
+  return { kind: 'none' }
+}
+
+// Compact {emoji, label} summary for the Lead List column — same ranked
+// action, just condensed to fit a table cell/mobile card.
+function nextActionSummary(action) {
+  if (action.kind === 'meeting') {
+    const { info } = action
+    if (info.tone === 'overdue') return { emoji: '⚠️', label: 'Overdue counselling' }
+    if (info.tone === 'today') return { emoji: '📅', label: 'Counselling today' }
+    if (info.tone === 'tomorrow') return { emoji: '📅', label: 'Counselling tomorrow' }
+    return { emoji: '📅', label: `Counselling ${info.label}` }
+  }
+  if (action.kind === 'followup' || action.kind === 'nurture') {
+    const { info, item } = action
+    const isCall = item.type === 'call'
+    const verb = action.kind === 'nurture' ? 'Contact lead' : (isCall ? 'Call' : 'Follow-up')
+    if (info.tone === 'overdue') return { emoji: '⚠️', label: action.kind === 'nurture' ? 'Overdue — contact lead' : 'Overdue follow-up' }
+    if (info.tone === 'today') return { emoji: isCall && action.kind !== 'nurture' ? '📞' : '📅', label: `${verb} today` }
+    if (info.tone === 'tomorrow') return { emoji: '📅', label: `${verb} tomorrow` }
+    return { emoji: '📅', label: `${verb} ${info.label}` }
+  }
+  if (action.kind === 'payment') return { emoji: '💰', label: 'Payment pending' }
+  if (action.kind === 'package_followup') return { emoji: '📦', label: 'Follow up with lead' }
+  if (action.kind === 'call_new') return { emoji: '📞', label: 'Call lead' }
+  return { emoji: '📅', label: 'Schedule follow-up' }
+}
+
+function NextActionCard({ lead, leadFollowUps, feeInvoice, hasCallActivity, isDark, cardClass, onCall, onComplete, onViewMeeting, onWhatsAppReminder, onViewFeeBill, onScheduleFollowUp }) {
+  const action = getNextAction(lead, leadFollowUps, feeInvoice, hasCallActivity)
+  // Static class strings only — Tailwind can't pick up `border-l-${color}-500`
+  // template literals at build time, so the tone->class mapping is spelled
+  // out explicitly instead of interpolated.
+  const accentBorder = { overdue: 'border-l-rose-500', today: 'border-l-amber-500', tomorrow: 'border-l-sky-500', later: 'border-l-primary-500' }
+  const btnPrimary = 'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all'
+  const btnSecondary = `inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`
+  const label = `text-xs font-semibold uppercase tracking-wider mb-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`
+  const headline = `text-base font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`
+
+  if (action.kind === 'followup' || action.kind === 'meeting' || action.kind === 'nurture') {
+    const { item, info } = action
+    const isMeeting = action.kind === 'meeting'
+    const verb = isMeeting ? 'Counselling' : action.kind === 'nurture' ? 'Contact lead' : 'Follow-up'
+    const when = isMeeting
+      ? (info.tone === 'overdue' ? `overdue — was due ${item.date} at ${item.time}`
+        : info.tone === 'today' ? `today at ${item.time}`
+        : info.tone === 'tomorrow' ? `tomorrow at ${item.time}`
+        : `on ${info.label} at ${item.time}`)
+      : (info.tone === 'overdue' ? `overdue — was due ${item.date} at ${item.time}`
+        : info.tone === 'today' ? `due today at ${item.time}`
+        : info.tone === 'tomorrow' ? `tomorrow at ${item.time}`
+        : `on ${info.label} at ${item.time}`)
+    return (
+      <motion.div variants={itemVariants} className={`rounded-2xl p-5 border-l-4 ${accentBorder[info.tone] || accentBorder.later} ${cardClass}`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="min-w-0">
+            <p className={label}>Next Action</p>
+            <p className={headline}>{verb} {when}</p>
+            {item.notes && <p className={`text-sm mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{item.notes}</p>}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isMeeting ? (
+              <>
+                <button onClick={onViewMeeting} className={btnPrimary}><Video className="w-4 h-4" />View Meeting</button>
+                <button onClick={onWhatsAppReminder} className={btnSecondary}><MessageCircle className="w-4 h-4" />WhatsApp Reminder</button>
+              </>
+            ) : (
+              <>
+                <button onClick={onCall} className={btnPrimary}><Phone className="w-4 h-4" />Call</button>
+                <button onClick={() => onComplete(item)} className={btnSecondary}><CheckCircle2 className="w-4 h-4" />Complete Follow-up</button>
+              </>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
+  if (action.kind === 'payment') {
+    return (
+      <motion.div variants={itemVariants} className={`rounded-2xl p-5 border-l-4 border-l-rose-500 ${cardClass}`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className={label}>Next Action</p>
+            <p className={headline}>Payment pending — {formatINR(action.item.balance)}</p>
+          </div>
+          <button onClick={onViewFeeBill} className={btnPrimary}><IndianRupee className="w-4 h-4" />View Fee Bill</button>
+        </div>
+      </motion.div>
+    )
+  }
+
+  if (action.kind === 'package_followup') {
+    return (
+      <motion.div variants={itemVariants} className={`rounded-2xl p-5 border-l-4 border-l-primary-500 ${cardClass}`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className={label}>Next Action</p>
+            <p className={headline}>Follow up with lead — package shared</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={onCall} className={btnPrimary}><Phone className="w-4 h-4" />Call</button>
+            <button onClick={onScheduleFollowUp} className={btnSecondary}><Calendar className="w-4 h-4" />Schedule Follow-up</button>
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
+  if (action.kind === 'call_new') {
+    return (
+      <motion.div variants={itemVariants} className={`rounded-2xl p-5 border-l-4 border-l-amber-500 ${cardClass}`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className={label}>Next Action</p>
+            <p className={headline}>Call lead — no contact made yet</p>
+          </div>
+          <button onClick={onCall} className={btnPrimary}><Phone className="w-4 h-4" />Call</button>
+        </div>
+      </motion.div>
+    )
+  }
+
+  return (
+    <motion.div variants={itemVariants} className={`rounded-2xl p-5 border-l-4 ${isDark ? 'border-l-dark-700' : 'border-l-dark-200'} ${cardClass}`}>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className={label}>Next Action</p>
+          <p className={`text-base font-semibold ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>No action scheduled</p>
+        </div>
+        {lead.status !== 'enrolled' && lead.status !== 'lost' && (
+          <button onClick={onScheduleFollowUp} className={btnPrimary}><Calendar className="w-4 h-4" />Schedule Follow-up</button>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
 // ─── SUB-COMPONENTS ───────────────────────────────────────────────────
 function StatusBadge({ status, isDark, onClick, className = '' }) {
   const config = statusConfig[status]
@@ -184,6 +393,30 @@ function PriorityBadge({ priority, isDark }) {
     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium capitalize ${styles[color]}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dotColors[color]}`} />
       {priority}
+    </span>
+  )
+}
+
+// The Next Action badge is what lets a rep glance down the Lead List and
+// know exactly which leads need work today — so overdue/today get loud
+// colors instead of blending in with the rest of the row, same convention
+// as the old Next Follow-up badge it replaces.
+function NextActionBadge({ lead, leadFollowUps, feeInvoice, hasCallActivity, isDark }) {
+  const action = getNextAction(lead, leadFollowUps, feeInvoice, hasCallActivity)
+  const { emoji, label } = nextActionSummary(action)
+  if (action.kind === 'none') {
+    return <span className={`text-xs ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>{emoji} {label}</span>
+  }
+  const isOverdue = emoji === '⚠️'
+  const isToday = /today/i.test(label)
+  const toneCls = isOverdue
+    ? (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')
+    : isToday
+      ? (isDark ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-50 text-amber-600')
+      : (isDark ? 'bg-dark-800 text-dark-300' : 'bg-dark-100 text-dark-600')
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap ${toneCls}`}>
+      <span>{emoji}</span>{label}
     </span>
   )
 }
@@ -217,7 +450,7 @@ function Toast({ notification, onDismiss, isDark }) {
   )
 }
 
-function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
+function ConfirmDialog({ message, onConfirm, onCancel, isDark, title = 'Confirm Delete', confirmLabel = 'Delete', icon: Icon = Trash2 }) {
   return (
     <motion.div className="fixed inset-0 z-[70] flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
       <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
@@ -225,8 +458,8 @@ function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
         className={`relative w-full max-w-sm rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
       >
         <div className="flex flex-col items-center text-center">
-          <div className={`p-3 rounded-full mb-4 ${isDark ? 'bg-rose-500/15' : 'bg-rose-50'}`}><Trash2 className="w-6 h-6 text-rose-500" /></div>
-          <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>Confirm Delete</h3>
+          <div className={`p-3 rounded-full mb-4 ${isDark ? 'bg-rose-500/15' : 'bg-rose-50'}`}><Icon className="w-6 h-6 text-rose-500" /></div>
+          <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>{title}</h3>
           <p className={`text-sm mb-6 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{message}</p>
           <div className="flex items-center gap-3 w-full">
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onCancel}
@@ -234,7 +467,7 @@ function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
             >Cancel</motion.button>
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onConfirm}
               className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 transition-colors"
-            >Delete</motion.button>
+            >{confirmLabel}</motion.button>
           </div>
         </div>
       </motion.div>
@@ -242,37 +475,11 @@ function ConfirmDialog({ message, onConfirm, onCancel, isDark }) {
   )
 }
 
-function InlineStatusDropdown({ currentStatus, onSelect, onClose, isDark, anchorEl }) {
-  return (
-    <AnchoredMenu anchorEl={anchorEl} onClose={onClose}>
-      <div className={`w-40 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
-        {ALL_STATUS_KEYS.filter((key) => key !== 'enrolled').map((key) => {
-          const cfg = statusConfig[key]
-          return (
-          <button key={key} onClick={() => onSelect(key)}
-            className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
-              key === currentStatus
-                ? isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600'
-                : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
-            }`}
-          >
-            <cfg.icon className="w-3.5 h-3.5" />{cfg.label}
-            {key === currentStatus && <CheckCircle2 className="w-3 h-3 ml-auto" />}
-          </button>
-          )
-        })}
-        {currentStatus !== 'enrolled' && (
-          <p className={`px-3 pt-1.5 mt-1 border-t text-[11px] leading-snug ${isDark ? 'border-dark-700/60 text-dark-500' : 'border-dark-100 text-dark-400'}`}>
-            To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.
-          </p>
-        )}
-      </div>
-    </AnchoredMenu>
-  )
-}
-
-// ─── ACTION DROPDOWN (per-lead row) ────────────────────────────────────
-function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleFollowUp, onScheduleMeeting, onRNR, onOpenEnroll, onLost, onTakeOver, onEdit, onDelete }) {
+// ─── ACTION DROPDOWN (per-lead row / lead detail header) ───────────────
+// Primary actions (View/Call/WhatsApp/Follow-up) live as visible icon
+// buttons next to this trigger — this dropdown only holds the secondary,
+// less-frequent actions so they don't compete for equal visual weight.
+function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleMeeting, onSharePackage, onChangeStatus, onOpenEnroll, onAssign, onTakeOver, onAddNote, onNurture, onLost, onNotInterested, onReopen, onEdit, onDelete }) {
   const itemCls = `w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors ${
     isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
   }`
@@ -283,10 +490,12 @@ function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleFo
     </button>
   )
 
-  // A lead that's already Enrolled or Lost is a closed deal — none of the
-  // pipeline actions (take over, follow-up, RNR, re-enroll/re-lose) make
-  // sense anymore. Only an admin can still correct the record from here.
-  const isClosed = lead.status === 'enrolled' || lead.status === 'lost'
+  // A lead that's Enrolled, Lost, or in Nurture is closed/parked — none of
+  // the pipeline-moving actions make sense anymore. Lost/Nurture can be
+  // brought back with Reopen (admin-only); Enrolled can't be reopened here.
+  const isClosed = lead.status === 'enrolled' || lead.status === 'lost' || lead.status === 'nurture'
+  const canReopen = lead.status === 'lost' || lead.status === 'nurture'
+  const closedLabel = lead.status === 'enrolled' ? 'Enrolled' : lead.status === 'lost' ? 'Lost' : 'Nurture'
 
   // Once a lead is assigned to someone, only that person (or an admin) can
   // keep working it — otherwise two reps calling the same lead at once is
@@ -296,33 +505,45 @@ function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleFo
 
   return (
     <AnchoredMenu anchorEl={anchorEl} onClose={onClose}>
-      <div className={`w-56 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
+      <div className={`w-60 max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl py-1 ${isDark ? 'bg-dark-900 border-dark-700/80 shadow-black/40' : 'bg-white border-dark-200 shadow-dark-200/30'}`}>
         {isClosed ? (
-          isAdmin ? (
-            <>
-              {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
-              {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
-            </>
-          ) : (
-            <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-              {lead.status === 'enrolled' ? 'Enrolled' : 'Lost'} — only an admin can edit this lead.
-            </p>
-          )
+          <>
+            {item(<FileText className="w-3.5 h-3.5" />, 'Add Note', () => onAddNote(lead))}
+            {isAdmin ? (
+              <>
+                {canReopen && item(<RotateCcw className="w-3.5 h-3.5" />, 'Reopen Lead', () => onReopen(lead), isDark ? 'text-primary-400' : 'text-primary-600')}
+                {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
+                <div className={dividerCls} />
+                {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+              </>
+            ) : (
+              <p className={`px-3 py-2 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                {closedLabel} — only an admin can {canReopen ? 'reopen, edit,' : 'edit'} or delete this lead.
+              </p>
+            )}
+          </>
         ) : isLockedToOther ? (
           <p className={`px-3 py-2 text-xs leading-relaxed ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
             This lead is already being handled by another team member — only they or an admin can update it.
           </p>
         ) : (
           <>
-            {item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))}
-            {item(<Calendar className="w-3.5 h-3.5" />, 'Schedule Follow-up', () => onScheduleFollowUp(lead))}
-            {item(<Video className="w-3.5 h-3.5" />, 'Schedule Meeting', () => onScheduleMeeting(lead))}
-            {item(<PhoneMissed className="w-3.5 h-3.5" />, 'RNR (Ring No Response)', () => onRNR(lead))}
-            {item(<GraduationCap className="w-3.5 h-3.5" />, 'Enroll — Assign Package & Batch', () => onOpenEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+            {item(<Video className="w-3.5 h-3.5" />, 'Schedule Counselling', () => onScheduleMeeting(lead))}
+            {item(<Package className="w-3.5 h-3.5" />, 'Share Package', () => onSharePackage(lead))}
+            {item(<GraduationCap className="w-3.5 h-3.5" />, 'Enroll Lead', () => onOpenEnroll(lead), isDark ? 'text-emerald-400' : 'text-emerald-600')}
+            <div className={dividerCls} />
+            {item(<Activity className="w-3.5 h-3.5" />, 'Change Status', () => onChangeStatus(lead))}
+            {!lead.assigned_to
+              ? item(<UserCheck className="w-3.5 h-3.5" />, 'Take Over Lead', () => onTakeOver(lead))
+              : isAdmin && item(<UserCog className="w-3.5 h-3.5" />, 'Assign Lead', () => onAssign(lead))}
+            {item(<FileText className="w-3.5 h-3.5" />, 'Add Note', () => onAddNote(lead))}
+            <div className={dividerCls} />
+            {item(<Moon className="w-3.5 h-3.5" />, 'Move to Nurture', () => onNurture(lead))}
+            {item(<UserX className="w-3.5 h-3.5" />, 'Not Interested', () => onNotInterested(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
             {item(<UserX className="w-3.5 h-3.5" />, 'Mark Lost', () => onLost(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
             <div className={dividerCls} />
             {item(<Pencil className="w-3.5 h-3.5" />, 'Edit Lead', () => onEdit(lead))}
-            {item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
+            {isAdmin && item(<Trash2 className="w-3.5 h-3.5" />, 'Delete Lead', () => onDelete(lead), isDark ? 'text-rose-400' : 'text-rose-600')}
           </>
         )}
       </div>
@@ -330,11 +551,15 @@ function LeadActionMenu({ lead, isDark, isAdmin, anchorEl, onClose, onScheduleFo
   )
 }
 
-// ─── RNR MODAL (Ring No Response — schedule next attempt) ──────────────
-function RNRModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+// ─── CALL OUTCOME MODAL — RNR is logged here as an outcome of a call, not
+// as a pipeline stage or its own separate action. ──────────────────────
+const callOutcomeOptions = ['No Response / RNR', 'Connected', 'Switched Off', 'Wrong Number', 'Busy — Call Back Later']
+function CallOutcomeModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [outcome, setOutcome] = useState('No Response / RNR')
   const [form, setForm] = useState({ date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), time: '10:00', notes: '' })
+  const needsReschedule = outcome !== 'Connected'
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
-  const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, form) }
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, outcome, needsReschedule ? form : null) }
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
@@ -344,30 +569,39 @@ function RNRModal({ lead, isDark, onClose, onSubmit, inputClass }) {
       >
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><PhoneMissed className="w-5 h-5 text-accent-500" />Ring No Response</h2>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>When should we try {lead.name} again?</p>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><PhoneCall className="w-5 h-5 text-primary-500" />Call Outcome</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>How did the call with {lead.name} go?</p>
           </div>
           <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
             className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
           ><X className="w-5 h-5" /></motion.button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Next Attempt Date</label>
-              <div className="relative">
-                <Calendar className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-                <input type="date" required value={form.date} onChange={(e) => handleChange('date', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
-              </div>
-            </div>
-            <div>
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Time</label>
-              <div className="relative">
-                <Clock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-                <input type="time" required value={form.time} onChange={(e) => handleChange('time', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
-              </div>
-            </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Outcome</label>
+            <select value={outcome} onChange={(e) => setOutcome(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              {callOutcomeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
           </div>
+          {needsReschedule && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Next Attempt Date</label>
+                <div className="relative">
+                  <Calendar className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                  <input type="date" required value={form.date} onChange={(e) => handleChange('date', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+                </div>
+              </div>
+              <div>
+                <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Time</label>
+                <div className="relative">
+                  <Clock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+                  <input type="time" required value={form.time} onChange={(e) => handleChange('time', e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+                </div>
+              </div>
+            </div>
+          )}
           <div>
             <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Notes (optional)</label>
             <textarea rows={2} value={form.notes} onChange={(e) => handleChange('notes', e.target.value)} placeholder="e.g. tried at lunchtime, will call again in the evening..."
@@ -379,7 +613,210 @@ function RNRModal({ lead, isDark, onClose, onSubmit, inputClass }) {
             >Cancel</motion.button>
             <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
-            ><PhoneMissed className="w-4 h-4" />Save & Schedule Next Attempt</motion.button>
+            ><CheckCircle2 className="w-4 h-4" />{needsReschedule ? 'Save & Schedule Next Attempt' : 'Save Outcome'}</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── MEETING OUTCOME MODAL — shown when a counselling meeting is marked
+// Completed. Records what happened and suggests (never forces, except
+// where the outcome directly names a pipeline stage) the next step. ────
+const meetingOutcomeOptions = ['Interested', 'Needs Follow-up', 'Package Shared', 'Not Interested', 'Other']
+function MeetingOutcomeModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [outcome, setOutcome] = useState('Interested')
+  const [notes, setNotes] = useState('')
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, outcome, notes.trim()) }
+
+  const suggestion = {
+    'Interested': 'Suggested next step: share the package with them.',
+    'Needs Follow-up': 'Suggested next step: schedule a follow-up.',
+    'Package Shared': `Suggested next step: this moves the lead to "Package Shared".`,
+    'Not Interested': 'Suggested next step: mark this lead as Lost.',
+    'Other': null,
+  }[outcome]
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><Video className="w-5 h-5 text-primary-500" />Meeting Outcome</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>How did the counselling with {lead.name} go?</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Outcome</label>
+            <select value={outcome} onChange={(e) => setOutcome(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              {meetingOutcomeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            {suggestion && (
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{suggestion}</p>
+            )}
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Notes (optional)</label>
+            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What was discussed..."
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
+            ><CheckCircle2 className="w-4 h-4" />Save Outcome</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── CHANGE STATUS MODAL ──────────────────────────────────────────────
+function ChangeStatusModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [newStatus, setNewStatus] = useState(lead.status)
+  const [note, setNote] = useState('')
+  const options = ALL_STATUS_KEYS.filter((k) => k !== 'enrolled')
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, newStatus, note.trim()) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Change Lead Status</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.name}</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Current</label>
+            <StatusBadge status={lead.status} isDark={isDark} />
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>New Status</label>
+            <select value={newStatus} onChange={(e) => setNewStatus(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              {options.map((k) => <option key={k} value={k}>{statusConfig[k].label}</option>)}
+            </select>
+            {newStatus === 'enrolled' && (
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>To mark Enrolled, open the lead and use "Assign Package &amp; Enroll" so a student record is created too.</p>
+            )}
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Optional note</label>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why is the status changing?"
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" disabled={newStatus === lead.status || newStatus === 'enrolled'} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow-lg transition-all ${newStatus === lead.status || newStatus === 'enrolled' ? 'bg-dark-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-primary-500/25'}`}
+            >Save</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── MOVE TO NURTURE MODAL ─────────────────────────────────────────────
+function NurtureModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [reason, setReason] = useState('')
+  const [nextDate, setNextDate] = useState(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))
+  const handleSubmit = (e) => { e.preventDefault(); if (reason.trim()) onSubmit(lead, reason.trim(), nextDate) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><Moon className="w-5 h-5 text-dark-400" />Move to Nurture</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.name} stays in the CRM — just parked for later</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Why is this lead being nurtured? *</label>
+            <textarea rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. not ready to join this term, budget review in a few months..."
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Next Follow-up Date</label>
+            <div className="relative">
+              <Calendar className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
+              <input type="date" required value={nextDate} onChange={(e) => setNextDate(e.target.value)} className={`w-full pl-10 pr-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-dark-600 to-dark-500 hover:from-dark-500 hover:to-dark-400 shadow-lg transition-all"
+            ><Moon className="w-4 h-4" />Move to Nurture</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── ADD NOTE MODAL ────────────────────────────────────────────────────
+function AddNoteModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [text, setText] = useState('')
+  const handleSubmit = (e) => { e.preventDefault(); if (text.trim()) onSubmit(lead.id, text.trim()) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><FileText className="w-5 h-5 text-primary-500" />Add Note</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.name}</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <textarea rows={4} required autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a note about this lead..."
+            className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
+            >Save Note</motion.button>
           </div>
         </form>
       </motion.div>
@@ -388,9 +825,15 @@ function RNRModal({ lead, isDark, onClose, onSubmit, inputClass }) {
 }
 
 // ─── LOST REASON MODAL ───────────────────────────────────────────────
-function LostReasonModal({ lead, isDark, onClose, onSubmit, inputClass }) {
-  const [reason, setReason] = useState('')
-  const handleSubmit = (e) => { e.preventDefault(); if (reason.trim()) onSubmit(lead, reason.trim()) }
+const lostReasons = ['Price', 'Not Interested', 'Joined Elsewhere', 'Timing', 'Course', 'No Response', 'Other']
+// "Mark Lost" and "Not Interested" are the same closure (status='lost')
+// with a reason attached — not two separate statuses, so the pipeline
+// never grows a confusing second "closed" state. initialReason just
+// pre-selects the reason when opened from the dedicated shortcut.
+function LostReasonModal({ lead, isDark, onClose, onSubmit, inputClass, initialReason = '' }) {
+  const [reason, setReason] = useState(initialReason)
+  const [note, setNote] = useState('')
+  const handleSubmit = (e) => { e.preventDefault(); if (reason) onSubmit(lead, reason, note.trim()) }
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
@@ -401,7 +844,7 @@ function LostReasonModal({ lead, isDark, onClose, onSubmit, inputClass }) {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><UserX className="w-5 h-5 text-rose-500" />Mark as Lost</h2>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Why is {lead.name} being marked lost?</p>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.name} stays in the CRM, just marked closed-lost</p>
           </div>
           <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
             className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
@@ -409,17 +852,275 @@ function LostReasonModal({ lead, isDark, onClose, onSubmit, inputClass }) {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Reason *</label>
-            <textarea rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. too expensive, chose another institute, not interested anymore..."
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Reason</label>
+            <select required value={reason} onChange={(e) => setReason(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              <option value="">Select reason</option>
+              {lostReasons.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Additional note (optional)</label>
+            <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Any extra detail worth keeping on record..."
               className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
           </div>
           <div className="flex items-center justify-end gap-3 pt-2">
             <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
             >Cancel</motion.button>
-            <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 shadow-lg shadow-rose-500/25 transition-all"
-            ><UserX className="w-4 h-4" />Mark Lost</motion.button>
+            <motion.button type="submit" disabled={!reason} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow-lg transition-all ${!reason ? 'bg-dark-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 shadow-rose-500/25'}`}
+            ><UserX className="w-4 h-4" />Confirm Lost</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── REOPEN MODAL (admin — bring a Lost/Nurture lead back) ─────────────
+// History is never deleted here — the previous status, new status, reason,
+// actor, and timestamp all get written to the timeline (see
+// DataContext.reopenLead); this just collects the new status + reason.
+function ReopenModal({ lead, isDark, onClose, onSubmit, inputClass }) {
+  const [newStatus, setNewStatus] = useState('new')
+  const [reason, setReason] = useState('')
+  const options = PIPELINE_STAGE_KEYS.filter((k) => k !== 'enrolled')
+  const handleSubmit = (e) => { e.preventDefault(); if (reason.trim()) onSubmit(lead, newStatus, reason.trim()) }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-md rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><RotateCcw className="w-5 h-5 text-primary-500" />Reopen Lead</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Bring {lead.name} back into the active pipeline</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Current Status</label>
+            <StatusBadge status={lead.status} isDark={isDark} />
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>New Status</label>
+            <select value={newStatus} onChange={(e) => setNewStatus(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              {options.map((k) => <option key={k} value={k}>{statusConfig[k].label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Reason *</label>
+            <textarea rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this lead being reopened?"
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 resize-none transition-all ${inputClass}`} />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" disabled={!reason.trim()} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow-lg transition-all ${!reason.trim() ? 'bg-dark-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-primary-500/25'}`}
+            ><RotateCcw className="w-4 h-4" />Reopen Lead</motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── ASSIGN MODAL (admin — pick who handles this lead) ────────────────
+function AssignModal({ lead, isDark, onClose, onAssign, teamMembers }) {
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-sm rounded-2xl p-6 z-10 ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}><UserCog className="w-5 h-5 text-primary-500" />Assign Lead</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Who should handle {lead.name}?</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+          {(teamMembers || []).length === 0 && (
+            <p className={`text-sm text-center py-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No team members found</p>
+          )}
+          {(teamMembers || []).map((m) => (
+            <button key={m.id} type="button" onClick={() => onAssign(lead, m.id)}
+              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between transition-colors ${
+                lead.assigned_to === m.id
+                  ? isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600'
+                  : isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-50'
+              }`}
+            >
+              {m.name}
+              {lead.assigned_to === m.id && <CheckCircle2 className="w-4 h-4" />}
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ─── ADMISSION CONFIRMATION MODAL ──────────────────────────────────────
+// Nothing is written to the database until "Confirm Admission" is
+// clicked — this is purely a review step. On confirm, the whole chained
+// workflow (student → course → package → batch → fee plan → payment →
+// enrolled → timeline → automation event) runs as one call to
+// DataContext.confirmAdmission.
+function AdmissionModal({ lead, matchingPackage, finalPrice, batches, isDark, inputClass, onClose, onConfirm }) {
+  const navigate = useNavigate()
+  const [batchId, setBatchId] = useState('')
+  const [initialPayment, setInitialPayment] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('UPI')
+  const [referenceNumber, setReferenceNumber] = useState('')
+  const [admissionDate, setAdmissionDate] = useState(new Date().toISOString().slice(0, 10))
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [result, setResult] = useState(null)
+
+  const courseBatches = (batches || []).filter((b) => b.course === lead.course)
+  const paymentAmount = Number(initialPayment) || 0
+
+  const handleConfirm = async (e) => {
+    e.preventDefault()
+    if (!admissionDate) { setFormError('Admission date is required'); return }
+    if (paymentAmount < 0 || paymentAmount > finalPrice) { setFormError('Initial payment must be between ₹0 and the final price'); return }
+    setFormError('')
+    setSubmitting(true)
+    const res = await onConfirm({
+      pkg: matchingPackage,
+      batchId: batchId ? Number(batchId) : null,
+      discountPercent: lead.discount_percent || 0,
+      initialPayment: paymentAmount,
+      paymentMethod,
+      referenceNumber: referenceNumber.trim() || null,
+      admissionDate,
+    })
+    setSubmitting(false)
+    if (res?.error) { setFormError(res.error); return }
+    setResult(res)
+  }
+
+  if (result) {
+    return (
+      <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+        <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+        <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+          className={`relative w-full max-w-md rounded-2xl p-6 z-10 text-center ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+        >
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-emerald-500/15' : 'bg-emerald-50'}`}>
+            <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+          </div>
+          <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Admission completed successfully.</h2>
+          {result.wasExistingStudent && (
+            <p className={`text-xs mb-4 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>An existing student record for {lead.name} was found and used — no duplicate was created.</p>
+          )}
+          <div className="flex flex-col gap-2 mt-5">
+            <button onClick={() => navigate('/students', { state: { openStudentId: result.student.id } })}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
+              View Student
+            </button>
+            <button onClick={() => navigate('/billing', { state: { openInvoiceForStudent: lead.name } })}
+              className={`w-full py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+              View Fee Bill
+            </button>
+            {result.student?.batch_id && (
+              <button onClick={() => navigate(`/batches/${result.student.batch_id}`)}
+                className={`w-full py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+                View Batch
+              </button>
+            )}
+            <button onClick={onClose} className={`w-full py-2 text-xs font-medium ${isDark ? 'text-dark-500 hover:text-dark-300' : 'text-dark-400 hover:text-dark-600'}`}>Close</button>
+          </div>
+        </motion.div>
+      </motion.div>
+    )
+  }
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit">
+      <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
+        className={`relative w-full max-w-lg rounded-2xl p-6 z-10 max-h-[85vh] overflow-y-auto ${isDark ? 'bg-dark-900 border border-dark-700/60 shadow-2xl shadow-black/40' : 'bg-white border border-dark-200/60 shadow-2xl'}`}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Admission Confirmation</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Review everything below — nothing is saved until you confirm.</p>
+          </div>
+          <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
+          ><X className="w-5 h-5" /></motion.button>
+        </div>
+
+        <div className={`rounded-lg p-4 mb-5 space-y-2 text-sm ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+          <div className="flex items-center justify-between"><span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Lead</span><span className={`font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>{lead.name}</span></div>
+          <div className="flex items-center justify-between"><span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Course</span><span className={`font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>{lead.course}</span></div>
+          <div className="flex items-center justify-between"><span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Package</span><span className={`font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>{matchingPackage?.name || '—'}</span></div>
+          <div className={`flex items-center justify-between pt-2 border-t ${isDark ? 'border-dark-700' : 'border-dark-200'}`}>
+            <span className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Final Price</span>
+            <span className={`font-bold ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{formatINR(finalPrice)}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleConfirm} className="space-y-4">
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Batch</label>
+            <select value={batchId} onChange={(e) => setBatchId(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+              <option value="">No batch yet (assign later)</option>
+              {courseBatches.map((b) => <option key={b.id} value={b.id}>{b.name} &middot; {b.schedule || 'schedule TBD'}</option>)}
+            </select>
+            {courseBatches.length === 0 && (
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {lead.course} — create one from the Batches page, or assign later.</p>
+            )}
+          </div>
+          <div>
+            <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Admission Date</label>
+            <input type="date" required value={admissionDate} onChange={(e) => setAdmissionDate(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Initial Payment</label>
+              <input type="number" min="0" max={finalPrice} value={initialPayment} onChange={(e) => setInitialPayment(e.target.value)} placeholder="0"
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Method</label>
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
+                {['UPI', 'Cash', 'Card', 'Bank Transfer', 'Cheque'].map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          {paymentAmount > 0 && (
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Reference (optional)</label>
+              <input type="text" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Transaction ID, cheque no., etc."
+                className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 transition-all ${inputClass}`} />
+            </div>
+          )}
+          {formError && <p className="text-xs font-medium text-rose-500">{formError}</p>}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <motion.button type="button" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={onClose}
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}
+            >Cancel</motion.button>
+            <motion.button type="submit" disabled={submitting} whileHover={{ scale: submitting ? 1 : 1.03 }} whileTap={{ scale: submitting ? 1 : 0.97 }}
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow-lg transition-all ${submitting ? 'bg-dark-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-primary-500/25'}`}
+            >{submitting ? 'Confirming...' : 'Confirm Admission'}</motion.button>
           </div>
         </form>
       </motion.div>
@@ -542,10 +1243,22 @@ function EditLeadModal({ lead, isDark, onClose, onSave, inputClass }) {
 }
 
 // ─── TRANSFER TO FOLLOW-UP MODAL ─────────────────────────────────────
+const meetingTypeOptions = [
+  { key: 'in_person', label: 'In-person', icon: Users },
+  { key: 'online', label: 'Online', icon: Video },
+  { key: 'phone', label: 'Phone', icon: Phone },
+]
+
+// Meeting states are shown in business language, not the raw follow_ups
+// status value — "Scheduled" reads far clearer than "pending" for a
+// counselling meeting.
+const meetingStatusLabel = { pending: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled', no_show: 'No Show' }
+
 function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass, initialType = 'call' }) {
-  const [form, setForm] = useState({ type: initialType, date: new Date().toISOString().slice(0, 10), time: '10:00', priority: 'medium', notes: lead.notes || '' })
+  const [form, setForm] = useState({ type: initialType, date: new Date().toISOString().slice(0, 10), time: '10:00', priority: 'medium', notes: lead.notes || '', meetingType: 'online' })
   const handleChange = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
   const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, form) }
+  const isMeeting = form.type === 'meeting'
 
   const typeColors = {
     call: isDark ? 'border-sky-500 bg-sky-500/10 text-sky-400' : 'border-sky-500 bg-sky-50 text-sky-600',
@@ -563,8 +1276,8 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
       >
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Transfer to Follow-up</h2>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Schedule a follow-up for {lead.name}</p>
+            <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{isMeeting ? 'Schedule Counselling' : 'Schedule Follow-up'}</h2>
+            <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{isMeeting ? `Set up a counselling meeting for ${lead.name}` : `Schedule a follow-up for ${lead.name}`}</p>
           </div>
           <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={onClose}
             className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-500 hover:text-dark-200 hover:bg-dark-800' : 'text-dark-400 hover:text-dark-600 hover:bg-dark-100'}`}
@@ -592,6 +1305,19 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
               ))}
             </div>
           </div>
+          {isMeeting && (
+            <div>
+              <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Meeting Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                {meetingTypeOptions.map(({ key, label, icon: TypeIcon }) => (
+                  <label key={key} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border cursor-pointer transition-all text-xs font-medium ${form.meetingType === key ? typeColors.meeting : unselectedStyle}`}>
+                    <input type="radio" name="meeting-type" value={key} checked={form.meetingType === key} onChange={() => handleChange('meetingType', key)} className="sr-only" />
+                    <TypeIcon className="w-5 h-5" />{label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Date</label>
@@ -640,7 +1366,7 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
             >Cancel</motion.button>
             <motion.button type="submit" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all"
-            ><Calendar className="w-4 h-4" />Schedule Follow-up</motion.button>
+            ><Calendar className="w-4 h-4" />{isMeeting ? 'Schedule Meeting' : 'Schedule Follow-up'}</motion.button>
           </div>
         </form>
       </motion.div>
@@ -844,20 +1570,37 @@ function LeadStageStepper({ status, isDark }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onEnroll, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onCall, onChangeStatus, onSharePackage, onPackageShared, onAssign, onTakeOver, onAddNoteAction, onNurture, onLost, onNotInterested, onReopen, onConfirmAdmission, onDiscountChange, onBatchTimingChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, addActivity, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote, students }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
-  const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [timelineFilter, setTimelineFilter] = useState('all')
+  const [showAdmissionModal, setShowAdmissionModal] = useState(false)
   const [addingDocCategory, setAddingDocCategory] = useState(null)
   const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
+  const [showActionMenu, setShowActionMenu] = useState(false)
+  const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
+  const [reschedulingId, setReschedulingId] = useState(null)
+  const [rescheduleForm, setRescheduleForm] = useState({ date: '', time: '' })
+  const [cancelTargetId, setCancelTargetId] = useState(null)
   const profileNotes = (leadNotes || []).filter((n) => n.lead_id === lead.id)
 
   const statusColor = getStatusColor(lead.status)
   const matchingPackage = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+  const enrolledStudent = lead.status === 'enrolled' ? (students || []).find((s) => s.name === lead.name && s.course === lead.course) : null
+  const enrolledBatch = enrolledStudent ? (batches || []).find((b) => b.id === enrolledStudent.batch_id) : null
   const leadFollowUps = followUpsData.filter((f) => f.lead === lead.name)
   const leadTimeline = (leadActivities || []).filter((a) => a.lead_id === lead.id)
   const leadDocs = (leadDocuments || []).filter((d) => d.lead_id === lead.id)
+
+  // "Package Selected" is logged the first time this lead's matched
+  // package is actually seen (the Package tab is opened) — deduped so
+  // re-visiting the tab doesn't re-log it.
+  useEffect(() => {
+    if (activeTab !== 'package' || !matchingPackage) return
+    const already = leadTimeline.some((a) => a.description?.startsWith('Package Selected'))
+    if (!already) addActivity(lead.id, lead.status, lead.status, `Package Selected: ${matchingPackage.name}`)
+  }, [activeTab, matchingPackage?.name, lead.id])
 
   // WhatsApp messages used to only be viewable on a separate Conversations
   // page — pulling them in here gives one real chronological communication
@@ -882,6 +1625,19 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
   }
   useEffect(refetchLeadEmails, [lead.id])
 
+  // "Shared Date" comes from the real email record, not a separate flag —
+  // sending package details already writes to email_messages, so that's
+  // the actual source of truth for when (and whether) it was shared.
+  const packageSharedEmail = leadEmails.find((m) => m.subject?.startsWith('Package Details:') && m.status === 'sent')
+
+  // The discount lives on the lead (set here, in Package) and is what the
+  // Admission modal's Final Price is computed from later — one number,
+  // not re-entered at enrollment time.
+  const discountPercent = lead.discount_percent || 0
+  const finalPriceWithGst = matchingPackage ? Math.round(matchingPackage.price * (1 - discountPercent / 100) * 1.18) : 0
+  const [discountInput, setDiscountInput] = useState(String(discountPercent))
+  useEffect(() => setDiscountInput(String(lead.discount_percent || 0)), [lead.id, lead.discount_percent])
+
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailModalPreset, setEmailModalPreset] = useState(null)
 
@@ -889,14 +1645,19 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
     ...leadTimeline.map((a) => ({ type: 'activity', at: a.created_at, data: a })),
     ...whatsappMessages.map((m) => ({ type: 'whatsapp', at: m.created_at, data: m })),
     ...leadEmails.map((m) => ({ type: 'email', at: m.created_at, data: m })),
+    ...profileNotes.map((n) => ({ type: 'note', at: n.created_at, data: n })),
   ].sort((a, b) => new Date(b.at) - new Date(a.at))
   const feeInvoice = (invoices || []).find((inv) => inv.student === lead.name && inv.course === lead.course)
+  const hasCallActivity = leadTimeline.some((a) => a.activity_type === 'CALL')
   const isLeadClosed = lead.status === 'enrolled' || lead.status === 'lost'
   const { user: currentUser } = useAuth()
   const isLockedToOther = !!lead.assigned_to && lead.assigned_to !== currentUser?.id && !isAdmin
   const leadMeetings = leadFollowUps.filter((f) => f.type === 'meeting')
-  const pendingCount = leadFollowUps.filter((f) => f.status === 'pending').length
   const packagePrice = matchingPackage?.price || 0
+  const nextFollowUpItem = getNextFollowUp(lead.name, followUpsData)
+  const nextFollowUpInfo = followUpDueInfo(nextFollowUpItem)
+  const nextFollowUpAccentMap = { overdue: 'rose', today: 'amber', tomorrow: 'sky', later: 'accent', none: 'slate' }
+  const nextFollowUpAccent = nextFollowUpAccentMap[nextFollowUpInfo.tone]
 
   const handleAddNote = () => {
     if (!profileNoteText.trim()) return
@@ -922,11 +1683,6 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 
   const subtleBg = bgSubtleMap(isDark)
 
-  // Lead score
-  const scoreMap = { high: { label: 'Hot', pct: 85, color: 'emerald' }, medium: { label: 'Warm', pct: 55, color: 'accent' }, low: { label: 'Cold', pct: 25, color: 'sky' } }
-  const score = scoreMap[lead.priority] || scoreMap.medium
-  const scoreBarColor = { emerald: 'bg-emerald-500', accent: 'bg-accent-500', sky: 'bg-sky-500' }
-
   return (
     <motion.div initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.35 }} className="space-y-6">
       {/* Back Button */}
@@ -950,7 +1706,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                 {lead.course} &middot; Added {relativeDate(lead.date)}
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <StatusBadge status={lead.status} isDark={isDark} />
+                <StatusBadge status={lead.status} isDark={isDark} onClick={(!isLockedToOther || isAdmin) ? () => onChangeStatus(lead) : undefined} />
                 <PriorityBadge priority={lead.priority} isDark={isDark} />
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isDark ? 'bg-dark-800 text-dark-400' : 'bg-dark-100 text-dark-500'}`}>
                   <SourceIcon className="w-3 h-3" />{lead.source}
@@ -958,9 +1714,11 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
               </div>
             </div>
           </div>
-          {/* Action Buttons */}
+          {/* Action Buttons — Call/WhatsApp/Follow-up are primary; everything
+              else lives in the same secondary More menu the Lead List uses,
+              so both views drive the exact same handlers on the same record. */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => window.open(`tel:${lead.phone}`)}
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onCall(lead)}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all">
               <Phone className="w-4 h-4" />Call
             </motion.button>
@@ -971,21 +1729,39 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
             {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onTransfer(lead)}
                 className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-                <Clock className="w-4 h-4" />Reminder
+                <Calendar className="w-4 h-4" />Follow-up
               </motion.button>
             )}
-            {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onEdit(lead)}
-                className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-                <Pencil className="w-4 h-4" />Edit
+            <div className="relative">
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={(e) => { setShowActionMenu((v) => !v); setActionMenuAnchor(e.currentTarget) }}
+                className={`p-2.5 rounded-lg transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' : 'bg-dark-100 text-dark-600 hover:text-dark-900 hover:bg-dark-200'}`}>
+                <MoreHorizontal className="w-4 h-4" />
               </motion.button>
-            )}
-            {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => onDelete(lead)}
-                className={`p-2.5 rounded-lg transition-colors ${isDark ? 'text-rose-400 hover:bg-rose-500/10' : 'text-rose-500 hover:bg-rose-50'}`}>
-                <Trash2 className="w-4 h-4" />
-              </motion.button>
-            )}
+              <AnimatePresence>
+                {showActionMenu && (
+                  <LeadActionMenu
+                    lead={lead}
+                    isDark={isDark}
+                    isAdmin={isAdmin}
+                    anchorEl={actionMenuAnchor}
+                    onClose={() => setShowActionMenu(false)}
+                    onScheduleMeeting={onScheduleMeeting}
+                    onSharePackage={onSharePackage}
+                    onChangeStatus={onChangeStatus}
+                    onOpenEnroll={() => setActiveTab('package')}
+                    onAssign={onAssign}
+                    onTakeOver={onTakeOver}
+                    onAddNote={onAddNoteAction}
+                    onNurture={onNurture}
+                    onLost={onLost}
+                    onNotInterested={onNotInterested}
+                    onReopen={onReopen}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                )}
+              </AnimatePresence>
+            </div>
           </div>
           {isLeadClosed && !isAdmin && (
             <p className={`text-xs mt-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
@@ -1000,26 +1776,51 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
         </div>
       </motion.div>
 
-      {/* Lifecycle Stage */}
+      {/* Next Action — the "what should I do next" question, answered from
+          real pending follow-ups/meetings/invoices only, never guessed. */}
+      <NextActionCard
+        lead={lead}
+        leadFollowUps={leadFollowUps}
+        feeInvoice={feeInvoice}
+        hasCallActivity={hasCallActivity}
+        isDark={isDark}
+        cardClass={cardClass}
+        onCall={() => onCall(lead)}
+        onComplete={(item) => { updateFollowUp(item.id, { status: 'completed' }); showNotification('Follow-up marked as completed') }}
+        onViewMeeting={() => setActiveTab('meeting')}
+        onWhatsAppReminder={() => navigate('/conversations', { state: { openPhone: lead.phone, leadId: lead.id, leadName: lead.name } })}
+        onViewFeeBill={() => setActiveTab('feebill')}
+        onScheduleFollowUp={() => onTransfer(lead)}
+      />
+
+      {/* Status Progress — the "where is this lead" question */}
       <motion.div variants={itemVariants} className={`rounded-2xl p-4 ${cardClass}`}>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Status Progress</p>
+          {((!isLeadClosed && !isLockedToOther) || isAdmin) && (
+            <button onClick={() => onChangeStatus(lead)} className={`text-xs font-medium ${isDark ? 'text-primary-400 hover:text-primary-300' : 'text-primary-600 hover:text-primary-700'}`}>
+              Change Status
+            </button>
+          )}
+        </div>
         <LeadStageStepper status={lead.status} isDark={isDark} />
       </motion.div>
 
-      {/* Stats Row */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: Activity, label: 'Activities', value: 3, color: 'primary' },
-          { icon: Calendar, label: 'Meetings', value: leadMeetings.length || 1, color: 'violet' },
-          { icon: AlertCircle, label: 'Pending', value: pendingCount, color: 'accent' },
-          { icon: IndianRupee, label: 'Package Value', value: packagePrice ? formatINR(packagePrice) : '—', color: 'emerald' },
+          { icon: Activity, label: 'Activities', value: combinedTimeline.length, color: 'primary' },
+          { icon: Clock, label: 'Next Follow-up', value: nextFollowUpItem ? `${nextFollowUpInfo.label} ${nextFollowUpItem.time}` : 'No follow-up', color: nextFollowUpAccent, small: true },
+          { icon: IndianRupee, label: 'Pending Amount', value: feeInvoice ? (feeInvoice.balance > 0 ? formatINR(feeInvoice.balance) : 'Fully Paid') : '—', color: feeInvoice?.balance > 0 ? 'rose' : 'emerald' },
+          { icon: Package, label: 'Package Value', value: packagePrice ? formatINR(packagePrice) : '—', color: 'accent' },
         ].map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.08 }}
             className={`rounded-xl p-4 flex items-center gap-3 ${cardClass}`}>
             <div className={`p-2.5 rounded-lg ${subtleBg[stat.color]}`}>
               <stat.icon className={`w-5 h-5 ${iconColorMap[stat.color]}`} />
             </div>
-            <div>
-              <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{stat.value}</p>
+            <div className="min-w-0">
+              <p className={`font-bold truncate ${stat.small ? 'text-sm' : 'text-lg'} ${isDark ? 'text-white' : 'text-dark-900'}`}>{stat.value}</p>
               <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{stat.label}</p>
             </div>
           </motion.div>
@@ -1058,9 +1859,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   {[
                     { icon: Mail, label: 'Email', value: lead.email, isLink: true },
                     { icon: Phone, label: 'Phone', value: lead.phone },
-                    { icon: MapPin, label: 'Source', value: lead.source },
                     { icon: Calendar, label: 'Date of Inquiry', value: lead.date },
-                    { icon: UserCheck, label: 'Assigned To', value: (teamMembers || []).find((m) => m.id === lead.assigned_to)?.name || 'Unassigned' },
                   ].map((item) => (
                     <div key={item.label} className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
@@ -1083,42 +1882,40 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                 </div>
               </div>
 
-              <div className="space-y-6">
-                {/* Priority — was previously shown as a fabricated "Lead
-                    Score" with a precise-looking "% match" and progress bar,
-                    both computed from nothing but this same priority value.
-                    Shown plainly now instead of implying a scoring engine
-                    that doesn't exist. */}
-                <div className={`rounded-xl p-5 ${cardClass}`}>
-                  <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Priority</h3>
-                  <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${scoreBarColor[score.color]}/10 ${iconColorMap[score.color]}`}>
-                    <span className={`w-2 h-2 rounded-full ${scoreBarColor[score.color]}`} />{score.label}
-                  </span>
-                </div>
-
-                {/* Quick Timeline */}
-                <div className={`rounded-xl p-5 ${cardClass}`}>
-                  <h3 className={`text-sm font-semibold mb-4 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
-                    <Activity className="w-4 h-4" />Quick Timeline
-                  </h3>
-                  <div className="relative pl-6 space-y-4">
-                    <div className={`absolute left-[11px] top-2 bottom-2 w-px ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`} />
-                    {[
-                      { title: `Lead created from ${lead.source}`, time: lead.date, color: 'sky' },
-                      { title: `Status: ${statusConfig[lead.status]?.label}`, time: 'Recently', color: statusColor },
-                      { title: `Interest in ${lead.course}`, time: lead.date, color: 'accent' },
-                      ...(leadFollowUps.length > 0 ? [{ title: 'Follow-up scheduled', time: leadFollowUps[0]?.date || 'Upcoming', color: 'emerald' }] : []),
-                    ].map((entry, i) => (
-                      <div key={i} className="relative">
-                        <div className={`absolute -left-6 top-0.5 w-[22px] h-[22px] rounded-full flex items-center justify-center ${subtleBg[entry.color]}`}>
-                          <div className={`w-2 h-2 rounded-full ${iconColorMap[entry.color].replace('text-', 'bg-')}`} />
-                        </div>
-                        <div className="ml-2">
-                          <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{entry.title}</p>
-                          <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>{entry.time}</p>
-                        </div>
-                      </div>
-                    ))}
+              {/* Lead Details — Course/Source/Assigned/Priority/Status in one
+                  place so the executive never has to leave Overview to know
+                  the basics; Priority/Status stay live controls, not just text. */}
+              <div className={`rounded-xl p-5 ${cardClass}`}>
+                <h3 className={`text-sm font-semibold mb-4 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Lead Details</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}><GraduationCap className={`w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Course</p>
+                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{lead.course}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}><SourceIcon className={`w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Source</p>
+                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{lead.source}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}><UserCheck className={`w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Assigned Executive</p>
+                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{(teamMembers || []).find((m) => m.id === lead.assigned_to)?.name || 'Unassigned'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Priority</p>
+                    <PriorityBadge priority={lead.priority} isDark={isDark} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Current Status</p>
+                    <StatusBadge status={lead.status} isDark={isDark} onClick={(!isLockedToOther || isAdmin) ? () => onChangeStatus(lead) : undefined} />
                   </div>
                 </div>
               </div>
@@ -1126,75 +1923,135 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
           )}
 
           {/* ── Timeline Tab ── */}
-          {activeTab === 'timeline' && (
-            <div className={`rounded-xl p-5 ${cardClass}`}>
-              <h3 className={`text-sm font-semibold mb-5 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
-                <Activity className="w-4 h-4" />Lead Timeline
-              </h3>
-              {combinedTimeline.length === 0 ? (
-                <div className="text-center py-8">
-                  <Activity className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-                  <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No activity recorded yet</p>
+          {/* The one place that answers "what happened with this lead" —
+              every module (calls, follow-ups, meetings, package, fee bill,
+              payments, notes, status/enrollment) writes here automatically;
+              nothing on this tab is manually created. */}
+          {activeTab === 'timeline' && (() => {
+            const bucketOf = (item) => {
+              if (item.type === 'whatsapp' || item.type === 'email') return 'messages'
+              if (item.type === 'note') return 'notes'
+              return activityTypeInfo(item.data.activity_type).bucket
+            }
+            const filtered = timelineFilter === 'all' ? combinedTimeline : combinedTimeline.filter((item) => bucketOf(item) === timelineFilter)
+
+            // Group into day buckets while keeping the existing (already
+            // newest-first) order within and across groups.
+            const groups = []
+            filtered.forEach((item) => {
+              const label = dayGroupLabel(new Date(item.at))
+              let group = groups[groups.length - 1]?.label === label ? groups[groups.length - 1] : null
+              if (!group) { group = { label, items: [] }; groups.push(group) }
+              group.items.push(item)
+            })
+
+            const timeOf = (item) => new Date(item.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            const rowCls = 'flex items-start gap-3'
+            const timeCls = `text-xs shrink-0 w-16 pt-0.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`
+            const headlineCls = `text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`
+            const sublineCls = `text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`
+            const byCls = `text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`
+
+            const renderEntry = (item) => {
+              if (item.type === 'whatsapp') {
+                const m = item.data
+                const isOutbound = m.direction === 'outbound'
+                return (
+                  <div key={`wa-${m.id}`} className={rowCls}>
+                    <span className={timeCls}>{timeOf(item)}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className={headlineCls}>💬 {isOutbound ? 'WhatsApp sent' : 'WhatsApp received'}</p>
+                      <p className={sublineCls}>{m.body}</p>
+                    </div>
+                  </div>
+                )
+              }
+              if (item.type === 'email') {
+                const m = item.data
+                return (
+                  <div key={`em-${m.id}`} className={rowCls}>
+                    <span className={timeCls}>{timeOf(item)}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className={headlineCls}>✉️ {m.status === 'sent' ? 'Email sent' : 'Email failed'}: {m.subject}</p>
+                      <p className={sublineCls}>{m.body}</p>
+                      {m.sender_name && <p className={byCls}>By {m.sender_name}</p>}
+                    </div>
+                  </div>
+                )
+              }
+              if (item.type === 'note') {
+                const n = item.data
+                return (
+                  <div key={`note-${n.id}`} className={rowCls}>
+                    <span className={timeCls}>{timeOf(item)}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className={headlineCls}>📝 Note added</p>
+                      <p className={sublineCls}>{n.text}</p>
+                      {n.author_name && <p className={byCls}>By {n.author_name}</p>}
+                    </div>
+                  </div>
+                )
+              }
+              // Generic lead_activities entry — status changes get the clean
+              // "From → To" line the spec asks for; everything else (calls,
+              // payments, fee bills, enrollment, etc.) shows its own
+              // already-specific description.
+              const a = item.data
+              const info = activityTypeInfo(a.activity_type)
+              const isPlainStatusChange = a.activity_type === 'STATUS_CHANGED' && a.from_status && a.to_status && a.from_status !== a.to_status
+              return (
+                <div key={a.id} className={rowCls}>
+                  <span className={timeCls}>{timeOf(item)}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={headlineCls}>{info.icon} {info.label}</p>
+                    {isPlainStatusChange ? (
+                      <p className={sublineCls}>{statusConfig[a.from_status]?.label || a.from_status} &rarr; {statusConfig[a.to_status]?.label || a.to_status}</p>
+                    ) : (
+                      <p className={sublineCls}>{a.description}</p>
+                    )}
+                    {a.actor_name && <p className={byCls}>By {a.actor_name}</p>}
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-5">
-                  {combinedTimeline.map((item) => {
-                    if (item.type === 'whatsapp') {
-                      const m = item.data
-                      const isOutbound = m.direction === 'outbound'
-                      return (
-                        <div key={`wa-${m.id}`} className="flex items-start gap-3">
-                          <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${isOutbound ? 'bg-primary-500' : 'bg-emerald-500'}`} />
-                          <div className="min-w-0">
-                            <p className={`text-sm font-semibold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                              <MessageCircle className="w-3.5 h-3.5" />{isOutbound ? 'WhatsApp sent' : 'WhatsApp received'}
-                            </p>
-                            <p className={`text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.body}</p>
-                            <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              {new Date(m.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    }
-                    if (item.type === 'email') {
-                      const m = item.data
-                      return (
-                        <div key={`em-${m.id}`} className="flex items-start gap-3">
-                          <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${m.status === 'sent' ? 'bg-primary-500' : 'bg-rose-500'}`} />
-                          <div className="min-w-0">
-                            <p className={`text-sm font-semibold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                              <Mail className="w-3.5 h-3.5" />{m.status === 'sent' ? 'Email sent' : 'Email failed'}: {m.subject}
-                            </p>
-                            <p className={`text-sm mt-0.5 whitespace-pre-wrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.body}</p>
-                            <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              {m.sender_name} &middot; {new Date(m.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    }
-                    const a = item.data
-                    const color = a.to_status === 'lost' ? 'rose' : getStatusColor(a.to_status || a.from_status || 'new')
-                    const fromLabel = (statusConfig[a.from_status]?.label || a.from_status || '—').toUpperCase()
-                    const toLabel = (statusConfig[a.to_status]?.label || a.to_status || '—').toUpperCase()
-                    return (
-                      <div key={a.id} className="flex items-start gap-3">
-                        <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${iconColorMap[color].replace('text-', 'bg-')}`} />
-                        <div className="min-w-0">
-                          <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{fromLabel} &rarr; {toLabel}</p>
-                          <p className={`text-sm mt-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{a.description}</p>
-                          <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                            {new Date(a.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
+              )
+            }
+
+            return (
+              <div className={`rounded-xl p-5 ${cardClass}`}>
+                <h3 className={`text-sm font-semibold mb-4 flex items-center gap-2 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>
+                  <Activity className="w-4 h-4" />Lead Timeline
+                </h3>
+                <div className="flex flex-wrap gap-1.5 mb-5">
+                  {TIMELINE_FILTERS.map((f) => (
+                    <button key={f.key} type="button" onClick={() => setTimelineFilter(f.key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        timelineFilter === f.key
+                          ? 'bg-primary-600 text-white'
+                          : isDark ? 'bg-dark-800 text-dark-400 hover:text-dark-200' : 'bg-dark-100 text-dark-500 hover:text-dark-700'
+                      }`}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {groups.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Activity className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+                    <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                      {timelineFilter === 'all' ? 'No activity recorded yet' : 'Nothing in this filter yet'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {groups.map((g) => (
+                      <div key={g.label}>
+                        <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{g.label}</p>
+                        <div className="space-y-4">{g.items.map(renderEntry)}</div>
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Requirement Tab ── */}
           {activeTab === 'requirement' && (
@@ -1234,117 +2091,316 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
           )}
 
           {/* ── Follow-up Tab ── */}
-          {activeTab === 'followup' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Follow-ups ({leadFollowUps.length})</h3>
-                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onTransfer(lead)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
-                  <Plus className="w-3.5 h-3.5" />Schedule Follow-up
-                </motion.button>
-              </div>
-              {leadFollowUps.length === 0 ? (
-                <div className={`rounded-xl p-8 text-center ${cardClass}`}>
-                  <Calendar className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-                  <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No follow-ups scheduled</p>
+          {activeTab === 'followup' && (() => {
+            // Meetings get their own tab — a call/WhatsApp follow-up and a
+            // counselling meeting aren't the same kind of item, so this tab
+            // only deals with the non-meeting ones to avoid showing the same
+            // row twice across two tabs.
+            const nonMeetingFollowUps = leadFollowUps.filter((f) => f.type !== 'meeting')
+            const pending = nonMeetingFollowUps.filter((f) => f.status === 'pending')
+              .sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`))
+            const completed = nonMeetingFollowUps.filter((f) => f.status === 'completed')
+              .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
+            const cancelled = nonMeetingFollowUps.filter((f) => f.status === 'cancelled')
+              .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
+            const nextItem = pending[0]
+            const nextInfo = followUpDueInfo(nextItem)
+
+            const renderRow = (fu) => {
+              const typeConfig = followUpTypes.find((t) => t.key === fu.type)
+              const TypeIcon = typeConfig?.icon || Phone
+              const typeColor = { call: 'sky', email: 'accent', meeting: 'violet', whatsapp: 'emerald' }[fu.type] || 'sky'
+              const overdue = fu.status === 'pending' && followUpDueInfo(fu).tone === 'overdue'
+              return (
+                <motion.div key={fu.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-xl p-4 ${cardClass}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg ${subtleBg[typeColor]}`}>
+                      <TypeIcon className={`w-4 h-4 ${iconColorMap[typeColor]}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`text-sm font-semibold capitalize ${isDark ? 'text-white' : 'text-dark-900'}`}>{fu.type}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${
+                          fu.status === 'completed'
+                            ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                            : fu.status === 'cancelled'
+                              ? isDark ? 'bg-dark-700 text-dark-400' : 'bg-dark-100 text-dark-500'
+                              : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'
+                        }`}>{fu.status}</span>
+                        {overdue && (
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600'}`}>Overdue</span>
+                        )}
+                      </div>
+                      <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{fu.notes}</p>
+
+                      {reschedulingId === fu.id ? (
+                        <div className="flex flex-wrap items-end gap-2 mt-3">
+                          <div>
+                            <label className={`block text-xs mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Date</label>
+                            <input type="date" value={rescheduleForm.date} onChange={(e) => setRescheduleForm((p) => ({ ...p, date: e.target.value }))}
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:ring-2 transition-all ${inputClass}`} />
+                          </div>
+                          <div>
+                            <label className={`block text-xs mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Time</label>
+                            <input type="time" value={rescheduleForm.time} onChange={(e) => setRescheduleForm((p) => ({ ...p, time: e.target.value }))}
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:ring-2 transition-all ${inputClass}`} />
+                          </div>
+                          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => {
+                              if (!rescheduleForm.date || !rescheduleForm.time) return
+                              const timeStr = new Date(`2000-01-01T${rescheduleForm.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                              updateFollowUp(fu.id, { date: rescheduleForm.date, time: timeStr, status: 'pending' })
+                              addActivity(lead.id, lead.status, lead.status, `${fu.type} follow-up rescheduled — ${relativeDayAt(rescheduleForm.date, timeStr)}`, 'FOLLOWUP_CREATED')
+                              setReschedulingId(null)
+                              showNotification('Follow-up rescheduled')
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">Save</motion.button>
+                          <button onClick={() => setReschedulingId(null)} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-800'}`}>Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                          <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{fu.date}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fu.time}</span>
+                          </div>
+                          {fu.status === 'pending' && (
+                            <div className="flex items-center gap-1">
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                onClick={() => { updateFollowUp(fu.id, { status: 'completed' }); showNotification('Follow-up marked as completed') }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+                                <CheckCircle2 className="w-3.5 h-3.5" />Complete
+                              </motion.button>
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                onClick={() => { setReschedulingId(fu.id); setRescheduleForm({ date: fu.date, time: '' }) }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                                <Calendar className="w-3.5 h-3.5" />Reschedule
+                              </motion.button>
+                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                onClick={() => setCancelTargetId(fu.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-rose-500 hover:bg-rose-500/10 transition-colors">
+                                <X className="w-3.5 h-3.5" />Cancel
+                              </motion.button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )
+            }
+
+            return (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Follow-ups ({nonMeetingFollowUps.length})</h3>
                   <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onTransfer(lead)}
-                    className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
-                    <Plus className="w-3.5 h-3.5" />Schedule Now
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
+                    <Plus className="w-3.5 h-3.5" />Schedule Follow-up
                   </motion.button>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {leadFollowUps.map((fu) => {
-                    const typeConfig = followUpTypes.find((t) => t.key === fu.type)
-                    const TypeIcon = typeConfig?.icon || Phone
-                    const typeColor = { call: 'sky', email: 'accent', meeting: 'violet', whatsapp: 'emerald' }[fu.type] || 'sky'
-                    return (
-                      <motion.div key={fu.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-xl p-4 ${cardClass}`}>
-                        <div className="flex items-start gap-3">
-                          <div className={`p-2 rounded-lg ${subtleBg[typeColor]}`}>
-                            <TypeIcon className={`w-4 h-4 ${iconColorMap[typeColor]}`} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-sm font-semibold capitalize ${isDark ? 'text-white' : 'text-dark-900'}`}>{fu.type}</span>
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                fu.status === 'completed'
-                                  ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
-                                  : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'
-                              }`}>{fu.status}</span>
-                            </div>
-                            <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{fu.notes}</p>
-                            <div className={`flex items-center justify-between mt-2`}>
-                              <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{fu.date}</span>
-                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{fu.time}</span>
-                              </div>
-                              {fu.status === 'pending' && (
-                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                  onClick={() => { updateFollowUp(fu.id, { status: 'completed' }); showNotification(`Follow-up marked as completed`) }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />Mark Complete
-                                </motion.button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+
+                {nonMeetingFollowUps.length === 0 ? (
+                  <div className={`rounded-xl p-8 text-center ${cardClass}`}>
+                    <Calendar className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+                    <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No follow-ups scheduled</p>
+                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onTransfer(lead)}
+                      className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                      <Plus className="w-3.5 h-3.5" />Schedule Now
+                    </motion.button>
+                  </div>
+                ) : (
+                  <>
+                    <div className={`rounded-xl p-4 flex items-center gap-3 ${cardClass}`}>
+                      <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Next Follow-up</p>
+                      <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>
+                        {nextItem ? `${nextInfo.label} at ${nextItem.time}` : 'None scheduled'}
+                      </p>
+                    </div>
+
+                    {pending.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Upcoming</h4>
+                        <div className="space-y-3">{pending.map(renderRow)}</div>
+                      </div>
+                    )}
+                    {completed.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Completed</h4>
+                        <div className="space-y-3">{completed.map(renderRow)}</div>
+                      </div>
+                    )}
+                    {cancelled.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Cancelled</h4>
+                        <div className="space-y-3 opacity-70">{cancelled.map(renderRow)}</div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Meeting Tab ── */}
-          {activeTab === 'meeting' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Meetings ({leadMeetings.length})</h3>
-                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onScheduleMeeting(lead)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
-                  <Plus className="w-3.5 h-3.5" />Schedule Meeting
-                </motion.button>
-              </div>
-              {leadMeetings.length === 0 ? (
-                <div className={`rounded-xl p-8 text-center ${cardClass}`}>
-                  <Video className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-                  <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No meetings scheduled</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {leadMeetings.map((m) => (
-                    <motion.div key={m.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-xl p-4 ${cardClass}`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`p-2 rounded-lg ${subtleBg.violet}`}><Video className={`w-4 h-4 ${iconColorMap.violet}`} /></div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Meeting</span>
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${m.status === 'completed' ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600' : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'}`}>{m.status}</span>
-                          </div>
-                          <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.notes}</p>
-                          <div className={`flex items-center justify-between mt-2`}>
-                            <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{m.date}</span>
-                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{m.time}</span>
-                            </div>
-                            {m.status === 'pending' && (
-                              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                onClick={() => { updateFollowUp(m.id, { status: 'completed' }); showNotification(`Meeting marked as completed`) }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
-                                <CheckCircle2 className="w-3.5 h-3.5" />Mark Complete
-                              </motion.button>
-                            )}
-                          </div>
+          {activeTab === 'meeting' && (() => {
+            const upcoming = leadMeetings.filter((m) => m.status === 'pending')
+              .sort((a, b) => new Date(`${a.date}T00:00:00`) - new Date(`${b.date}T00:00:00`))
+            const past = leadMeetings.filter((m) => m.status === 'completed')
+              .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
+            const noShow = leadMeetings.filter((m) => m.status === 'no_show')
+              .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
+            const meetingsCancelled = leadMeetings.filter((m) => m.status === 'cancelled')
+              .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`))
+
+            const renderMeeting = (m) => {
+              const typeInfo = meetingTypeOptions.find((t) => t.key === m.meeting_type)
+              const TypeIcon = typeInfo?.icon || Video
+              return (
+              <motion.div key={m.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-xl p-4 ${cardClass}`}>
+                <div className="flex items-start gap-3">
+                  <div className={`p-2 rounded-lg ${subtleBg.violet}`}><Video className={`w-4 h-4 ${iconColorMap.violet}`} /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Counselling</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        m.status === 'completed'
+                          ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                          : m.status === 'cancelled'
+                            ? isDark ? 'bg-dark-700 text-dark-400' : 'bg-dark-100 text-dark-500'
+                            : m.status === 'no_show'
+                              ? isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600'
+                              : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'
+                      }`}>{meetingStatusLabel[m.status] || m.status}</span>
+                      {typeInfo && (
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                          <TypeIcon className="w-3 h-3" />{typeInfo.label}
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{m.notes}</p>
+
+                    {reschedulingId === m.id ? (
+                      <div className="flex flex-wrap items-end gap-2 mt-3">
+                        <div>
+                          <label className={`block text-xs mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Date</label>
+                          <input type="date" value={rescheduleForm.date} onChange={(e) => setRescheduleForm((p) => ({ ...p, date: e.target.value }))}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:ring-2 transition-all ${inputClass}`} />
                         </div>
+                        <div>
+                          <label className={`block text-xs mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Time</label>
+                          <input type="time" value={rescheduleForm.time} onChange={(e) => setRescheduleForm((p) => ({ ...p, time: e.target.value }))}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:ring-2 transition-all ${inputClass}`} />
+                        </div>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                          onClick={() => {
+                            if (!rescheduleForm.date || !rescheduleForm.time) return
+                            const timeStr = new Date(`2000-01-01T${rescheduleForm.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                            updateFollowUp(m.id, { date: rescheduleForm.date, time: timeStr, status: 'pending' })
+                            addActivity(lead.id, lead.status, lead.status, `Meeting rescheduled — ${relativeDayAt(rescheduleForm.date, timeStr)}`, 'MEETING_SCHEDULED')
+                            setReschedulingId(null)
+                            showNotification('Meeting rescheduled')
+                          }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">Save</motion.button>
+                        <button onClick={() => setReschedulingId(null)} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${isDark ? 'text-dark-400 hover:text-white' : 'text-dark-500 hover:text-dark-800'}`}>Cancel</button>
                       </div>
-                    </motion.div>
-                  ))}
+                    ) : (
+                      <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                        <div className={`flex items-center gap-3 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{m.date}</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{m.time}</span>
+                        </div>
+                        {m.status === 'pending' && (
+                          <div className="flex items-center gap-1">
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => setShowMeetingOutcomeModal({ lead, meeting: m })}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+                              <CheckCircle2 className="w-3.5 h-3.5" />Complete
+                            </motion.button>
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => { setReschedulingId(m.id); setRescheduleForm({ date: m.date, time: '' }) }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                              <Calendar className="w-3.5 h-3.5" />Reschedule
+                            </motion.button>
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => { updateFollowUp(m.id, { status: 'no_show' }); addActivity(lead.id, lead.status, lead.status, 'Counselling — No Show', 'MEETING_NO_SHOW'); showNotification('Marked as No Show') }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                              <UserX className="w-3.5 h-3.5" />No Show
+                            </motion.button>
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => setCancelTargetId(m.id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-rose-500 hover:bg-rose-500/10 transition-colors">
+                              <X className="w-3.5 h-3.5" />Cancel
+                            </motion.button>
+                          </div>
+                        )}
+                        {m.status === 'no_show' && (
+                          <div className="flex items-center gap-1">
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => { setReschedulingId(m.id); setRescheduleForm({ date: m.date, time: '' }) }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-300 hover:bg-dark-800' : 'text-dark-600 hover:bg-dark-100'}`}>
+                              <Calendar className="w-3.5 h-3.5" />Reschedule
+                            </motion.button>
+                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                              onClick={() => { setTransferModalType('call'); setShowTransferModal(lead) }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-primary-400 hover:bg-primary-500/10' : 'text-primary-600 hover:bg-primary-50'}`}>
+                              <Plus className="w-3.5 h-3.5" />Create Follow-up
+                            </motion.button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+              </motion.div>
+              )
+            }
+
+            return (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Meetings ({leadMeetings.length})</h3>
+                  <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => onScheduleMeeting(lead)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
+                    <Plus className="w-3.5 h-3.5" />Schedule
+                  </motion.button>
+                </div>
+                {leadMeetings.length === 0 ? (
+                  <div className={`rounded-xl p-8 text-center ${cardClass}`}>
+                    <Video className={`w-10 h-10 mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
+                    <p className={`text-sm font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No meetings scheduled</p>
+                  </div>
+                ) : (
+                  <>
+                    {upcoming.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Upcoming Meeting{upcoming.length > 1 ? 's' : ''}</h4>
+                        <div className="space-y-3">{upcoming.map(renderMeeting)}</div>
+                      </div>
+                    )}
+                    {noShow.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No Show</h4>
+                        <div className="space-y-3">{noShow.map(renderMeeting)}</div>
+                      </div>
+                    )}
+                    {past.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Past Meetings</h4>
+                        <div className="space-y-3">{past.map(renderMeeting)}</div>
+                      </div>
+                    )}
+                    {meetingsCancelled.length > 0 && (
+                      <div>
+                        <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Cancelled</h4>
+                        <div className="space-y-3 opacity-70">{meetingsCancelled.map(renderMeeting)}</div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Package Tab ── */}
           {activeTab === 'package' && (
@@ -1365,6 +2421,42 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       <Star className="w-3 h-3 fill-accent-500" />{matchingPackage.rating}
                     </span>
                   </div>
+
+                  {/* Price breakdown — Final Price is the real GST-inclusive
+                      amount the Fee Bill tab (and the Admission modal) bills.
+                      Discount is editable by admins only ("if authorized");
+                      everyone else sees it as plain text. */}
+                  <div className={`rounded-lg p-4 mb-5 space-y-2 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Price</span>
+                      <span className={`font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{formatINR(matchingPackage.price)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Discount</span>
+                      {isAdmin && lead.status !== 'enrolled' ? (
+                        <div className="flex items-center gap-1.5">
+                          <input type="number" min="0" max="100" value={discountInput}
+                            onChange={(e) => setDiscountInput(e.target.value)}
+                            onBlur={() => onDiscountChange(lead, discountInput)}
+                            className={`w-16 px-2 py-1 rounded border text-sm text-right outline-none focus:ring-2 transition-all ${inputClass}`} />
+                          <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>%</span>
+                        </div>
+                      ) : (
+                        <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>{discountPercent ? `${discountPercent}%` : 'None'}</span>
+                      )}
+                    </div>
+                    <div className={`flex items-center justify-between text-sm pt-2 border-t ${isDark ? 'border-dark-700' : 'border-dark-200'}`}>
+                      <span className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Final Price (incl. GST)</span>
+                      <span className={`font-bold ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{formatINR(finalPriceWithGst)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm pt-2">
+                      <span className={isDark ? 'text-dark-400' : 'text-dark-500'}>Shared Date</span>
+                      <span className={isDark ? 'text-dark-300' : 'text-dark-600'}>
+                        {packageSharedEmail ? new Date(packageSharedEmail.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Not shared yet'}
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="flex flex-wrap gap-2 mb-5">
                     {matchingPackage.features.map((f) => (
                       <span key={f} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'}`}>
@@ -1372,44 +2464,23 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       </span>
                     ))}
                   </div>
-                  {lead.status !== 'enrolled' && (
-                    <div className="mb-4">
-                      <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Assign to Batch</label>
-                      <select value={selectedBatchId} onChange={(e) => setSelectedBatchId(e.target.value)}
-                        className={`w-full px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-all ${inputClass}`}>
-                        <option value="">No batch yet (assign later)</option>
-                        {(batches || []).filter((b) => b.course === lead.course).map((b) => (
-                          <option key={b.id} value={b.id}>{b.name} &middot; {b.schedule || 'schedule TBD'}</option>
-                        ))}
-                      </select>
-                      {(batches || []).filter((b) => b.course === lead.course).length === 0 && (
-                        <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {lead.course} — create one from the Batches page.</p>
-                      )}
-                    </div>
-                  )}
                   <div className="flex items-center gap-3">
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                       onClick={() => {
                         setEmailModalPreset({
                           subject: `Package Details: ${matchingPackage.name}`,
-                          body: `Hi ${lead.name},\n\nHere are the details for the ${matchingPackage.name} course:\n\nDuration: ${matchingPackage.duration}\nModules: ${matchingPackage.modules}\nPrice: ${formatINR(matchingPackage.price)}\n\nFeatures:\n${matchingPackage.features.map(f => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`,
+                          body: `Hi ${lead.name},\n\nHere are the details for the ${matchingPackage.name} course:\n\nDuration: ${matchingPackage.duration}\nModules: ${matchingPackage.modules}\nPrice: ${formatINR(finalPriceWithGst)}\n\nFeatures:\n${matchingPackage.features.map(f => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`,
                         })
                         setShowEmailModal(true)
                       }}
                       className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-                      Send Package Details
+                      Share Package
                     </motion.button>
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        if (lead.status === 'enrolled') {
-                          showNotification('Lead is already enrolled', 'error')
-                        } else {
-                          onEnroll(lead, selectedBatchId ? Number(selectedBatchId) : null)
-                          setActiveTab('feebill')
-                        }
-                      }}
-                      className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">
-                      {lead.status === 'enrolled' ? 'Already Enrolled' : 'Assign Package & Enroll'}
+                      onClick={() => { if (lead.status !== 'enrolled') setShowAdmissionModal(true) }}
+                      disabled={lead.status === 'enrolled'}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-semibold text-white transition-all ${lead.status === 'enrolled' ? 'bg-dark-400 cursor-not-allowed' : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400'}`}>
+                      {lead.status === 'enrolled' ? 'Already Enrolled' : 'Enroll'}
                     </motion.button>
                   </div>
                 </div>
@@ -1433,15 +2504,49 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                       <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>Package Fee</span>
                       <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{formatINR(matchingPackage.price)}</span>
                     </div>
+                    {discountPercent > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>Discount ({discountPercent}%)</span>
+                        <span className={`text-sm font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>-{formatINR(Math.round(matchingPackage.price * discountPercent / 100))}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>GST (18%)</span>
-                      <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{formatINR(Math.round(matchingPackage.price * 0.18))}</span>
+                      <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{formatINR(finalPriceWithGst - Math.round(matchingPackage.price * (1 - discountPercent / 100)))}</span>
                     </div>
                     <div className={`border-t pt-3 flex items-center justify-between ${isDark ? 'border-dark-700' : 'border-dark-200'}`}>
                       <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Total</span>
-                      <span className={`text-lg font-bold ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{formatINR(Math.round(matchingPackage.price * 1.18))}</span>
+                      <span className={`text-lg font-bold ${isDark ? 'text-primary-400' : 'text-primary-600'}`}>{formatINR(finalPriceWithGst)}</span>
                     </div>
                   </div>
+
+                  {/* Real invoice numbers, once one exists — connects to the
+                      same invoice the Fees & Billing page manages, rather
+                      than re-deriving payment state here. */}
+                  {feeInvoice && (
+                    <div className={`rounded-lg p-4 mb-5 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className={`text-xs font-semibold ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Invoice {feeInvoice.id}</h4>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${
+                          feeInvoice.status === 'paid'
+                            ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                            : isDark ? 'bg-accent-500/15 text-accent-400' : 'bg-accent-50 text-accent-600'
+                        }`}>{feeInvoice.status}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                        <div><p className={isDark ? 'text-dark-500' : 'text-dark-400'}>Total</p><p className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{formatINR(feeInvoice.amount)}</p></div>
+                        <div><p className={isDark ? 'text-dark-500' : 'text-dark-400'}>Paid</p><p className={`font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatINR(feeInvoice.paid)}</p></div>
+                        <div><p className={isDark ? 'text-dark-500' : 'text-dark-400'}>Pending</p><p className={`font-semibold ${feeInvoice.balance > 0 ? (isDark ? 'text-rose-400' : 'text-rose-600') : (isDark ? 'text-white' : 'text-dark-900')}`}>{formatINR(feeInvoice.balance)}</p></div>
+                        <div><p className={isDark ? 'text-dark-500' : 'text-dark-400'}>Due Date</p><p className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{feeInvoice.due_date || '—'}</p></div>
+                      </div>
+                      <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                        onClick={() => navigate('/billing', { state: { openInvoiceForStudent: lead.name } })}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-700 text-white hover:bg-dark-600' : 'bg-dark-200 text-dark-800 hover:bg-dark-300'}`}>
+                        <IndianRupee className="w-3.5 h-3.5" />View in Fees &amp; Billing
+                      </motion.button>
+                    </div>
+                  )}
+
                   {feeInvoice?.locked ? (
                     <div className={`rounded-lg p-4 flex items-start gap-3 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
                       <Key className={`w-5 h-5 mt-0.5 shrink-0 ${isDark ? 'text-accent-400' : 'text-accent-600'}`} />
@@ -1471,7 +2576,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                           }`}>
                             <p className={`text-xs font-semibold ${feePlan === i ? isDark ? 'text-primary-400' : 'text-primary-600' : isDark ? 'text-dark-300' : 'text-dark-600'}`}>{plan}</p>
                             <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              {i === 0 ? formatINR(Math.round(matchingPackage.price * 1.18)) : i === 1 ? `${formatINR(Math.round(matchingPackage.price * 1.18 / 2))} x 2` : `${formatINR(Math.round(matchingPackage.price * 1.18 / 3))} x 3`}
+                              {i === 0 ? formatINR(finalPriceWithGst) : i === 1 ? `${formatINR(Math.round(finalPriceWithGst / 2))} x 2` : `${formatINR(Math.round(finalPriceWithGst / 3))} x 3`}
                             </p>
                           </button>
                         ))}
@@ -1487,6 +2592,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                           if (result?.blocked) {
                             showNotification('This fee bill is already locked — ask an admin to unlock it first', 'error')
                           } else if (result?.invoice) {
+                            addActivity(lead.id, lead.status, lead.status, `Fee bill generated — ${planLabel}, ${formatINR(result.invoice.amount)}`, 'FEE_BILL_CREATED')
                             showNotification(`Fee bill ${result.invoice.id} locked in with ${planLabel} — ${formatINR(result.invoice.amount)} (see Fees & Billing)`)
                           } else {
                             showNotification('Could not generate the fee bill — please try again or check with admin', 'error')
@@ -1510,8 +2616,44 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
             </div>
           )}
 
-          {/* ── Course / Document Vault Tab ── */}
+          {/* ── Course Tab ── */}
           {activeTab === 'course' && (
+            <div className="space-y-6">
+              <div className={`rounded-xl p-6 ${cardClass}`}>
+                <h3 className={`text-sm font-semibold mb-4 ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>Selected Course</h3>
+                <div className={`rounded-lg p-4 flex items-center gap-3 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                  <GraduationCap className={`w-5 h-5 ${iconColorMap.primary}`} />
+                  <div>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{lead.course}</p>
+                    {matchingPackage && <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{matchingPackage.duration} &middot; {matchingPackage.modules} Modules</p>}
+                  </div>
+                </div>
+
+                {lead.status === 'enrolled' ? (
+                  enrolledStudent ? (
+                    <div className={`mt-4 rounded-lg p-4 ${isDark ? 'bg-dark-800' : 'bg-dark-50'}`}>
+                      <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Student &amp; Batch</p>
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div>
+                          <p className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{enrolledStudent.name} &middot; {enrolledStudent.status}</p>
+                          <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                            {enrolledBatch ? `${enrolledBatch.name} — ${enrolledBatch.schedule || 'schedule TBD'}` : 'No batch assigned yet'}
+                          </p>
+                        </div>
+                        <button onClick={() => navigate('/students', { state: { openStudentId: enrolledStudent.id } })}
+                          className={`text-xs font-medium ${isDark ? 'text-primary-400 hover:text-primary-300' : 'text-primary-600 hover:text-primary-700'}`}>
+                          View Student &rarr;
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className={`text-xs mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Enrolled, but no matching student record was found.</p>
+                  )
+                ) : (
+                  <p className={`text-xs mt-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>This lead isn't enrolled yet — batch assignment happens during enrollment (Package tab).</p>
+                )}
+              </div>
+
             <div className={`rounded-xl p-6 ${cardClass}`}>
               <h3 className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>Document Vault</h3>
               <p className={`text-sm mb-5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Store credentials, documents, and important links for this lead</p>
@@ -1580,6 +2722,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
                   ))}
                 </div>
               )}
+              </div>
             </div>
           )}
 
@@ -1617,6 +2760,33 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
         </motion.div>
       </AnimatePresence>
 
+      {/* Cancel confirm — shared by the Follow-up and Meeting tabs. Cancel
+          sets status to 'cancelled' (a real, visible terminal state) rather
+          than deleting the row, so a cancelled follow-up/meeting stays on
+          record instead of silently vanishing. */}
+      <AnimatePresence>
+        {cancelTargetId && (() => {
+          const target = leadFollowUps.find((f) => f.id === cancelTargetId)
+          const isMeeting = target?.type === 'meeting'
+          return (
+            <ConfirmDialog
+              title={isMeeting ? 'Cancel Meeting' : 'Cancel Follow-up'}
+              message={`Cancel this ${isMeeting ? 'meeting' : 'follow-up'}? It stays on record as cancelled — this can't be undone.`}
+              confirmLabel={isMeeting ? 'Cancel Meeting' : 'Cancel Follow-up'}
+              icon={X}
+              onConfirm={() => {
+                updateFollowUp(cancelTargetId, { status: 'cancelled' })
+                addActivity(lead.id, lead.status, lead.status, `${isMeeting ? 'Meeting' : (target?.type || 'Follow-up')} cancelled`, isMeeting ? 'MEETING_CANCELLED' : 'FOLLOWUP_CANCELLED')
+                setCancelTargetId(null)
+                showNotification(isMeeting ? 'Meeting cancelled' : 'Follow-up cancelled')
+              }}
+              onCancel={() => setCancelTargetId(null)}
+              isDark={isDark}
+            />
+          )
+        })()}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showEmailModal && (
           <SendEmailModal
@@ -1626,7 +2796,26 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
             leadId={lead.id}
             isDark={isDark}
             onClose={() => setShowEmailModal(false)}
-            onSent={() => { showNotification(`Email sent to ${lead.email}`); refetchLeadEmails() }}
+            onSent={() => {
+              showNotification(`Email sent to ${lead.email}`)
+              refetchLeadEmails()
+              if (emailModalPreset?.subject?.startsWith('Package Details:')) onPackageShared(lead)
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAdmissionModal && (
+          <AdmissionModal
+            lead={lead}
+            matchingPackage={matchingPackage}
+            finalPrice={finalPriceWithGst}
+            batches={batches}
+            isDark={isDark}
+            inputClass={inputClass}
+            onClose={() => setShowAdmissionModal(false)}
+            onConfirm={(options) => onConfirmAdmission(lead, options)}
           />
         )}
       </AnimatePresence>
@@ -1640,7 +2829,7 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
 function Leads() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, leadActivities, addActivity, enrollLead, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches, leadNotes, addLeadNote } = useData()
+  const { leads: leadsData, addLead, updateLead, deleteLead, updateLeadStatus, reopenLead, takeOverLead, followUps: followUpsData, setFollowUps: setFollowUpsData, addFollowUp, updateFollowUp, scheduleFollowUp, recordMeetingOutcome, leadActivities, addActivity, confirmAdmission, markPackageShared, generateFeeBill, unlockInvoice, invoices, packages, teamMembers, leadDocuments, addLeadDocument, deleteLeadDocument, batches, leadNotes, addLeadNote, students } = useData()
   const { isAdmin, user } = useAuth()
   const isLockedForMe = (lead) => !!lead.assigned_to && lead.assigned_to !== user?.id && !isAdmin
   const location = useLocation()
@@ -1648,10 +2837,15 @@ function Leads() {
 
   const [selectedLead, setSelectedLead] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('All')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [courseFilter, setCourseFilter] = useState('All')
+  const [assignedFilter, setAssignedFilter] = useState('All')
+  const [priorityFilter, setPriorityFilter] = useState('All')
+  const [followUpDueFilter, setFollowUpDueFilter] = useState('All')
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
   const sortField = 'date'
   const sortDirection = 'desc'
   const [showAddModal, setShowAddModal] = useState(false)
@@ -1661,12 +2855,19 @@ function Leads() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
   const [activeProfileTab, setActiveProfileTab] = useState('overview')
   const [notification, setNotification] = useState(null)
-  const [statusDropdownId, setStatusDropdownId] = useState(null)
-  const [statusDropdownAnchor, setStatusDropdownAnchor] = useState(null)
   const [actionMenuId, setActionMenuId] = useState(null)
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
-  const [showRNRModal, setShowRNRModal] = useState(null)
+  const [showCallOutcomeModal, setShowCallOutcomeModal] = useState(null)
+  const [showMeetingOutcomeModal, setShowMeetingOutcomeModal] = useState(null)
+  const [showStatusModal, setShowStatusModal] = useState(null)
+  const [showNurtureModal, setShowNurtureModal] = useState(null)
+  const [showAddNoteModal, setShowAddNoteModal] = useState(null)
   const [showLostModal, setShowLostModal] = useState(null)
+  const [lostModalInitialReason, setLostModalInitialReason] = useState('')
+  const [showReopenModal, setShowReopenModal] = useState(null)
+  const [showAssignModal, setShowAssignModal] = useState(null)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailPreset, setEmailPreset] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
 
   // Scroll to top whenever this page is landed on (e.g. navigating from Dashboard)
@@ -1751,23 +2952,16 @@ function Leads() {
     e.target.value = ''
   }
 
+  const hasActiveFilters = statusFilter !== 'all' || sourceFilter !== 'All' || courseFilter !== 'All' ||
+    assignedFilter !== 'All' || priorityFilter !== 'All' || followUpDueFilter !== 'All' || !!dateFrom || !!dateTo || !!searchQuery
+
   const filteredLeads = useMemo(() => {
     let result = [...leadsData]
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       result = result.filter((l) => l.name.toLowerCase().includes(q) || l.email.toLowerCase().includes(q) || l.course.toLowerCase().includes(q))
     }
-    if (statusFilter === 'Today') {
-      const todayStr = new Date().toISOString().slice(0, 10)
-      result = result.filter((l) => l.date === todayStr)
-    } else if (statusFilter === 'Not Attempted') {
-      result = result.filter((l) => l.status === 'new')
-    } else if (statusFilter === 'Meeting') {
-      const meetingLeadNames = new Set(followUpsData.filter((f) => f.type === 'meeting' && f.status === 'pending').map((f) => f.lead))
-      result = result.filter((l) => meetingLeadNames.has(l.name))
-    } else if (statusFilter !== 'All') {
-      result = result.filter((l) => l.status === statusFilter.toLowerCase())
-    }
+    if (statusFilter !== 'all') result = result.filter((l) => l.status === statusFilter)
     if (sourceFilter !== 'All') {
       const sf = sourceFilter.toLowerCase()
       result = result.filter((l) => {
@@ -1779,6 +2973,20 @@ function Leads() {
     }
     if (dateFrom) result = result.filter((l) => l.date >= dateFrom)
     if (dateTo) result = result.filter((l) => l.date <= dateTo)
+    if (courseFilter !== 'All') result = result.filter((l) => l.course === courseFilter)
+    if (assignedFilter !== 'All') {
+      result = assignedFilter === 'unassigned'
+        ? result.filter((l) => !l.assigned_to)
+        : result.filter((l) => l.assigned_to === assignedFilter)
+    }
+    if (priorityFilter !== 'All') result = result.filter((l) => l.priority === priorityFilter)
+    if (followUpDueFilter !== 'All') {
+      result = result.filter((l) => {
+        const info = followUpDueInfo(getNextFollowUp(l.name, followUpsData))
+        if (followUpDueFilter === 'No follow-up') return info.tone === 'none'
+        return info.tone === followUpDueFilter.toLowerCase()
+      })
+    }
     result.sort((a, b) => {
       let aVal = a[sortField], bVal = b[sortField]
       if (typeof aVal === 'string') aVal = aVal.toLowerCase()
@@ -1788,11 +2996,11 @@ function Leads() {
       return 0
     })
     return result
-  }, [leadsData, followUpsData, searchQuery, statusFilter, sourceFilter, dateFrom, dateTo, sortField, sortDirection])
+  }, [leadsData, followUpsData, searchQuery, statusFilter, sourceFilter, dateFrom, dateTo, courseFilter, assignedFilter, priorityFilter, followUpDueFilter, sortField, sortDirection])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, statusFilter, sourceFilter, dateFrom, dateTo])
+  }, [searchQuery, statusFilter, sourceFilter, dateFrom, dateTo, courseFilter, assignedFilter, priorityFilter, followUpDueFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE))
 
@@ -1837,10 +3045,11 @@ function Leads() {
     showNotification(`${updatedLead.name}'s information updated`)
   }
 
-  const handleStatusChange = (leadId, newStatus) => {
-    updateLeadStatus(leadId, newStatus)
-    setStatusDropdownId(null)
-    setSelectedLead((prev) => (prev && prev.id === leadId ? { ...prev, status: newStatus } : prev))
+  const handleStatusChangeSubmit = (lead, newStatus, note) => {
+    const description = `${statusConfig[lead.status]?.label || lead.status} → ${statusConfig[newStatus]?.label}${note ? ` — ${note}` : ''}`
+    updateLeadStatus(lead.id, newStatus, description)
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: newStatus } : prev))
+    setShowStatusModal(null)
     showNotification(`Status updated to ${statusConfig[newStatus]?.label}`)
   }
 
@@ -1853,16 +3062,12 @@ function Leads() {
     showNotification(lead ? `${lead.name} has been deleted` : 'Lead deleted')
   }
 
+  // Delegates entirely to DataContext.scheduleFollowUp — the single
+  // creation path also used by the Follow-up module, so a follow-up made
+  // here is identical (same fields, same status-advance rule, same
+  // timeline entry) to one made anywhere else.
   const handleTransferSubmit = (lead, form) => {
-    const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    const existing = followUpsData.find((f) => f.lead === lead.name)
-    if (existing) {
-      updateFollowUp(existing.id, { type: form.type, date: form.date, time: timeStr, notes: form.notes, priority: form.priority, status: 'pending' })
-    } else {
-      addFollowUp({ id: Date.now(), lead: lead.name, type: form.type, date: form.date, time: timeStr, notes: form.notes, status: 'pending', priority: form.priority })
-    }
-    addActivity(lead.id, lead.status, lead.status, `${form.type.toUpperCase()} follow-up scheduled for ${form.date} ${timeStr}`)
-    if (!lead.assigned_to) takeOverLead(lead.id)
+    scheduleFollowUp(lead, form)
     setShowTransferModal(null)
     showNotification(`Follow-up scheduled for ${lead.name}`)
   }
@@ -1872,39 +3077,141 @@ function Leads() {
     showNotification(`You've taken over ${lead.name}`)
   }
 
+  const handleAssignLead = (lead, memberId) => {
+    const memberName = teamMembers.find((m) => m.id === memberId)?.name || 'team member'
+    updateLead({ ...lead, assigned_to: memberId })
+    addActivity(lead.id, lead.status, lead.status, `Reassigned to ${memberName}`, 'LEAD_ASSIGNED')
+    setShowAssignModal(null)
+    showNotification(`${lead.name} assigned to ${memberName}`)
+  }
+
   const handleBatchTimingChange = (lead, timing) => {
     const newTiming = lead.batch_timing === timing ? null : timing
     updateLead({ ...lead, batch_timing: newTiming })
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, batch_timing: newTiming } : prev))
   }
 
-  const handleEnrollLead = (lead, batchId) => {
-    const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
-    enrollLead(lead, pkg, batchId)
+  // Admission Confirmation never writes anything itself — it just calls the
+  // one chained workflow function and reports the result back to the modal
+  // (student/invoice/whether a student already existed) for the success
+  // screen. Nothing is touched until the counsellor explicitly confirms.
+  const handleConfirmAdmission = async (lead, options) => {
+    const result = await confirmAdmission(lead, options)
+    if (result?.error) return result
     setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'enrolled' } : prev))
-    showNotification(`${lead.name} has been enrolled in ${lead.course}`)
+    showNotification(`${lead.name} admitted successfully`)
+    return result
   }
 
-  const handleRNRSubmit = (lead, form) => {
-    const timeStr = new Date(`2000-01-01T${form.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    const noteText = `Ring No Response (RNR).${form.notes ? ` ${form.notes}` : ''}`
-    const existing = followUpsData.find((f) => f.lead === lead.name)
-    if (existing) {
-      updateFollowUp(existing.id, { type: 'call', date: form.date, time: timeStr, notes: noteText, priority: lead.priority, status: 'pending' })
-    } else {
-      addFollowUp({ id: Date.now(), lead: lead.name, type: 'call', date: form.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
+  const handleDiscountChange = (lead, percent) => {
+    const clamped = Math.max(0, Math.min(100, Number(percent) || 0))
+    updateLead({ ...lead, discount_percent: clamped })
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, discount_percent: clamped } : prev))
+  }
+
+  // Call → Outcome → (No Response/RNR schedules the next attempt). RNR is
+  // just one of the possible outcomes here, not a status or a menu action
+  // of its own — it's always logged as an activity on the call.
+  const handleCallClick = (lead) => {
+    window.open(`tel:${lead.phone}`)
+    setShowCallOutcomeModal(lead)
+  }
+
+  const handleCallOutcomeSubmit = (lead, outcome, rescheduleForm) => {
+    // RNR is just an outcome of a call attempt, never its own status — the
+    // attempt number here is purely descriptive (how many times this lead
+    // has been called), derived from past call activities already on the
+    // timeline (via the structured activity_type, not fragile text matching)
+    // rather than a separate counter to keep in sync.
+    const attemptNumber = leadActivities.filter((a) => a.lead_id === lead.id && a.activity_type === 'CALL').length + 1
+    let description = `Call outcome (Attempt ${attemptNumber}): ${outcome}.`
+    if (rescheduleForm) {
+      const timeStr = new Date(`2000-01-01T${rescheduleForm.time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      const noteText = `${outcome}.${rescheduleForm.notes ? ` ${rescheduleForm.notes}` : ''}`
+      const existing = followUpsData.find((f) => (f.lead_id === lead.id || f.lead === lead.name) && f.status === 'pending' && f.type !== 'meeting')
+      if (existing) {
+        updateFollowUp(existing.id, { type: 'call', date: rescheduleForm.date, time: timeStr, notes: noteText, priority: lead.priority, status: 'pending' })
+      } else {
+        addFollowUp({ id: Date.now(), lead: lead.name, lead_id: lead.id, type: 'call', date: rescheduleForm.date, time: timeStr, notes: noteText, status: 'pending', priority: lead.priority })
+      }
+      description += ` Next attempt: ${relativeDayAt(rescheduleForm.date, timeStr)}.`
+      if (rescheduleForm.notes) description += ` ${rescheduleForm.notes}`
     }
-    addActivity(lead.id, lead.status, lead.status, `CALL follow-up marked NOT_ATTEMPT — next attempt ${form.date} ${timeStr}`)
+    addActivity(lead.id, lead.status, lead.status, description, 'CALL')
     if (!lead.assigned_to) takeOverLead(lead.id)
-    setShowRNRModal(null)
-    showNotification(`Marked RNR — next attempt scheduled for ${lead.name}`)
+    setShowCallOutcomeModal(null)
+    showNotification(rescheduleForm ? `Call outcome saved — next attempt scheduled for ${lead.name}` : `Call outcome saved for ${lead.name}`)
   }
 
-  const handleLostSubmit = (lead, reason) => {
-    updateLead({ ...lead, status: 'lost', notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}` }, reason)
-    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'lost' } : prev))
+  // Records the outcome via the central DataContext function, then nudges
+  // the user toward the appropriate next step — opening the relevant modal
+  // rather than performing it, so nothing is forced without a click.
+  const handleMeetingOutcomeSubmit = (lead, outcome, notes) => {
+    const { meeting } = showMeetingOutcomeModal
+    recordMeetingOutcome(lead, meeting, outcome, notes)
+    setShowMeetingOutcomeModal(null)
+    showNotification(`Meeting completed — ${outcome}`)
+    if (outcome === 'Interested' || outcome === 'Package Shared') {
+      handleSharePackage(lead)
+    } else if (outcome === 'Needs Follow-up') {
+      setTransferModalType('call')
+      setShowTransferModal(lead)
+    } else if (outcome === 'Not Interested') {
+      setLostModalInitialReason('Not Interested')
+      setShowLostModal(lead)
+    }
+  }
+
+  const handleNurtureSubmit = (lead, reason, nextDate) => {
+    // closure_reason is the structured field reporting reads from later
+    // ("how many leads are in nurture, why") — the status-change activity
+    // below is the human-readable timeline entry for this lead specifically.
+    updateLead({ ...lead, status: 'nurture', closure_reason: reason }, `Moved to Nurture — ${reason}`)
+    const existing = followUpsData.find((f) => (f.lead_id === lead.id || f.lead === lead.name) && f.status === 'pending' && f.type !== 'meeting')
+    if (existing) {
+      updateFollowUp(existing.id, { type: 'call', date: nextDate, time: '10:00 AM', notes: reason, priority: lead.priority, status: 'pending' })
+    } else {
+      addFollowUp({ id: Date.now(), lead: lead.name, lead_id: lead.id, type: 'call', date: nextDate, time: '10:00 AM', notes: reason, status: 'pending', priority: lead.priority })
+    }
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'nurture', closure_reason: reason } : prev))
+    setShowNurtureModal(null)
+    showNotification(`${lead.name} moved to Nurture`)
+  }
+
+  const handleAddNoteSubmit = (leadId, text) => {
+    addLeadNote(leadId, text)
+    setShowAddNoteModal(null)
+    showNotification('Note added')
+  }
+
+  const handleSharePackage = (lead) => {
+    const pkg = packages.find((p) => p.name.toLowerCase() === lead.course.toLowerCase())
+    if (!pkg) { showNotification(`No package found for ${lead.course}`, 'error'); return }
+    setEmailPreset({
+      to: lead.email,
+      leadId: lead.id,
+      subject: `Package Details: ${pkg.name}`,
+      body: `Hi ${lead.name},\n\nHere are the details for the ${pkg.name} course:\n\nDuration: ${pkg.duration}\nModules: ${pkg.modules}\nPrice: ${formatINR(pkg.price)}\n\nFeatures:\n${pkg.features.map((f) => `- ${f}`).join('\n')}\n\nBest regards,\nBIX Academy`,
+    })
+    setShowEmailModal(true)
+  }
+
+  const handleLostSubmit = (lead, reason, note) => {
+    const description = `Marked Lost — ${reason}${note ? `: ${note}` : ''}`
+    // closure_reason/closure_note are the structured fields Reports reads
+    // from ("why leads are lost / not interested") — notes keeps the same
+    // human-readable trail it always has for anyone reading the lead directly.
+    updateLead({ ...lead, status: 'lost', closure_reason: reason, closure_note: note || null, notes: `${lead.notes ? `${lead.notes}\n` : ''}[Lost] ${reason}${note ? ` - ${note}` : ''}` }, description)
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: 'lost', closure_reason: reason, closure_note: note || null } : prev))
     setShowLostModal(null)
     showNotification(`${lead.name} marked as Lost`)
+  }
+
+  const handleReopenSubmit = (lead, newStatus, reason) => {
+    reopenLead(lead, newStatus, reason)
+    setSelectedLead((prev) => (prev && prev.id === lead.id ? { ...prev, status: newStatus } : prev))
+    setShowReopenModal(null)
+    showNotification(`${lead.name} reopened — now ${statusConfig[newStatus]?.label}`)
   }
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
@@ -1913,9 +3220,17 @@ function Leads() {
     : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400 focus:border-primary-500 focus:ring-primary-500/20'
 
   const columns = [
-    { key: 'name', label: 'Name' }, { key: 'email', label: 'Contact' }, { key: 'course', label: 'Course Interested' },
-    { key: 'source', label: 'Source' }, { key: 'agent', label: 'Agent' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' }, { key: 'date', label: 'Date' },
+    { key: 'name', label: 'Name' }, { key: 'email', label: 'Contact' }, { key: 'course', label: 'Course' },
+    { key: 'source', label: 'Source' }, { key: 'agent', label: 'Assigned To' }, { key: 'status', label: 'Status' },
+    { key: 'priority', label: 'Priority' }, { key: 'followup', label: 'Next Action' },
   ]
+
+  // "No contact yet" (Next Action tier 6) must come from real call history,
+  // not a guess — precomputed once here so every row's lookup is O(1).
+  const leadIdsWithCall = useMemo(
+    () => new Set((leadActivities || []).filter((a) => a.activity_type === 'CALL').map((a) => a.lead_id)),
+    [leadActivities]
+  )
 
   const agentName = (lead) => teamMembers.find((m) => m.id === lead.assigned_to)?.name || 'Unassigned'
 
@@ -1934,8 +3249,19 @@ function Leads() {
             onTransfer={(lead) => { setTransferModalType('call'); setShowTransferModal(lead) }}
             onScheduleMeeting={(lead) => { setTransferModalType('meeting'); setShowTransferModal(lead) }}
             onDelete={(lead) => setShowDeleteConfirm(lead)}
-            onStatusChange={handleStatusChange}
-            onEnroll={handleEnrollLead}
+            onCall={handleCallClick}
+            onChangeStatus={(lead) => setShowStatusModal(lead)}
+            onSharePackage={handleSharePackage}
+            onPackageShared={markPackageShared}
+            onAssign={(lead) => setShowAssignModal(lead)}
+            onTakeOver={handleTakeOver}
+            onAddNoteAction={(lead) => setShowAddNoteModal(lead)}
+            onNurture={(lead) => setShowNurtureModal(lead)}
+            onLost={(lead) => { setLostModalInitialReason(''); setShowLostModal(lead) }}
+            onNotInterested={(lead) => { setLostModalInitialReason('Not Interested'); setShowLostModal(lead) }}
+            onReopen={(lead) => setShowReopenModal(lead)}
+            onConfirmAdmission={handleConfirmAdmission}
+            onDiscountChange={handleDiscountChange}
             onBatchTimingChange={handleBatchTimingChange}
             onGenerateFeeBill={generateFeeBill}
             onUnlockInvoice={unlockInvoice}
@@ -1950,6 +3276,7 @@ function Leads() {
             setFollowUpsData={setFollowUpsData}
             updateFollowUp={updateFollowUp}
             leadActivities={leadActivities}
+            addActivity={addActivity}
             cardClass={cardClass}
             inputClass={inputClass}
             activeTab={activeProfileTab}
@@ -1958,6 +3285,7 @@ function Leads() {
             packages={packages}
             teamMembers={teamMembers}
             batches={batches}
+            students={students}
           />
         ) : (
           <motion.div key="list" className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit={{ opacity: 0, x: -40 }}>
@@ -2002,6 +3330,7 @@ function Leads() {
                   <SlidersHorizontal className={`w-3.5 h-3.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
                   <h3 className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Filters</h3>
                 </div>
+                {/* Primary filters — kept to 4 so the default screen stays clean */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
                   <div className="relative flex-1 min-w-[200px]">
                     <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
@@ -2010,7 +3339,7 @@ function Leads() {
                   </div>
                   <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
                     className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
-                    {statusOptions.map((s) => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
+                    {statusFilterOptions.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                   </select>
                   <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}
                     className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
@@ -2023,48 +3352,84 @@ function Leads() {
                     <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
                       className={`py-1.5 bg-transparent text-sm outline-none cursor-pointer ${isDark ? 'text-dark-200' : 'text-dark-800'}`} />
                   </div>
-                  {(statusFilter !== 'All' || sourceFilter !== 'All' || dateFrom || dateTo || searchQuery) && (
+                  <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => setShowMoreFilters((v) => !v)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+                      showMoreFilters
+                        ? isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600'
+                        : isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'
+                    }`}>
+                    {showMoreFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}More Filters
+                  </motion.button>
+                  {hasActiveFilters && (
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                      onClick={() => { setStatusFilter('All'); setSourceFilter('All'); setDateFrom(''); setDateTo(''); setSearchQuery('') }}
+                      onClick={() => {
+                        setStatusFilter('all'); setSourceFilter('All'); setDateFrom(''); setDateTo(''); setSearchQuery('')
+                        setCourseFilter('All'); setAssignedFilter('All'); setPriorityFilter('All'); setFollowUpDueFilter('All')
+                      }}
                       className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
                       <X className="w-3.5 h-3.5" />Clear
                     </motion.button>
                   )}
                 </div>
+
+                {/* More Filters — Course / Assigned Executive / Priority / Follow-up Due,
+                    tucked away so the default screen doesn't show 10+ filters at once */}
+                <AnimatePresence>
+                  {showMoreFilters && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                      <div className={`flex flex-col gap-3 sm:flex-row sm:flex-wrap mt-3 pt-3 border-t ${isDark ? 'border-dark-800' : 'border-dark-100'}`}>
+                        <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}
+                          className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                          <option value="All">All Courses</option>
+                          {courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <select value={assignedFilter} onChange={(e) => setAssignedFilter(e.target.value)}
+                          className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                          <option value="All">All Executives</option>
+                          <option value="unassigned">Unassigned</option>
+                          {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}
+                          className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                          {priorityFilterOptions.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                        </select>
+                        <select value={followUpDueFilter} onChange={(e) => setFollowUpDueFilter(e.target.value)}
+                          className={`px-3 py-2.5 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-primary-500/20 cursor-pointer ${inputClass}`}>
+                          {followUpDueOptions.map((f) => <option key={f} value={f}>{f === 'All' ? 'All Follow-up Due' : f}</option>)}
+                        </select>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* Status Overview — click a bucket to filter the table below */}
+              {/* Summary Cards — click one to filter the table below */}
               <div className={`border-t px-4 py-4 ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
               {(() => {
                 const countColor = {
                   sky: isDark ? 'text-sky-400' : 'text-sky-600', accent: isDark ? 'text-accent-400' : 'text-accent-600',
                   emerald: isDark ? 'text-emerald-400' : 'text-emerald-600', violet: isDark ? 'text-violet-400' : 'text-violet-600',
                   primary: isDark ? 'text-primary-400' : 'text-primary-600', rose: isDark ? 'text-rose-400' : 'text-rose-600',
-                  slate: isDark ? 'text-dark-300' : 'text-dark-600',
+                  indigo: isDark ? 'text-indigo-400' : 'text-indigo-600', cyan: isDark ? 'text-cyan-400' : 'text-cyan-600',
+                  amber: isDark ? 'text-amber-400' : 'text-amber-600', slate: isDark ? 'text-dark-300' : 'text-dark-600',
                 }
                 const subtleBg = bgSubtleMap(isDark)
-                const todayStr = new Date().toISOString().slice(0, 10)
-                const todayCount = leadsData.filter((l) => l.date === todayStr).length
-                const meetingLeadNames = new Set(followUpsData.filter((f) => f.type === 'meeting' && f.status === 'pending').map((f) => f.lead))
-                const meetingCount = leadsData.filter((l) => meetingLeadNames.has(l.name)).length
                 const buckets = [
-                  { key: 'all', label: 'All Leads', filterValue: 'All', color: 'slate', icon: Users, count: leadsData.length },
-                  { key: 'today', label: 'Today', filterValue: 'Today', color: 'sky', icon: Calendar, count: todayCount },
-                  { key: 'meeting', label: 'Meeting', filterValue: 'Meeting', color: 'violet', icon: Video, count: meetingCount },
-                  { key: 'not-attempted', label: 'Not Attempted', filterValue: 'Not Attempted', color: 'rose', icon: AlertCircle, count: statusCounts.new || 0 },
-                  ...Object.entries(statusConfig).filter(([key]) => key !== 'new').map(([key, cfg]) => ({ key, label: cfg.label, filterValue: cfg.label, color: cfg.color, icon: cfg.icon, count: statusCounts[key] })),
+                  { key: 'all', label: 'All Leads', color: 'slate', icon: Users, count: leadsData.length },
+                  ...SUMMARY_CARD_STATUS_KEYS.map((key) => ({ key, label: statusConfig[key].label, color: statusConfig[key].color, icon: statusConfig[key].icon, count: statusCounts[key] || 0 })),
                 ]
                 return buckets.map((b, i) => {
                   const Icon = b.icon
-                  const isActive = statusFilter === b.filterValue
+                  const isActive = statusFilter === b.key
                   return (
                     <motion.button
                       key={b.key}
                       type="button"
                       initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.06 }}
                       whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}
-                      onClick={() => setStatusFilter(b.filterValue)}
+                      onClick={() => setStatusFilter(b.key)}
                       className={`min-w-0 rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer transition-all border ${
                         isActive
                           ? 'ring-2 ring-primary-500 border-primary-500'
@@ -2084,9 +3449,10 @@ function Leads() {
               </div>
             </motion.div>
 
-            {/* Leads Table */}
+            {/* Leads Table (desktop) / Lead Cards (mobile) */}
             <motion.div variants={itemVariants} className={`rounded-xl overflow-hidden ${cardClass}`}>
-              <div className="overflow-x-auto">
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className={isDark ? 'bg-dark-800/80' : 'bg-dark-50/80'}>
@@ -2096,7 +3462,7 @@ function Leads() {
                           {col.label}
                         </th>
                       ))}
-                      <th className={`px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Actions</th>
+                      <th className={`px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Action</th>
                     </tr>
                   </thead>
                   <AnimatePresence mode="popLayout">
@@ -2104,6 +3470,8 @@ function Leads() {
                       {paginatedLeads.map((lead, i) => {
                         const avatarColors = isDark ? avatarColorsDark : avatarColorsLight
                         const sColor = getStatusColor(lead.status)
+                        const locked = isLockedForMe(lead)
+                        const closed = lead.status === 'enrolled' || lead.status === 'lost'
                         return (
                           <motion.tr key={lead.id} variants={rowVariants} initial="hidden" animate="visible" exit="hidden" transition={{ delay: i * 0.03 }} layout
                             className={`transition-colors ${isDark ? 'hover:bg-dark-800/60' : 'hover:bg-dark-50/60'}`}>
@@ -2124,43 +3492,69 @@ function Leads() {
                             <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.source}</td>
                             <td className={`px-4 py-3.5 text-xs font-medium ${lead.assigned_to ? (isDark ? 'text-dark-200' : 'text-dark-700') : (isDark ? 'text-dark-600' : 'text-dark-400')}`}>{agentName(lead)}</td>
                             <td className="px-4 py-3.5">
-                              <div className="relative">
-                                <StatusBadge status={lead.status} isDark={isDark} onClick={isLockedForMe(lead) ? undefined : (e) => { setStatusDropdownId(statusDropdownId === lead.id ? null : lead.id); setStatusDropdownAnchor(e.currentTarget) }} />
-                                <AnimatePresence>
-                                  {statusDropdownId === lead.id && (
-                                    <InlineStatusDropdown currentStatus={lead.status} onSelect={(s) => handleStatusChange(lead.id, s)} onClose={() => setStatusDropdownId(null)} isDark={isDark} anchorEl={statusDropdownAnchor} />
-                                  )}
-                                </AnimatePresence>
-                              </div>
+                              <StatusBadge status={lead.status} isDark={isDark} onClick={locked ? undefined : () => setShowStatusModal(lead)} />
                             </td>
                             <td className="px-4 py-3.5"><PriorityBadge priority={lead.priority} isDark={isDark} /></td>
-                            <td className={`px-4 py-3.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} title={lead.date}>{relativeDate(lead.date)}</td>
                             <td className="px-4 py-3.5">
-                              <div className="relative inline-block">
-                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={(e) => { setActionMenuId(actionMenuId === lead.id ? null : lead.id); setActionMenuAnchor(e.currentTarget) }}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' : 'bg-dark-100 text-dark-600 hover:text-dark-900 hover:bg-dark-200'}`}>
-                                  Action
-                                  <ChevronDown className="w-3.5 h-3.5" />
+                              <NextActionBadge
+                                lead={lead}
+                                leadFollowUps={followUpsData.filter((f) => f.lead === lead.name)}
+                                feeInvoice={invoices.find((inv) => inv.student === lead.name && inv.course === lead.course)}
+                                hasCallActivity={leadIdsWithCall.has(lead.id)}
+                                isDark={isDark}
+                              />
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-1">
+                                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} title="View Lead" onClick={() => setSelectedLead(lead)}
+                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
+                                  <Eye className="w-4 h-4" />
                                 </motion.button>
-                                <AnimatePresence>
-                                  {actionMenuId === lead.id && (
-                                    <LeadActionMenu
-                                      lead={lead}
-                                      isDark={isDark}
-                                      isAdmin={isAdmin}
-                                      anchorEl={actionMenuAnchor}
-                                      onClose={() => setActionMenuId(null)}
-                                      onScheduleFollowUp={(l) => { setTransferModalType('call'); setShowTransferModal(l) }}
-                                      onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}
-                                      onRNR={(l) => setShowRNRModal(l)}
-                                      onOpenEnroll={(l) => { setSelectedLead(l); setActiveProfileTab('package') }}
-                                      onLost={(l) => setShowLostModal(l)}
-                                      onTakeOver={handleTakeOver}
-                                      onEdit={(l) => setEditingLead(l)}
-                                      onDelete={(l) => setShowDeleteConfirm(l)}
-                                    />
-                                  )}
-                                </AnimatePresence>
+                                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} title="Call" onClick={() => handleCallClick(lead)}
+                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-emerald-600 hover:bg-emerald-50'}`}>
+                                  <Phone className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} title="WhatsApp" onClick={() => navigate('/conversations', { state: { openPhone: lead.phone, leadId: lead.id, leadName: lead.name } })}
+                                  className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-emerald-600 hover:bg-emerald-50'}`}>
+                                  <MessageCircle className="w-4 h-4" />
+                                </motion.button>
+                                {!closed && !locked && (
+                                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} title="Schedule Follow-up"
+                                    onClick={() => { setTransferModalType('call'); setShowTransferModal(lead) }}
+                                    className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-primary-400 hover:bg-primary-500/10' : 'text-primary-600 hover:bg-primary-50'}`}>
+                                    <Calendar className="w-4 h-4" />
+                                  </motion.button>
+                                )}
+                                <div className="relative inline-block">
+                                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} title="More actions" onClick={(e) => { setActionMenuId(actionMenuId === lead.id ? null : lead.id); setActionMenuAnchor(e.currentTarget) }}
+                                    className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
+                                    <MoreHorizontal className="w-4 h-4" />
+                                  </motion.button>
+                                  <AnimatePresence>
+                                    {actionMenuId === lead.id && (
+                                      <LeadActionMenu
+                                        lead={lead}
+                                        isDark={isDark}
+                                        isAdmin={isAdmin}
+                                        anchorEl={actionMenuAnchor}
+                                        onClose={() => setActionMenuId(null)}
+                                        onScheduleMeeting={(l) => { setTransferModalType('meeting'); setShowTransferModal(l) }}
+                                        onSharePackage={handleSharePackage}
+                                        onChangeStatus={(l) => setShowStatusModal(l)}
+                                        onOpenEnroll={(l) => { setSelectedLead(l); setActiveProfileTab('package') }}
+                                        onAssign={(l) => setShowAssignModal(l)}
+                                        onTakeOver={handleTakeOver}
+                                        onAddNote={(l) => setShowAddNoteModal(l)}
+                                        onNurture={(l) => setShowNurtureModal(l)}
+                                        onLost={(l) => { setLostModalInitialReason(''); setShowLostModal(l) }}
+                                        onNotInterested={(l) => { setLostModalInitialReason('Not Interested'); setShowLostModal(l) }}
+                                        onReopen={(l) => setShowReopenModal(l)}
+                                        onEdit={(l) => setEditingLead(l)}
+                                        onDelete={(l) => setShowDeleteConfirm(l)}
+                                      />
+                                    )}
+                                  </AnimatePresence>
+                                </div>
                               </div>
                             </td>
                           </motion.tr>
@@ -2169,14 +3563,53 @@ function Leads() {
                     </tbody>
                   </AnimatePresence>
                 </table>
-                {filteredLeads.length === 0 && (
-                  <div className={`text-center py-12 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                    <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">No leads found</p>
-                    <p className="text-xs mt-1">Try adjusting your search or filter criteria</p>
-                  </div>
-                )}
               </div>
+
+              {/* Mobile cards */}
+              <div className={`md:hidden divide-y ${isDark ? 'divide-dark-800' : 'divide-dark-100'}`}>
+                {paginatedLeads.map((lead) => {
+                  const avatarColors = isDark ? avatarColorsDark : avatarColorsLight
+                  const sColor = getStatusColor(lead.status)
+                  return (
+                    <div key={lead.id} className="p-4" onClick={() => setSelectedLead(lead)}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColors[sColor]}`}>{lead.avatar}</div>
+                          <div className="min-w-0">
+                            <p className={`font-semibold truncate ${isDark ? 'text-dark-100' : 'text-dark-900'}`}>{lead.name}</p>
+                            <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{lead.course}</p>
+                          </div>
+                        </div>
+                        <motion.button whileTap={{ scale: 0.9 }} title="Call" onClick={(e) => { e.stopPropagation(); window.open(`tel:${lead.phone}`) }}
+                          className={`p-2 rounded-lg shrink-0 transition-colors ${isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
+                          <Phone className="w-4 h-4" />
+                        </motion.button>
+                      </div>
+                      <div className="flex items-center flex-wrap gap-2 mt-3">
+                        <StatusBadge status={lead.status} isDark={isDark} />
+                        <PriorityBadge priority={lead.priority} isDark={isDark} />
+                        <NextActionBadge
+                          lead={lead}
+                          leadFollowUps={followUpsData.filter((f) => f.lead === lead.name)}
+                          feeInvoice={invoices.find((inv) => inv.student === lead.name && inv.course === lead.course)}
+                          hasCallActivity={leadIdsWithCall.has(lead.id)}
+                          isDark={isDark}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {filteredLeads.length === 0 && (
+                <div className={`text-center py-12 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm font-medium">
+                    {followUpDueFilter === 'Today' ? 'No follow-ups due today.' : hasActiveFilters ? 'No leads match your filters.' : 'No leads found.'}
+                  </p>
+                  {hasActiveFilters && <p className="text-xs mt-1">Try adjusting your search or filter criteria</p>}
+                </div>
+              )}
 
               {filteredLeads.length > 0 && (
                 <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3.5 border-t ${isDark ? 'border-dark-800' : 'border-dark-100'}`}>
@@ -2243,15 +3676,50 @@ function Leads() {
         {showTransferModal && <TransferModal key={`transfer-${showTransferModal.id}`} lead={showTransferModal} isDark={isDark} onClose={() => setShowTransferModal(null)} onSubmit={handleTransferSubmit} inputClass={inputClass} cardClass={cardClass} initialType={transferModalType} />}
       </AnimatePresence>
       <AnimatePresence>
-        {showRNRModal && <RNRModal key={`rnr-${showRNRModal.id}`} lead={showRNRModal} isDark={isDark} onClose={() => setShowRNRModal(null)} onSubmit={handleRNRSubmit} inputClass={inputClass} />}
+        {showCallOutcomeModal && <CallOutcomeModal key={`call-${showCallOutcomeModal.id}`} lead={showCallOutcomeModal} isDark={isDark} onClose={() => setShowCallOutcomeModal(null)} onSubmit={handleCallOutcomeSubmit} inputClass={inputClass} />}
       </AnimatePresence>
       <AnimatePresence>
-        {showLostModal && <LostReasonModal key={`lost-${showLostModal.id}`} lead={showLostModal} isDark={isDark} onClose={() => setShowLostModal(null)} onSubmit={handleLostSubmit} inputClass={inputClass} />}
+        {showMeetingOutcomeModal && <MeetingOutcomeModal key={`meeting-outcome-${showMeetingOutcomeModal.meeting.id}`} lead={showMeetingOutcomeModal.lead} isDark={isDark} onClose={() => setShowMeetingOutcomeModal(null)} onSubmit={handleMeetingOutcomeSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showStatusModal && <ChangeStatusModal key={`status-${showStatusModal.id}`} lead={showStatusModal} isDark={isDark} onClose={() => setShowStatusModal(null)} onSubmit={handleStatusChangeSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showNurtureModal && <NurtureModal key={`nurture-${showNurtureModal.id}`} lead={showNurtureModal} isDark={isDark} onClose={() => setShowNurtureModal(null)} onSubmit={handleNurtureSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showAddNoteModal && <AddNoteModal key={`note-${showAddNoteModal.id}`} lead={showAddNoteModal} isDark={isDark} onClose={() => setShowAddNoteModal(null)} onSubmit={handleAddNoteSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showLostModal && <LostReasonModal key={`lost-${showLostModal.id}`} lead={showLostModal} isDark={isDark} onClose={() => { setShowLostModal(null); setLostModalInitialReason('') }} onSubmit={handleLostSubmit} inputClass={inputClass} initialReason={lostModalInitialReason} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showReopenModal && <ReopenModal key={`reopen-${showReopenModal.id}`} lead={showReopenModal} isDark={isDark} onClose={() => setShowReopenModal(null)} onSubmit={handleReopenSubmit} inputClass={inputClass} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showAssignModal && <AssignModal key={`assign-${showAssignModal.id}`} lead={showAssignModal} isDark={isDark} onClose={() => setShowAssignModal(null)} onAssign={handleAssignLead} teamMembers={teamMembers} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showEmailModal && emailPreset && (
+          <SendEmailModal
+            to={emailPreset.to}
+            subject={emailPreset.subject}
+            body={emailPreset.body}
+            leadId={emailPreset.leadId}
+            isDark={isDark}
+            onClose={() => { setShowEmailModal(false); setEmailPreset(null) }}
+            onSent={() => {
+              showNotification('Package details emailed')
+              const lead = leadsData.find((l) => l.id === emailPreset.leadId)
+              if (lead) markPackageShared(lead)
+            }}
+          />
+        )}
       </AnimatePresence>
       <AnimatePresence>
         {showDeleteConfirm && (
           <ConfirmDialog
-            message={`Are you sure you want to delete ${showDeleteConfirm.name}? This action cannot be undone.`}
+            message={`Delete ${showDeleteConfirm.name} permanently? All of their follow-ups, meetings, notes and timeline history will be lost too. This cannot be undone.`}
             onConfirm={() => handleDeleteLead(showDeleteConfirm.id)}
             onCancel={() => setShowDeleteConfirm(null)}
             isDark={isDark}

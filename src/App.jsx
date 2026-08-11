@@ -26,6 +26,7 @@ const Reports = lazy(() => import('./pages/Reports'))
 const Conversations = lazy(() => import('./pages/Conversations'))
 const TeamMemberDetail = lazy(() => import('./pages/TeamMemberDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
+const Automation = lazy(() => import('./pages/Automation'))
 
 function FullScreenSpinner() {
   return (
@@ -75,6 +76,7 @@ function AppRoutes() {
             <Route path="reports" element={<Reports />} />
             <Route path="conversations" element={<Conversations />} />
             <Route path="team-activity/:memberId" element={<TeamMemberDetail />} />
+            <Route path="automation" element={<Automation />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

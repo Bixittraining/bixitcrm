@@ -13,6 +13,7 @@ import {
   FileText, DollarSign, Filter, UserCheck, CalendarCheck,
   ArrowUpRight, ArrowDownRight, Sparkles, Layers, FileSpreadsheet,
   FileType2, AlertCircle, X, ClipboardCheck, Presentation,
+  UserX, Moon,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -779,6 +780,36 @@ export default function Reports() {
   }, [leadsInRange, leadActivities])
   const hasFunnelData = funnelData.some((f) => f.count > 0)
 
+  // ── Lost reasons + Nurture conversion — whole-database, not scoped to
+  // the selected period, since "why leads are lost" and "how many nurtured
+  // leads eventually convert" are lifetime questions, not a monthly one.
+  // Reads the structured closure_reason field, not free-text notes, so this
+  // stays reliable regardless of how the note was worded. Leads closed
+  // before closure_reason existed show up as "Unknown" rather than being
+  // silently dropped or guessed at.
+  const lostReasonBreakdown = useMemo(() => {
+    const counts = {}
+    leads.filter((l) => l.status === 'lost').forEach((l) => {
+      const r = l.closure_reason || 'Unknown'
+      counts[r] = (counts[r] || 0) + 1
+    })
+    return Object.entries(counts).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count)
+  }, [leads])
+  const lostTotal = lostReasonBreakdown.reduce((sum, r) => sum + r.count, 0)
+
+  const nurtureStats = useMemo(() => {
+    const everNurturedIds = new Set(leadActivities.filter((a) => a.to_status === 'nurture').map((a) => a.lead_id))
+    const currentlyNurturing = leads.filter((l) => l.status === 'nurture').length
+    const everNurtured = leads.filter((l) => everNurturedIds.has(l.id))
+    const converted = everNurtured.filter((l) => l.status === 'enrolled').length
+    return {
+      currentlyNurturing,
+      everNurturedCount: everNurtured.length,
+      converted,
+      conversionRate: everNurtured.length > 0 ? Math.round((converted / everNurtured.length) * 100) : 0,
+    }
+  }, [leads, leadActivities])
+
   // ── Per-KPI sparklines, derived from the same real monthly data ──
   const revenueSparkline = useMemo(() => monthlyMetrics.map((m) => ({ v: m.revenue })), [monthlyMetrics])
   const enrollmentSparkline = useMemo(() => monthlyMetrics.map((m) => ({ v: m.newStudents })), [monthlyMetrics])
@@ -1435,6 +1466,70 @@ export default function Reports() {
               No leads in this period
             </div>
           )}
+        </GlassCard>
+      </motion.div>
+
+      {/* ============ Lost Reasons & Nurture (all-time, not period-scoped) ============ */}
+      <motion.div variants={cardVariants}>
+        <GlassCard theme={theme}>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-dark-50' : 'text-dark-900'}`}>
+                Lost Reasons &amp; Nurture
+              </h2>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                Why leads are lost, and how many nurtured leads eventually convert — all-time, not limited to the period above
+              </p>
+            </div>
+            <div className={`p-2 rounded-lg ${isDark ? 'bg-rose-500/10' : 'bg-rose-50'}`}>
+              <UserX className="w-5 h-5 text-rose-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <h3 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Lost Reasons ({lostTotal})</h3>
+              {lostReasonBreakdown.length === 0 ? (
+                <div className={`h-32 flex items-center justify-center text-sm ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No lost leads yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {lostReasonBreakdown.map((r) => {
+                    const pct = lostTotal > 0 ? Math.round((r.count / lostTotal) * 100) : 0
+                    return (
+                      <div key={r.reason} className={`rounded-xl px-4 py-2.5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{r.reason}</span>
+                          <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{r.count}</span>
+                        </div>
+                        <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
+                          <div className="h-full rounded-full bg-rose-500" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <div>
+              <h3 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Nurture</h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`rounded-xl p-4 text-center ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                  <Moon className={`w-4 h-4 mx-auto mb-2 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} />
+                  <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{nurtureStats.currentlyNurturing}</p>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Currently in Nurture</p>
+                </div>
+                <div className={`rounded-xl p-4 text-center ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                  <Users className={`w-4 h-4 mx-auto mb-2 ${isDark ? 'text-dark-400' : 'text-dark-500'}`} />
+                  <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>{nurtureStats.everNurturedCount}</p>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Ever Nurtured</p>
+                </div>
+                <div className={`rounded-xl p-4 text-center ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-50'}`}>
+                  <TrendingUp className="w-4 h-4 mx-auto mb-2 text-emerald-500" />
+                  <p className={`text-xl font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{nurtureStats.conversionRate}%</p>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>Converted ({nurtureStats.converted})</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </GlassCard>
       </motion.div>
 
