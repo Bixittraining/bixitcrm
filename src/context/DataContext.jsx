@@ -8,6 +8,9 @@ import { isClassScheduledOn } from '../lib/schedule'
 import { logAuditEvent } from '../lib/audit'
 import { statusLabel, isPipelineStage, statusOrder } from '../lib/leadStatus'
 import { relativeDayAt } from '../lib/activityTypes'
+import { OUTCOMES, OUTCOME_NEXT_ACTION } from '../lib/followUpOutcomes'
+import { studentStatusLabel } from '../lib/studentStatus'
+import { reconcileStatusAndPercent } from '../lib/courseProgress'
 
 const DataContext = createContext()
 
@@ -31,6 +34,11 @@ function nextInvoiceId(list) {
 // recordMeetingOutcome below). Every other outcome just gets logged.
 const MEETING_OUTCOME_STATUS = { 'Package Shared': 'package_shared' }
 
+// A follow-up can only ever leave 'pending' once — these are the terminal/
+// closing transitions updateFollowUp guards with `.eq('status','pending')`
+// so a stale double-click or a second user can't re-apply one.
+const CLOSING_STATUSES = new Set(['completed', 'cancelled', 'no_show'])
+
 export function DataProvider({ children }) {
   const [leads, setLeads] = useState([])
   const [followUps, setFollowUps] = useState([])
@@ -42,6 +50,11 @@ export function DataProvider({ children }) {
   const [leadDocuments, setLeadDocuments] = useState([])
   const [leadNotes, setLeadNotes] = useState([])
   const [studentNotes, setStudentNotes] = useState([])
+  const [studentActivities, setStudentActivities] = useState([])
+  const [studentDocuments, setStudentDocuments] = useState([])
+  const [courseModules, setCourseModules] = useState([])
+  const [studentModuleProgress, setStudentModuleProgress] = useState([])
+  const [academySettings, setAcademySettings] = useState(null)
   const [batches, setBatches] = useState([])
   const [installments, setInstallments] = useState([])
   const [attendance, setAttendance] = useState([])
@@ -55,7 +68,7 @@ export function DataProvider({ children }) {
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes, staffAttendanceRes, automationWorkflowsRes] = await Promise.all([
+      const [leadsRes, followUpsRes, studentsRes, packagesRes, invoicesRes, activitiesRes, profilesRes, documentsRes, batchesRes, installmentsRes, leadNotesRes, studentNotesRes, attendanceRes, emailMessagesRes, staffAttendanceRes, automationWorkflowsRes, studentActivitiesRes, studentDocumentsRes, courseModulesRes, studentModuleProgressRes, academySettingsRes] = await Promise.all([
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').order('created_at', { ascending: false }),
         supabase.from('students').select('*').order('created_at', { ascending: false }),
@@ -74,6 +87,11 @@ export function DataProvider({ children }) {
         // Empty for sales (RLS only grants SELECT to admin/manager, see
         // 0042_automation_engine.sql) — not an error, just zero rows.
         supabase.from('automation_workflows').select('*, automation_workflow_conditions(*), automation_workflow_actions(*)').order('created_at', { ascending: false }),
+        supabase.from('student_activities').select('*').order('created_at', { ascending: false }),
+        supabase.from('student_documents').select('*').order('created_at', { ascending: false }),
+        supabase.from('course_modules').select('*').order('position', { ascending: true }),
+        supabase.from('student_module_progress').select('*'),
+        supabase.from('academy_settings').select('*').eq('id', true).maybeSingle(),
       ])
 
       if (leadsRes.error) console.error('leads error', leadsRes.error)
@@ -92,6 +110,11 @@ export function DataProvider({ children }) {
       if (emailMessagesRes.error) console.error('email_messages error', emailMessagesRes.error)
       if (staffAttendanceRes.error) console.error('staff_attendance error', staffAttendanceRes.error)
       if (automationWorkflowsRes.error) console.error('automation_workflows error', automationWorkflowsRes.error)
+      if (studentActivitiesRes.error) console.error('student_activities error', studentActivitiesRes.error)
+      if (studentDocumentsRes.error) console.error('student_documents error', studentDocumentsRes.error)
+      if (courseModulesRes.error) console.error('course_modules error', courseModulesRes.error)
+      if (studentModuleProgressRes.error) console.error('student_module_progress error', studentModuleProgressRes.error)
+      if (academySettingsRes.error) console.error('academy_settings error', academySettingsRes.error)
 
       const leadsList = (leadsRes.data || []).map(mapLeadFromDb)
       const followUpsList = (followUpsRes.data || []).map(mapFollowUpFromDb)
@@ -112,6 +135,11 @@ export function DataProvider({ children }) {
       setEmailMessages(emailMessagesRes.data || [])
       setStaffAttendance(staffAttendanceRes.data || [])
       setAutomationWorkflows((automationWorkflowsRes.data || []).map(mapWorkflowFromDb))
+      setStudentActivities(studentActivitiesRes.data || [])
+      setStudentDocuments(studentDocumentsRes.data || [])
+      setCourseModules(courseModulesRes.data || [])
+      setStudentModuleProgress(studentModuleProgressRes.data || [])
+      setAcademySettings(academySettingsRes.data || null)
       setLoading(false)
 
       // Delayed/business-hours-deferred automation actions ("THEN ... after
@@ -352,6 +380,14 @@ export function DataProvider({ children }) {
     return mapped
   }, [])
 
+  // Closing transitions (completed/cancelled/no_show) are guarded here so
+  // a follow-up can only ever leave 'pending' once — a stale double-click,
+  // a retried request, or a second tab/user hitting the same action all
+  // just match zero rows instead of quietly reapplying. This is enforced
+  // twice over: the `.eq('status', 'pending')` clause below, AND a
+  // database trigger (see migration 0044) that rejects any update trying
+  // to move a row's status away from an already-completed/cancelled one —
+  // so even a caller that forgot this guard can't double-close a record.
   const updateFollowUp = useCallback(async (followUpId, updates) => {
     const payload = { ...updates }
     if (updates.status === 'completed' && !('completed_by' in updates)) {
@@ -359,13 +395,24 @@ export function DataProvider({ children }) {
       payload.completed_by = user?.id ?? null
       payload.completed_at = new Date().toISOString()
     }
-    const { data, error } = await supabase
-      .from('follow_ups')
-      .update(payload)
-      .eq('id', followUpId)
-      .select()
-      .single()
+    if (updates.status === 'cancelled' && !('cancelled_by' in updates)) {
+      const { data: { user } } = await supabase.auth.getUser()
+      payload.cancelled_by = user?.id ?? null
+      payload.cancelled_at = new Date().toISOString()
+    }
+    let query = supabase.from('follow_ups').update(payload).eq('id', followUpId)
+    if (CLOSING_STATUSES.has(updates.status)) query = query.eq('status', 'pending')
+    const { data, error } = await query.select().maybeSingle()
     if (error) { console.error('updateFollowUp error', error); return }
+    if (!data) {
+      // Guard matched zero rows — this follow-up already left 'pending'
+      // (completed/cancelled by this same double-click, another tab, or
+      // another user). Not an error worth logging; just refuse silently,
+      // same contract as any other failed update from this function's
+      // callers' point of view. Callers that need a user-facing message
+      // for this case use completeFollowUpRecord/cancelFollowUp instead.
+      return
+    }
     const mapped = mapFollowUpFromDb(data)
     // Moves the touched follow-up to the front of the list so an action
     // (RNR, reschedule, mark complete) is visibly reflected immediately —
@@ -385,13 +432,78 @@ export function DataProvider({ children }) {
         const lead = leads.find((l) => l.id === mapped.lead_id || l.name === mapped.lead)
         if (lead) addActivity(lead.id, lead.status, lead.status, `${mapped.type ? mapped.type.charAt(0).toUpperCase() + mapped.type.slice(1) : 'Follow-up'} completed`, 'FOLLOWUP_COMPLETED')
       }
-    } else if (updates.status === 'cancelled' && isMeeting) {
-      emit(AUTOMATION_EVENTS.COUNSELLING_CANCELLED)
+    } else if (updates.status === 'cancelled') {
+      emit(AUTOMATION_EVENTS.FOLLOW_UP_CANCELLED)
+      if (isMeeting) emit(AUTOMATION_EVENTS.COUNSELLING_CANCELLED)
     } else if (updates.status === 'no_show' && isMeeting) {
       emit(AUTOMATION_EVENTS.COUNSELLING_NO_SHOW)
     }
     return mapped
   }, [leads, addActivity])
+
+  // When a guarded completion/cancellation matches zero rows, this reads
+  // the row's real current state, syncs it into local state (so the UI
+  // reflects the truth instead of going stale — spec section 14/15), and
+  // returns a message that names who actually closed it first where that's
+  // knowable, instead of a generic failure.
+  const syncAlreadyChangedFollowUp = useCallback(async (followUpId, currentUserId) => {
+    const { data } = await supabase.from('follow_ups').select('*').eq('id', followUpId).maybeSingle()
+    if (!data) return { error: 'This follow-up no longer exists.' }
+    const mapped = mapFollowUpFromDb(data)
+    setFollowUps((prev) => [mapped, ...prev.filter((f) => f.id !== followUpId)])
+    if (mapped.status === 'completed') {
+      return {
+        error: mapped.completed_by === currentUserId ? 'This follow-up has already been completed.' : 'This follow-up was already completed by another user.',
+        current: mapped,
+      }
+    }
+    if (mapped.status === 'cancelled') {
+      return {
+        error: mapped.cancelled_by === currentUserId ? 'This follow-up has already been cancelled.' : 'This follow-up was already cancelled by another user.',
+        current: mapped,
+      }
+    }
+    return { error: 'This follow-up was updated elsewhere — refreshed.', current: mapped }
+  }, [])
+
+  // THE guarded completion path — the only function that closes a
+  // follow-up with a recorded outcome. Used by completeFollowUpOutcome
+  // (call/whatsapp/package/payment/document/general) and
+  // recordMeetingOutcome (counselling), so both get the same idempotency
+  // protection instead of two different completion code paths. Deliberately
+  // does NOT touch `notes` — the completion note is its own column
+  // (migration 0044) so completing a follow-up never overwrites why it was
+  // booked in the first place. Deliberately does NOT log a timeline entry
+  // either — the caller logs exactly one, shaped for its own context
+  // ("Follow-up completed — Outcome: X" vs "Counselling completed —
+  // Outcome: X"), so there is never a generic + a specific entry for the
+  // same completion.
+  const completeFollowUpRecord = useCallback(async (followUpId, { outcome, completionNote, notes } = {}) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const payload = { status: 'completed', completed_by: user?.id ?? null, completed_at: new Date().toISOString() }
+    if (outcome !== undefined) payload.outcome = outcome
+    if (completionNote !== undefined) payload.completion_note = completionNote || null
+    // Only recordMeetingOutcome still passes this — it composes the
+    // outcome straight into `notes` so the Meeting tab's existing display
+    // (which reads a meeting's `notes` as "what happened") keeps working
+    // unchanged. Every other completion path leaves `notes` alone.
+    if (notes !== undefined) payload.notes = notes
+    const { data, error } = await supabase
+      .from('follow_ups')
+      .update(payload)
+      .eq('id', followUpId)
+      .eq('status', 'pending') // the idempotency/concurrency guard (spec 12-14)
+      .select()
+      .maybeSingle()
+    if (error) { console.error('completeFollowUpRecord error', error); return { error: error.message } }
+    if (!data) return syncAlreadyChangedFollowUp(followUpId, user?.id)
+    const mapped = mapFollowUpFromDb(data)
+    setFollowUps((prev) => [mapped, ...prev.filter((f) => f.id !== followUpId)])
+    const isMeeting = mapped.type === 'meeting'
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_COMPLETED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    if (isMeeting) emitAutomationEvent({ eventType: AUTOMATION_EVENTS.COUNSELLING_COMPLETED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    return { data: mapped }
+  }, [syncAlreadyChangedFollowUp])
 
   const deleteFollowUp = useCallback(async (followUpId) => {
     const { error } = await supabase.from('follow_ups').delete().eq('id', followUpId)
@@ -448,21 +560,230 @@ export function DataProvider({ children }) {
   // advances status directly (still never backward, still never past a
   // closed/nurtured lead) — every other outcome only gets logged.
   const recordMeetingOutcome = useCallback(async (lead, meeting, outcome, notes) => {
-    await updateFollowUp(meeting.id, { status: 'completed', notes: notes ? `${outcome}: ${notes}` : outcome })
+    // Same guarded completion path every other follow-up type uses now —
+    // a meeting can't be double-completed any more than a call/WhatsApp
+    // follow-up can. `notes` is still composed the same way it always was
+    // (outcome text folded into the field the Meeting tab displays), so
+    // that tab's existing rendering is unaffected.
+    const result = await completeFollowUpRecord(meeting.id, { outcome, completionNote: notes || null, notes: notes ? `${outcome}: ${notes}` : outcome })
+    if (result.error) return result
     await addActivity(lead.id, lead.status, lead.status, `Counselling completed — Outcome: ${outcome}${notes ? `. ${notes}` : ''}`, 'MEETING_COMPLETED')
     const targetStatus = MEETING_OUTCOME_STATUS[outcome]
     if (targetStatus && isPipelineStage(lead.status) && statusOrder(lead.status) < statusOrder(targetStatus)) {
       updateLeadStatus(lead.id, targetStatus, `Package shared during counselling`, 'PACKAGE_SHARED')
     }
-  }, [updateFollowUp, addActivity, updateLeadStatus])
+    return result
+  }, [completeFollowUpRecord, addActivity, updateLeadStatus])
 
   // ── STUDENTS ─────────────────────────────────────────────
+  // The Timeline tab's log for events with no other real home (batch
+  // changes, status changes, completion) — never used for things that
+  // already live in attendance/invoices/student_notes, which the
+  // Timeline reads directly instead of copying (spec: "do not duplicate
+  // data that already belongs to another module").
+  const addStudentActivity = useCallback(async (studentId, description, activityType, fromStatus, toStatus) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const actorName = teamMembers.find((m) => m.id === user?.id)?.name || null
+    const { data, error } = await supabase
+      .from('student_activities')
+      .insert({ student_id: studentId, description, activity_type: activityType || null, from_status: fromStatus || null, to_status: toStatus || null, actor_id: user?.id || null, actor_name: actorName })
+      .select()
+      .single()
+    if (error) { console.error('addStudentActivity error', error); return }
+    setStudentActivities((prev) => [data, ...prev])
+  }, [teamMembers])
+
+  // Checked before creating a student — from the manual "Add Student" form
+  // and from the enrollment workflow — so the same person never ends up
+  // with two student records. Matches on phone or email (spec 31); name
+  // alone is too weak (common names repeat across genuinely different
+  // people), so name is only used as a secondary signal in the UI, not
+  // here.
+  const checkDuplicateStudent = useCallback(({ phone, email }) => {
+    const emailLower = email?.trim().toLowerCase()
+    return students.find((s) => (phone && s.phone === phone) || (emailLower && s.email?.toLowerCase() === emailLower)) || null
+  }, [students])
+
+  // ── COURSE MODULE MASTER (managed from Packages -> a course's Modules
+  // section, never from an individual student — see PackageDetail.jsx) ──
+  const addCourseModule = useCallback(async (packageId, { name, description, estimatedDuration, learningObjectives }) => {
+    const maxPos = courseModules.filter((m) => m.package_id === packageId).reduce((max, m) => Math.max(max, m.position), -1)
+    const { data, error } = await supabase.from('course_modules').insert({
+      package_id: packageId, name, description: description || null, estimated_duration: estimatedDuration || null,
+      learning_objectives: learningObjectives || null, position: maxPos + 1,
+    }).select().single()
+    if (error) { console.error('addCourseModule error', error); return { error: error.message } }
+    setCourseModules((prev) => [...prev, data])
+    // Existing active students in this course get the new module too
+    // (as Not Started, never auto-completed) — spec: modules added after
+    // students enroll must reach them, not just future enrollments.
+    const affected = students.filter((s) => s.status === 'active' && packages.find((p) => p.id === packageId)?.name?.toLowerCase() === s.course?.toLowerCase())
+    if (affected.length) {
+      const rows = affected.map((s) => ({ student_id: s.id, module_id: data.id, status: 'not_started', percent: 0 }))
+      const { data: inserted, error: insErr } = await supabase.from('student_module_progress').insert(rows).select()
+      if (insErr) console.error('addCourseModule: backfill progress error', insErr)
+      else setStudentModuleProgress((prev) => [...prev, ...(inserted || [])])
+    }
+    return { data }
+  }, [courseModules, students, packages])
+
+  const updateCourseModule = useCallback(async (moduleId, updates) => {
+    const payload = { updated_at: new Date().toISOString() }
+    if ('name' in updates) payload.name = updates.name
+    if ('description' in updates) payload.description = updates.description || null
+    if ('estimatedDuration' in updates) payload.estimated_duration = updates.estimatedDuration || null
+    if ('learningObjectives' in updates) payload.learning_objectives = updates.learningObjectives || null
+    if ('trainerNotes' in updates) payload.trainer_notes = updates.trainerNotes || null
+    const { data, error } = await supabase.from('course_modules').update(payload).eq('id', moduleId).select().single()
+    if (error) { console.error('updateCourseModule error', error); return { error: error.message } }
+    setCourseModules((prev) => prev.map((m) => m.id === moduleId ? data : m))
+    return { data }
+  }, [])
+
+  // Persists a full new order for one course's modules in one round trip —
+  // called after a drag-reorder in the UI with the module IDs already in
+  // their new order.
+  const reorderCourseModules = useCallback(async (packageId, orderedModuleIds) => {
+    const updates = orderedModuleIds.map((id, position) => supabase.from('course_modules').update({ position }).eq('id', id))
+    const results = await Promise.all(updates)
+    const failed = results.find((r) => r.error)
+    if (failed) { console.error('reorderCourseModules error', failed.error); return { error: failed.error.message } }
+    setCourseModules((prev) => prev.map((m) => {
+      const idx = orderedModuleIds.indexOf(m.id)
+      return idx >= 0 && m.package_id === packageId ? { ...m, position: idx } : m
+    }))
+    return { data: true }
+  }, [])
+
+  // Soft-remove — historical student_module_progress rows referencing an
+  // archived module are never touched, it just stops being offered to new
+  // initializations.
+  const archiveCourseModule = useCallback(async (moduleId) => {
+    const { data, error } = await supabase.from('course_modules').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', moduleId).select().single()
+    if (error) { console.error('archiveCourseModule error', error); return { error: error.message } }
+    setCourseModules((prev) => prev.map((m) => m.id === moduleId ? data : m))
+    return { data }
+  }, [])
+
+  const restoreCourseModule = useCallback(async (moduleId) => {
+    const { data, error } = await supabase.from('course_modules').update({ is_active: true, updated_at: new Date().toISOString() }).eq('id', moduleId).select().single()
+    if (error) { console.error('restoreCourseModule error', error); return { error: error.message } }
+    setCourseModules((prev) => prev.map((m) => m.id === moduleId ? data : m))
+    return { data }
+  }, [])
+
+  // Hard delete is only allowed when no student has ever had progress
+  // against this module — otherwise that history would silently vanish.
+  // The caller (PackageDetail) should offer Archive instead when this
+  // returns the 'in_use' error.
+  const deleteCourseModule = useCallback(async (moduleId) => {
+    const inUse = studentModuleProgress.some((p) => p.module_id === moduleId)
+    if (inUse) return { error: 'in_use' }
+    const { error } = await supabase.from('course_modules').delete().eq('id', moduleId)
+    if (error) { console.error('deleteCourseModule error', error); return { error: error.message } }
+    setCourseModules((prev) => prev.filter((m) => m.id !== moduleId))
+    return { data: true }
+  }, [studentModuleProgress])
+
+  // ── STUDENT ACADEMIC PROGRESS (the student instance of a course module) ──
+  // Idempotent: only inserts rows for modules the student doesn't already
+  // have progress against (unique student_id+module_id also enforces this
+  // server-side). Safe to call on every enrollment AND re-run later for
+  // pre-existing students or when a course gains a new module.
+  const initializeStudentProgress = useCallback(async (studentId, packageId) => {
+    const activeModules = courseModules.filter((m) => m.package_id === packageId && m.is_active)
+    if (!activeModules.length) return { data: [] }
+    const existingModuleIds = new Set(studentModuleProgress.filter((p) => p.student_id === studentId).map((p) => p.module_id))
+    const missing = activeModules.filter((m) => !existingModuleIds.has(m.id))
+    if (!missing.length) return { data: [] }
+    const rows = missing.map((m) => ({ student_id: studentId, module_id: m.id, status: 'not_started', percent: 0 }))
+    const { data, error } = await supabase.from('student_module_progress').insert(rows).select()
+    if (error) { console.error('initializeStudentProgress error', error); return { error: error.message } }
+    setStudentModuleProgress((prev) => [...prev, ...(data || [])])
+    addStudentActivity(studentId, `Course progress initialized — ${missing.length} module${missing.length === 1 ? '' : 's'}`, 'PROGRESS_INITIALIZED')
+    return { data }
+  }, [courseModules, studentModuleProgress, addStudentActivity])
+
+  // The one path that writes a module progress row — keeps status/percent
+  // consistent (lib/courseProgress), stamps started_at/completed_at only
+  // on the real transition (never overwritten on every subsequent update),
+  // and only logs a timeline entry / fires automation when something
+  // actually changed (no spam on a no-op save).
+  const updateModuleProgress = useCallback(async (studentId, moduleId, { status, percent, notes }) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const previous = studentModuleProgress.find((p) => p.student_id === studentId && p.module_id === moduleId)
+    const reconciled = reconcileStatusAndPercent({ status, percent }, previous)
+    const statusChanged = !previous || previous.status !== reconciled.status
+    const percentChanged = !previous || previous.percent !== reconciled.percent
+
+    const payload = {
+      student_id: studentId, module_id: moduleId,
+      status: reconciled.status, percent: reconciled.percent,
+      updated_by: user?.id || null, updated_at: new Date().toISOString(),
+      notes: notes != null ? notes : previous?.notes ?? null,
+      started_at: previous?.started_at || null,
+      completed_at: previous?.completed_at || null,
+      completed_by: previous?.completed_by || null,
+    }
+    if ((!previous || previous.status === 'not_started') && reconciled.status !== 'not_started' && !payload.started_at) {
+      payload.started_at = new Date().toISOString()
+    }
+    if (reconciled.status === 'completed' && previous?.status !== 'completed') {
+      payload.completed_at = new Date().toISOString()
+      payload.completed_by = user?.id || null
+    } else if (reconciled.status !== 'completed') {
+      payload.completed_at = null
+      payload.completed_by = null
+    }
+
+    const { data, error } = await supabase.from('student_module_progress')
+      .upsert(payload, { onConflict: 'student_id,module_id' }).select().single()
+    if (error) { console.error('updateModuleProgress error', error); return { error: error.message } }
+    setStudentModuleProgress((prev) => {
+      const exists = prev.some((p) => p.student_id === studentId && p.module_id === moduleId)
+      return exists ? prev.map((p) => (p.student_id === studentId && p.module_id === moduleId) ? data : p) : [...prev, data]
+    })
+
+    if (statusChanged || percentChanged) {
+      const moduleName = courseModules.find((m) => m.id === moduleId)?.name || 'Module'
+      const description = reconciled.status === 'completed'
+        ? `${moduleName} completed`
+        : statusChanged && reconciled.status === 'in_progress' && (!previous || previous.status === 'not_started')
+        ? `${moduleName} started`
+        : `${moduleName} progress updated to ${reconciled.percent}%`
+      addStudentActivity(studentId, description, 'PROGRESS_UPDATED')
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_PROGRESS_UPDATED, entityType: 'student', entityId: studentId, sourceTable: 'student_module_progress', sourceId: `${studentId}:${moduleId}:${Date.now()}` })
+    }
+    return { data }
+  }, [studentModuleProgress, courseModules, addStudentActivity])
+
+  // When a student's course changes, their progress on the OLD course is
+  // never touched (its rows still point at the old course's module IDs) —
+  // only a fresh set of rows for the NEW course's modules is initialized.
+  const changeStudentCourse = useCallback(async (student, newCourse) => {
+    if (newCourse === student.course) return { data: student }
+    const { data, error } = await supabase.from('students').update({ course: newCourse }).eq('id', student.id).select().single()
+    if (error) { console.error('changeStudentCourse error', error); return { error: error.message } }
+    const mapped = mapStudentFromDb(data)
+    setStudents((prev) => prev.map((s) => s.id === student.id ? mapped : s))
+    addStudentActivity(student.id, `Course changed: ${student.course || 'None'} → ${newCourse}`, 'COURSE_CHANGED')
+    const pkg = packages.find((p) => p.name.toLowerCase() === newCourse.toLowerCase())
+    if (pkg) await initializeStudentProgress(student.id, pkg.id)
+    return { data: mapped }
+  }, [packages, addStudentActivity, initializeStudentProgress])
+
   const addStudent = useCallback(async (student) => {
     const { id, ...studentData } = student
     const { data, error } = await supabase.from('students').insert(studentData).select().single()
-    if (error) { console.error('addStudent error', error); return }
-    setStudents((prev) => [mapStudentFromDb(data), ...prev])
-  }, [])
+    if (error) { console.error('addStudent error', error); return { error: error.message } }
+    const mapped = mapStudentFromDb(data)
+    setStudents((prev) => [mapped, ...prev])
+    addStudentActivity(mapped.id, mapped.lead_id ? `Converted from lead — enrolled in ${mapped.course}` : `Student record created — ${mapped.course}`, mapped.lead_id ? 'LEAD_CONVERTED' : 'STUDENT_CREATED')
+    if (mapped.batch_id) addStudentActivity(mapped.id, `Batch assigned: ${mapped.batch || ''}`.trim(), 'BATCH_ASSIGNED')
+    const pkg = packages.find((p) => p.name.toLowerCase() === mapped.course?.toLowerCase())
+    if (pkg) await initializeStudentProgress(mapped.id, pkg.id)
+    return { data: mapped }
+  }, [addStudentActivity, packages, initializeStudentProgress])
 
   const deleteStudent = useCallback(async (studentId) => {
     const { error } = await supabase.from('students').delete().eq('id', studentId)
@@ -474,6 +795,86 @@ export function DataProvider({ children }) {
     const { data, error } = await supabase.from('students').update(updates).eq('id', studentId).select().single()
     if (error) { console.error('updateStudent error', error); return }
     setStudents((prev) => prev.map((s) => s.id === studentId ? mapStudentFromDb(data) : s))
+  }, [])
+
+  // The one path that moves a student between batches — updates both the
+  // real FK (batch_id) and the display-cache text column (batch) in one
+  // write, logs it, and emits an automation event. Batch student COUNTS
+  // and the attendance relationship are never separately "updated"
+  // because they were never duplicated in the first place: enrolled-count
+  // is always `students.filter(s => s.batch_id === batch.id).length`
+  // (BatchDetail already computes it this way) and attendance rows key
+  // off `student_id` directly, so both are automatically correct the
+  // instant this write lands — see the phase report for why that's the
+  // deliberate design, not an oversight.
+  const changeStudentBatch = useCallback(async (student, newBatchId) => {
+    const newBatch = batches.find((b) => b.id === newBatchId)
+    const oldBatch = batches.find((b) => b.id === student.batch_id)
+    const { data, error } = await supabase
+      .from('students')
+      .update({ batch_id: newBatchId || null, batch: newBatch?.name || null })
+      .eq('id', student.id)
+      .select()
+      .single()
+    if (error) { console.error('changeStudentBatch error', error); return { error: error.message } }
+    const mapped = mapStudentFromDb(data)
+    setStudents((prev) => prev.map((s) => s.id === student.id ? mapped : s))
+    addStudentActivity(student.id, `Batch changed: ${oldBatch?.name || 'Unassigned'} → ${newBatch?.name || 'Unassigned'}`, 'BATCH_CHANGED')
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.STUDENT_BATCH_CHANGED, entityType: 'student', entityId: student.id, sourceTable: 'students', sourceId: `${student.id}:${Date.now()}` })
+    return { data: mapped }
+  }, [batches, addStudentActivity])
+
+  // The one path that changes a student's lifecycle status — never silent
+  // (spec 34): always logs what changed and, for On Hold/Completed,
+  // captures the real reason/dates the spec asks for instead of just
+  // flipping a label.
+  const changeStudentStatus = useCallback(async (student, newStatus, options = {}) => {
+    if (newStatus === student.status) return { data: student }
+    const payload = { status: newStatus }
+    if (newStatus === 'on_hold') {
+      payload.on_hold_reason = options.reason || null
+      payload.on_hold_since = new Date().toISOString().slice(0, 10)
+      payload.expected_return_date = options.expectedReturnDate || null
+    } else {
+      // Leaving On Hold (resumed, or moved to any other status) clears the
+      // hold fields so a stale reason doesn't linger on an active student.
+      payload.on_hold_reason = null
+      payload.on_hold_since = null
+      payload.expected_return_date = null
+    }
+    if (newStatus === 'completed') payload.completion_date = new Date().toISOString().slice(0, 10)
+    const { data, error } = await supabase.from('students').update(payload).eq('id', student.id).select().single()
+    if (error) { console.error('changeStudentStatus error', error); return { error: error.message } }
+    const mapped = mapStudentFromDb(data)
+    setStudents((prev) => prev.map((s) => s.id === student.id ? mapped : s))
+    const description = `Status changed: ${studentStatusLabel(student.status)} → ${studentStatusLabel(newStatus)}${options.reason ? ` — ${options.reason}` : ''}`
+    addStudentActivity(student.id, description, newStatus === 'completed' ? 'STUDENT_COMPLETED' : 'STATUS_CHANGED', student.status, newStatus)
+    emitAutomationEvent({ eventType: newStatus === 'completed' ? AUTOMATION_EVENTS.STUDENT_COMPLETED : AUTOMATION_EVENTS.STUDENT_STATUS_CHANGED, entityType: 'student', entityId: student.id, sourceTable: 'students', sourceId: `${student.id}:${Date.now()}` })
+    return { data: mapped }
+  }, [addStudentActivity])
+
+  // ── STUDENT DOCUMENTS ────────────────────────────────────
+  // Same shape/convention as addLeadDocument — a titled link (Drive, Docs,
+  // etc.), not a file upload, since there's no storage bucket wired for
+  // either lead or student documents.
+  const addStudentDocument = useCallback(async (studentId, category, title, url) => {
+    const { data, error } = await supabase.from('student_documents').insert({ student_id: studentId, category, title, url }).select().single()
+    if (error) { console.error('addStudentDocument error', error); return }
+    setStudentDocuments((prev) => [data, ...prev])
+    addStudentActivity(studentId, `Document added: ${title}`, 'DOCUMENT_ADDED')
+  }, [addStudentActivity])
+
+  const deleteStudentDocument = useCallback(async (docId, studentId, title) => {
+    const { error } = await supabase.from('student_documents').delete().eq('id', docId)
+    if (error) { console.error('deleteStudentDocument error', error); return }
+    setStudentDocuments((prev) => prev.filter((d) => d.id !== docId))
+    if (studentId) addStudentActivity(studentId, `Document removed: ${title || 'Untitled'}`, 'DOCUMENT_REMOVED')
+  }, [addStudentActivity])
+
+  const refetchAcademySettings = useCallback(async () => {
+    const { data, error } = await supabase.from('academy_settings').select('*').eq('id', true).maybeSingle()
+    if (error) { console.error('refetchAcademySettings error', error); return }
+    if (data) setAcademySettings(data)
   }, [])
 
   // ── BATCHES ──────────────────────────────────────────────
@@ -767,12 +1168,16 @@ export function DataProvider({ children }) {
           // separate Generate Fee Bill run happened to overwrite it.
           fee_total: Math.round((pkg?.price || 0) * 1.18),
           avatar: lead.avatar,
+          lead_id: lead.id,
         })
         .select()
         .single()
       if (studentErr) { console.error('enrollLead: student insert error', studentErr); return }
       newStudent = mapStudentFromDb(studentData)
       setStudents((prev) => [newStudent, ...prev])
+      addStudentActivity(newStudent.id, `Converted from lead — enrolled in ${newStudent.course}`, 'LEAD_CONVERTED')
+      if (batch) addStudentActivity(newStudent.id, `Batch assigned: ${batch.name}`, 'BATCH_ASSIGNED')
+      if (pkg?.id) await initializeStudentProgress(newStudent.id, pkg.id)
     }
 
     // 3. skip if invoice already exists for this student+course
@@ -799,7 +1204,7 @@ export function DataProvider({ children }) {
       if (invoiceErr) { console.error('enrollLead: invoice insert error', invoiceErr); return }
       setInvoices((prev) => [mapInvoiceFromDb(invoiceData), ...prev])
     }
-  }, [students, invoices, addActivity, closePendingFollowUps, batches])
+  }, [students, invoices, addActivity, closePendingFollowUps, batches, addStudentActivity, initializeStudentProgress])
 
   // Sharing a package is explicitly NOT enrollment — this only nudges
   // status forward (never backward, never past a closed/nurtured lead),
@@ -809,6 +1214,138 @@ export function DataProvider({ children }) {
       await updateLeadStatus(lead.id, 'package_shared', 'Package shared with lead', 'PACKAGE_SHARED')
     }
   }, [updateLeadStatus])
+
+  // ── FOLLOW-UP WORKFLOW (reschedule / cancel / outcome -> next action) ──
+  // The single reschedule path — Lead Detail's Follow-up tab, the Follow-up
+  // module's Action menu, and the outcome dialog's RNR/Requested Callback
+  // "next follow-up" step all call this instead of writing to follow_ups
+  // themselves. It always UPDATES the existing row (never inserts a second
+  // one), which is what "no duplicate follow-ups on reschedule" means.
+  // Guarded the same way completion is — rescheduling only ever applies to
+  // a still-pending record. Reusing generic updateFollowUp wouldn't guard
+  // this (its guard only covers the completed/cancelled/no_show writes),
+  // so this does its own conditional query directly, same pattern as
+  // completeFollowUpRecord/cancelFollowUp below.
+  const rescheduleFollowUp = useCallback(async (fu, { date, time }) => {
+    const timeStr = time && !/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(time)
+      ? new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      : (time || fu.time)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase
+      .from('follow_ups')
+      .update({ date, time: timeStr, status: 'pending' })
+      .eq('id', fu.id)
+      .eq('status', 'pending')
+      .select()
+      .maybeSingle()
+    if (error) { console.error('rescheduleFollowUp error', error); return { error: error.message } }
+    if (!data) return syncAlreadyChangedFollowUp(fu.id, user?.id)
+    const mapped = mapFollowUpFromDb(data)
+    setFollowUps((prev) => [mapped, ...prev.filter((f) => f.id !== fu.id)])
+    const lead = leads.find((l) => l.id === fu.lead_id || l.name === fu.lead)
+    if (lead) {
+      const isMeeting = mapped.type === 'meeting'
+      addActivity(lead.id, lead.status, lead.status, `${isMeeting ? 'Counselling' : 'Follow-up'} rescheduled — ${relativeDayAt(date, timeStr)}`, 'FOLLOWUP_RESCHEDULED')
+      if (!lead.assigned_to) takeOverLead(lead.id)
+    }
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_RESCHEDULED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: `${fu.id}:${Date.now()}` })
+    return { data: mapped }
+  }, [leads, addActivity, takeOverLead, syncAlreadyChangedFollowUp])
+
+  // Cancel is a real, kept-on-record status (never a delete) — guarded the
+  // same way completion is (spec 12-14/23), and now records who cancelled
+  // it, when, and why (migration 0044) instead of just flipping a status.
+  const cancelFollowUp = useCallback(async (fu, reason) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase
+      .from('follow_ups')
+      .update({ status: 'cancelled', cancelled_by: user?.id ?? null, cancelled_at: new Date().toISOString(), cancellation_reason: reason || null })
+      .eq('id', fu.id)
+      .eq('status', 'pending')
+      .select()
+      .maybeSingle()
+    if (error) { console.error('cancelFollowUp error', error); return { error: error.message } }
+    if (!data) return syncAlreadyChangedFollowUp(fu.id, user?.id)
+    const mapped = mapFollowUpFromDb(data)
+    setFollowUps((prev) => [mapped, ...prev.filter((f) => f.id !== fu.id)])
+    const isMeeting = mapped.type === 'meeting'
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_CANCELLED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    if (isMeeting) emitAutomationEvent({ eventType: AUTOMATION_EVENTS.COUNSELLING_CANCELLED, entityType: 'lead', entityId: mapped.lead_id ?? mapped.lead, sourceTable: 'follow_ups', sourceId: mapped.id })
+    const lead = leads.find((l) => l.id === fu.lead_id || l.name === fu.lead)
+    if (lead) addActivity(lead.id, lead.status, lead.status, `${isMeeting ? 'Counselling' : 'Follow-up'} cancelled${reason ? ` — ${reason}` : ''}`, 'FOLLOWUP_CANCELLED')
+    return { data: mapped }
+  }, [leads, addActivity, syncAlreadyChangedFollowUp])
+
+  // The heart of "a completed follow-up must never simply end" — this is
+  // the ONLY place an outcome turns into CONTINUE (reschedule/package
+  // follow-up/payment follow-up/counselling), NURTURE (move the lead +
+  // optionally a check-back follow-up), or CLOSE (Not Interested -> Lost
+  // with a reason). Meetings are explicitly out of scope here — they
+  // already have recordMeetingOutcome, a richer, purpose-built flow this
+  // would otherwise duplicate.
+  //
+  // Returns { openAdmission: true } for "Ready to Enroll" so the caller
+  // can deep-link into the real Admission workflow — enrollment itself
+  // never happens in this function, only confirmAdmission/enrollLead ever
+  // create a student, so there's exactly one path to "duplicate student".
+  const completeFollowUpOutcome = useCallback(async (fu, outcomeKey, options = {}) => {
+    const lead = leads.find((l) => l.id === fu.lead_id || l.name === fu.lead)
+    if (!lead) return { error: 'Lead not found for this follow-up' }
+    if (fu.type === 'meeting') return { error: "Use the Meeting tab's outcome flow for counselling sessions" }
+
+    const outcomeLabel = OUTCOMES[outcomeKey]?.label || outcomeKey
+    // Guarded completion FIRST, and its result is checked before anything
+    // else runs — this is what fixes the "completed twice" / "silently
+    // did nothing but reported success" bug class: if the row already
+    // left 'pending' (this same click landing twice, another tab, another
+    // user), we stop right here. Nothing below — no outcome-recorded
+    // event, no timeline entry, no next follow-up, no lead status change —
+    // ever executes on a completion that didn't actually happen.
+    const completion = await completeFollowUpRecord(fu.id, { outcome: outcomeKey, completionNote: options.note || null })
+    if (completion.error) return completion
+
+    emitAutomationEvent({ eventType: AUTOMATION_EVENTS.FOLLOW_UP_OUTCOME_RECORDED, entityType: 'lead', entityId: lead.id, sourceTable: 'follow_ups', sourceId: `${fu.id}:${Date.now()}`, payload: { outcome: outcomeKey } })
+    addActivity(lead.id, lead.status, lead.status, `Follow-up completed — Outcome: ${outcomeLabel}`, 'FOLLOWUP_COMPLETED')
+    if (!lead.assigned_to) takeOverLead(lead.id)
+
+    const createNextFollowUp = async (type, date, time, notes) => {
+      await addFollowUp({
+        id: Date.now(), lead: lead.name, lead_id: lead.id, type, date, time: time || '10:00 AM', notes,
+        status: 'pending', priority: fu.priority || lead.priority || 'medium', assigned_to: fu.assigned_to || lead.assigned_to || null,
+      })
+      emitAutomationEvent({ eventType: AUTOMATION_EVENTS.NEXT_FOLLOW_UP_CREATED, entityType: 'lead', entityId: lead.id, sourceTable: 'follow_ups', sourceId: `${fu.id}:${Date.now()}` })
+      addActivity(lead.id, lead.status, lead.status, `Next follow-up scheduled — ${relativeDayAt(date, time || '10:00 AM')}`, 'FOLLOWUP_CREATED')
+    }
+
+    const next = OUTCOME_NEXT_ACTION[outcomeKey] || { kind: 'none' }
+    let openAdmission = false
+
+    if (next.kind === 'reschedule') {
+      const date = options.customDate || (options.rescheduleDays ? new Date(Date.now() + options.rescheduleDays * 86400000).toISOString().slice(0, 10) : null)
+      if (date) await createNextFollowUp(fu.type, date, options.customTime, outcomeKey === 'rnr' ? 'Follow-up after no response' : 'Requested callback')
+    } else if (next.kind === 'schedule_meeting') {
+      if (options.scheduleMeeting?.date) {
+        await scheduleFollowUp(lead, { type: 'meeting', date: options.scheduleMeeting.date, time: options.scheduleMeeting.time || '10:00', notes: 'Counselling scheduled', priority: fu.priority || 'medium' })
+      }
+    } else if (next.kind === 'nurture') {
+      if (options.moveToNurture) {
+        await updateLeadStatus(lead.id, 'nurture', 'Needs more time — moved to Nurture')
+        if (options.nurtureCheckDate) await createNextFollowUp(fu.type, options.nurtureCheckDate, fu.time, 'Nurture check-in')
+      } else if (options.followUp?.date) {
+        await createNextFollowUp(fu.type, options.followUp.date, options.followUp.time, 'Follow-up — needs more time')
+      }
+    } else if (next.kind === 'schedule_followup_typed') {
+      if (outcomeKey === 'package_shared') await markPackageShared(lead)
+      if (options.followUp?.date) await createNextFollowUp(next.followupType, options.followUp.date, options.followUp.time, outcomeLabel)
+    } else if (next.kind === 'admission') {
+      openAdmission = true
+    } else if (next.kind === 'close') {
+      const reason = options.notInterestedReason || 'Not Interested'
+      await updateLead({ ...lead, status: 'lost', closure_reason: reason, closure_note: options.note || null }, `Not Interested — ${reason}`)
+    }
+
+    return { openAdmission }
+  }, [leads, completeFollowUpRecord, addFollowUp, addActivity, takeOverLead, scheduleFollowUp, updateLeadStatus, markPackageShared, updateLead])
 
   // Authorized users (checked by the caller — see the admin gate on the
   // Reopen action) can bring a Lost/Nurture lead back into the active
@@ -1023,12 +1560,18 @@ export function DataProvider({ children }) {
         name: lead.name, email: lead.email, phone: lead.phone, course: lead.course,
         batch_id: batch?.id || null, batch: batch?.name || 'Unassigned',
         enroll_date: enrollDate, status: 'active', fee_paid: 0, fee_total: finalAmount, avatar: lead.avatar,
+        lead_id: lead.id,
       }).select().single()
       if (error) { console.error('confirmAdmission: student insert error', error); return { error: error.message } }
       student = mapStudentFromDb(data)
       setStudents((prev) => [student, ...prev])
       addActivity(lead.id, lead.status, lead.status, `Student record created for ${lead.name} — course: ${lead.course}`)
-      if (batch) addActivity(lead.id, lead.status, lead.status, `Batch assigned: ${batch.name}`)
+      addStudentActivity(student.id, `Converted from lead — enrolled in ${student.course}`, 'LEAD_CONVERTED')
+      if (batch) {
+        addActivity(lead.id, lead.status, lead.status, `Batch assigned: ${batch.name}`)
+        addStudentActivity(student.id, `Batch assigned: ${batch.name}`, 'BATCH_ASSIGNED')
+      }
+      if (pkg?.id) await initializeStudentProgress(student.id, pkg.id)
     } else if (batch && existingStudent.batch_id !== batch.id) {
       // Existing student found (duplicate protection) — still honor the
       // batch chosen here if they didn't already have one, but never
@@ -1038,6 +1581,7 @@ export function DataProvider({ children }) {
         student = mapStudentFromDb(data)
         setStudents((prev) => prev.map((s) => s.id === student.id ? student : s))
         addActivity(lead.id, lead.status, lead.status, `Batch assigned: ${batch.name}`)
+        addStudentActivity(student.id, `Batch assigned: ${batch.name}`, 'BATCH_ASSIGNED')
       }
     }
 
@@ -1080,7 +1624,7 @@ export function DataProvider({ children }) {
     emitAutomationEvent({ eventType: AUTOMATION_EVENTS.LEAD_ENROLLED, entityType: 'lead', entityId: lead.id, sourceTable: 'leads', sourceId: lead.id })
 
     return { student, invoice, wasExistingStudent: !!existingStudent }
-  }, [students, invoices, batches, addActivity, recordPayment, closePendingFollowUps])
+  }, [students, invoices, batches, addActivity, recordPayment, closePendingFollowUps, addStudentActivity, initializeStudentProgress])
 
   const createInvoice = useCallback(async (invoiceData) => {
     const { data, error } = await supabase.from('invoices').insert(invoiceData).select().single()
@@ -1206,8 +1750,15 @@ export function DataProvider({ children }) {
     <DataContext.Provider value={{
       leads, setLeads, addLead, updateLead, deleteLead, updateLeadStatus, reopenLead, takeOverLead,
       followUps, setFollowUps, addFollowUp, updateFollowUp, deleteFollowUp, scheduleFollowUp, recordMeetingOutcome,
+      rescheduleFollowUp, cancelFollowUp, completeFollowUpOutcome,
       leadActivities, addActivity,
       students, setStudents, addStudent, deleteStudent, updateStudent, enrollLead, confirmAdmission, markPackageShared, generateFeeBill, unlockInvoice,
+      checkDuplicateStudent, changeStudentBatch, changeStudentStatus,
+      studentActivities, addStudentActivity,
+      studentDocuments, addStudentDocument, deleteStudentDocument,
+      courseModules, addCourseModule, updateCourseModule, reorderCourseModules, archiveCourseModule, restoreCourseModule, deleteCourseModule,
+      studentModuleProgress, initializeStudentProgress, updateModuleProgress, changeStudentCourse,
+      academySettings, refetchAcademySettings,
       packages, setPackages, addPackage, updatePackage, deletePackage,
       invoices, setInvoices, recordPayment, createInvoice, updateInvoiceDueDate,
       installments,

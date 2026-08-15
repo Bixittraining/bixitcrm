@@ -18,6 +18,7 @@ import AnchoredMenu from '../components/AnchoredMenu'
 import { supabase } from '../lib/supabase'
 import { LEAD_STATUSES, ALL_STATUS_KEYS, PIPELINE_STAGE_KEYS } from '../lib/leadStatus'
 import { TIMELINE_FILTERS, activityTypeInfo, relativeDayAt, dayGroupLabel } from '../lib/activityTypes'
+import { FOLLOWUP_TYPES, CREATABLE_FOLLOWUP_TYPES, followUpTypeInfo } from '../lib/followUpTypes'
 
 // ─── CONFIG ────────────────────────────────────────────────────────────
 // Single source of truth is lib/leadStatus.jsx (shared with Pipeline.jsx)
@@ -45,12 +46,9 @@ const courseOptions = [
 
 const sourceFormOptions = ['Website', 'Google Ads', 'Referral', 'Instagram', 'LinkedIn', 'Facebook', 'WhatsApp', 'Walk-in']
 
-const followUpTypes = [
-  { key: 'call', label: 'Call', icon: PhoneCall },
-  { key: 'email', label: 'Email', icon: Mail },
-  { key: 'meeting', label: 'Meeting', icon: Video },
-  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-]
+// Follow-up type definitions live in lib/followUpTypes.js — the single
+// source FollowUps.jsx uses too, so a type's label/icon can't drift
+// between the two pages that both create/display follow-ups.
 
 const profileTabs = [
   { key: 'overview', label: 'Overview' },
@@ -1283,11 +1281,18 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
   const handleSubmit = (e) => { e.preventDefault(); onSubmit(lead, form) }
   const isMeeting = form.type === 'meeting'
 
+  // Static per-color classes — Tailwind can't resolve a dynamic
+  // `border-${color}-500` template literal at build time, so every color
+  // FOLLOWUP_TYPES can name is spelled out explicitly here.
   const typeColors = {
-    call: isDark ? 'border-sky-500 bg-sky-500/10 text-sky-400' : 'border-sky-500 bg-sky-50 text-sky-600',
-    email: isDark ? 'border-accent-500 bg-accent-500/10 text-accent-400' : 'border-accent-500 bg-accent-50 text-accent-600',
-    meeting: isDark ? 'border-violet-500 bg-violet-500/10 text-violet-400' : 'border-violet-500 bg-violet-50 text-violet-600',
-    whatsapp: isDark ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-emerald-500 bg-emerald-50 text-emerald-600',
+    sky: isDark ? 'border-sky-500 bg-sky-500/10 text-sky-400' : 'border-sky-500 bg-sky-50 text-sky-600',
+    emerald: isDark ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-emerald-500 bg-emerald-50 text-emerald-600',
+    violet: isDark ? 'border-violet-500 bg-violet-500/10 text-violet-400' : 'border-violet-500 bg-violet-50 text-violet-600',
+    cyan: isDark ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-cyan-500 bg-cyan-50 text-cyan-600',
+    amber: isDark ? 'border-amber-500 bg-amber-500/10 text-amber-400' : 'border-amber-500 bg-amber-50 text-amber-600',
+    indigo: isDark ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' : 'border-indigo-500 bg-indigo-50 text-indigo-600',
+    slate: isDark ? 'border-dark-500 bg-dark-500/10 text-dark-300' : 'border-dark-400 bg-dark-100 text-dark-600',
+    primary: isDark ? 'border-primary-500 bg-primary-500/10 text-primary-400' : 'border-primary-500 bg-primary-50 text-primary-600',
   }
   const unselectedStyle = isDark ? 'border-dark-700 text-dark-400' : 'border-dark-200 text-dark-500'
 
@@ -1320,12 +1325,15 @@ function TransferModal({ lead, isDark, onClose, onSubmit, inputClass, cardClass,
           <div>
             <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Follow-up Type</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {followUpTypes.map(({ key, label, icon: TypeIcon }) => (
-                <label key={key} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border cursor-pointer transition-all text-xs font-medium ${form.type === key ? typeColors[key] : unselectedStyle}`}>
-                  <input type="radio" name="followup-type" value={key} checked={form.type === key} onChange={() => handleChange('type', key)} className="sr-only" />
-                  <TypeIcon className="w-5 h-5" />{label}
-                </label>
-              ))}
+              {CREATABLE_FOLLOWUP_TYPES.map((key) => {
+                const { label, icon: TypeIcon, color } = FOLLOWUP_TYPES[key]
+                return (
+                  <label key={key} className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border cursor-pointer transition-all text-xs font-medium ${form.type === key ? typeColors[color] : unselectedStyle}`}>
+                    <input type="radio" name="followup-type" value={key} checked={form.type === key} onChange={() => handleChange('type', key)} className="sr-only" />
+                    <TypeIcon className="w-5 h-5" />{label}
+                  </label>
+                )
+              })}
             </div>
           </div>
           {isMeeting && (
@@ -1593,11 +1601,21 @@ function LeadStageStepper({ status, isDark }) {
 }
 
 // ─── PROFILE VIEW ────────────────────────────────────────────────────
-function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onCall, onChangeStatus, onSharePackage, onPackageShared, onAssign, onTakeOver, onAddNoteAction, onNurture, onLost, onNotInterested, onReopen, onConfirmAdmission, onDiscountChange, onBatchTimingChange, onSpecialRequirementsChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, addActivity, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote, students }) {
+function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleMeeting, onDelete, onCall, onChangeStatus, onSharePackage, onPackageShared, onAssign, onTakeOver, onAddNoteAction, onNurture, onLost, onNotInterested, onReopen, onConfirmAdmission, onDiscountChange, onBatchTimingChange, onSpecialRequirementsChange, onGenerateFeeBill, onUnlockInvoice, isAdmin, invoices, followUpsData, updateFollowUp, leadActivities, addActivity, cardClass, inputClass, activeTab, setActiveTab, showNotification, packages, teamMembers, leadDocuments, onAddDocument, onDeleteDocument, batches, leadNotes, onAddNote, students, autoOpenAdmission, onAutoOpenAdmissionHandled }) {
   const navigate = useNavigate()
   const [feePlan, setFeePlan] = useState(0)
   const [timelineFilter, setTimelineFilter] = useState('all')
   const [showAdmissionModal, setShowAdmissionModal] = useState(false)
+  // "Ready to Enroll" outcome from the Follow-up module deep-links here
+  // with autoOpenAdmission=true — this is what actually opens the modal,
+  // one-shot (the parent resets the flag right after so it doesn't reopen
+  // if this lead's profile is revisited later).
+  useEffect(() => {
+    if (autoOpenAdmission && lead.status !== 'enrolled') {
+      setShowAdmissionModal(true)
+      onAutoOpenAdmissionHandled?.()
+    }
+  }, [autoOpenAdmission, lead.status, onAutoOpenAdmissionHandled])
   const [addingDocCategory, setAddingDocCategory] = useState(null)
   const [docForm, setDocForm] = useState({ title: '', url: '' })
   const [profileNoteText, setProfileNoteText] = useState('')
@@ -2187,9 +2205,9 @@ function LeadProfileView({ lead, isDark, onBack, onEdit, onTransfer, onScheduleM
             const nextInfo = followUpDueInfo(nextItem)
 
             const renderRow = (fu) => {
-              const typeConfig = followUpTypes.find((t) => t.key === fu.type)
-              const TypeIcon = typeConfig?.icon || Phone
-              const typeColor = { call: 'sky', email: 'accent', meeting: 'violet', whatsapp: 'emerald' }[fu.type] || 'sky'
+              const typeConfig = followUpTypeInfo(fu.type)
+              const TypeIcon = typeConfig.icon
+              const typeColor = typeConfig.color
               const overdue = fu.status === 'pending' && followUpDueInfo(fu).tone === 'overdue'
               return (
                 <motion.div key={fu.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`rounded-xl p-4 ${cardClass}`}>
@@ -2913,6 +2931,10 @@ function Leads() {
   const navigate = useNavigate()
 
   const [selectedLead, setSelectedLead] = useState(null)
+  // Set when navigated here with { openLeadId, openAdmission: true } — e.g.
+  // the Follow-up module's "Ready to Enroll" outcome deep-links straight
+  // into the real Admission workflow instead of building a second one.
+  const [autoOpenAdmission, setAutoOpenAdmission] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('All')
@@ -2967,6 +2989,8 @@ function Leads() {
     if (location.state?.openLeadId != null) {
       const found = leadsData.find((l) => l.id === location.state.openLeadId)
       if (found) setSelectedLead(found)
+      if (location.state?.openAdmission) setAutoOpenAdmission(true)
+      if (location.state?.openTab) setActiveProfileTab(location.state.openTab)
       navigate(location.pathname, { replace: true, state: {} })
     }
   }, [location.state, location.pathname, navigate, leadsData])
@@ -3370,6 +3394,8 @@ function Leads() {
             teamMembers={teamMembers}
             batches={batches}
             students={students}
+            autoOpenAdmission={autoOpenAdmission}
+            onAutoOpenAdmissionHandled={() => setAutoOpenAdmission(false)}
           />
         ) : (
           <motion.div key="list" className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit={{ opacity: 0, x: -40 }}>

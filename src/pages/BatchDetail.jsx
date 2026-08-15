@@ -227,7 +227,7 @@ export default function BatchDetail() {
         ) : (
           <div className="space-y-2">
             {roster.map((s) => (
-              <div key={s.id} onClick={() => navigate('/students', { state: { openStudentId: s.id } })}
+              <div key={s.id} onClick={() => navigate(`/students/${s.id}`)}
                 className={`flex items-center justify-between gap-3 p-3.5 rounded-xl cursor-pointer transition-colors ${isDark ? 'bg-dark-800/50 hover:bg-dark-800' : 'bg-dark-50 hover:bg-dark-100'}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br from-primary-500 to-violet-500">

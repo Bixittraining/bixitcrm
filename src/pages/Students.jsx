@@ -1,557 +1,280 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, Plus, Download, LayoutGrid, List, Eye, Mail, Receipt,
-  Users, UserCheck, GraduationCap, BarChart3, X, Phone, Calendar,
-  BookOpen, ChevronUp, ChevronDown, ArrowUpDown, MessageCircle,
-  CheckCircle2, AlertCircle, Trash2, FileText, ClipboardCheck
+  Search, Plus, Download, LayoutGrid, List, Eye, Phone,
+  Users, UserCheck, GraduationCap, AlertTriangle, X, Calendar,
+  ChevronUp, ChevronDown, ArrowUpDown, MessageCircle, SlidersHorizontal,
+  CheckCircle2, AlertCircle, ClipboardCheck, TrendingUp, IndianRupee,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { useData } from '../context/DataContext'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
-import SendEmailModal from '../components/SendEmailModal'
+import { getAvatarGradient } from '../lib/avatarColors'
+import { STUDENT_STATUSES, ALL_STUDENT_STATUS_KEYS, studentStatusLabel, getAttendanceThreshold } from '../lib/studentStatus'
+import { canStudent } from '../lib/permissions'
+import { computeAttendancePct, computeOverallProgress, computeNeedsAttention, nextClassLabel } from '../lib/studentDerived'
 
-const avatarGradients = {
-  A: 'from-rose-500 to-pink-600',
-  B: 'from-orange-500 to-amber-600',
-  C: 'from-amber-500 to-yellow-600',
-  D: 'from-emerald-500 to-green-600',
-  E: 'from-teal-500 to-emerald-600',
-  F: 'from-cyan-500 to-teal-600',
-  G: 'from-sky-500 to-cyan-600',
-  H: 'from-blue-500 to-sky-600',
-  I: 'from-indigo-500 to-blue-600',
-  J: 'from-violet-500 to-indigo-600',
-  K: 'from-purple-500 to-violet-600',
-  L: 'from-fuchsia-500 to-purple-600',
-  M: 'from-pink-500 to-fuchsia-600',
-  N: 'from-rose-500 to-red-600',
-  O: 'from-emerald-500 to-teal-600',
-  P: 'from-primary-500 to-violet-600',
-  Q: 'from-sky-500 to-blue-600',
-  R: 'from-accent-500 to-orange-600',
-  S: 'from-emerald-500 to-cyan-600',
-  T: 'from-violet-500 to-purple-600',
-  U: 'from-rose-500 to-pink-600',
-  V: 'from-sky-500 to-indigo-600',
-  W: 'from-amber-500 to-orange-600',
-  X: 'from-teal-500 to-green-600',
-  Y: 'from-indigo-500 to-violet-600',
-  Z: 'from-fuchsia-500 to-pink-600',
-}
-
-function getAvatarGradient(name) {
-  const letter = name.charAt(0).toUpperCase()
-  return avatarGradients[letter] || 'from-primary-500 to-violet-600'
+const STATUS_BADGE_CLASSES = {
+  emerald: (isDark) => isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600',
+  primary: (isDark) => isDark ? 'bg-primary-500/15 text-primary-400' : 'bg-primary-50 text-primary-600',
+  amber: (isDark) => isDark ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-50 text-amber-600',
+  rose: (isDark) => isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600',
+  indigo: (isDark) => isDark ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-600',
 }
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.06 }
-  }
+  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
 }
-
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
-}
-
-function StudentProfileModal({ student, onClose, theme, onMessage, onCall, onWhatsApp, onDelete, onBatchChange, batches, notes, onAddNote, leads, leadNotes, attendance, emailMessages }) {
-  const [noteText, setNoteText] = useState('')
-  if (!student) return null
-
-  const isDark = theme === 'dark'
-  const studentNotesList = (notes || []).filter((n) => n.student_id === student.id)
-  const studentEmails = (emailMessages || []).filter((m) => m.student_id === student.id)
-  const studentAttendance = (attendance || []).filter((a) => a.student_id === student.id).sort((a, b) => b.date.localeCompare(a.date))
-  const attendancePct = studentAttendance.length
-    ? Math.round((studentAttendance.filter((a) => a.status === 'present').length / studentAttendance.length) * 100)
-    : null
-
-  // A student started life as a lead — whatever requirement/context was
-  // recorded back then (special requirements, notes) shouldn't just
-  // disappear once they enroll. Matched by email since students don't
-  // carry a direct lead_id reference back.
-  const originLead = (leads || []).find((l) => l.email && student.email && l.email.toLowerCase() === student.email.toLowerCase())
-  const originLeadNotes = originLead ? (leadNotes || []).filter((n) => n.lead_id === originLead.id) : []
-
-  const handleSubmitNote = () => {
-    if (!noteText.trim()) return
-    onAddNote(student.id, noteText.trim())
-    setNoteText('')
-  }
-
-  return createPortal(
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      variants={modalOverlayVariants}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-    >
-      {/* Backdrop */}
-      <motion.div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <motion.div
-        className={`relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 ${
-          isDark
-            ? 'bg-dark-900 border-dark-700/60'
-            : 'bg-white border-dark-200/60 shadow-xl'
-        }`}
-        variants={modalCardVariants}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-      >
-          {/* Close Button */}
-          <motion.button
-            whileHover={{ scale: 1.1, rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={onClose}
-            className={`absolute top-4 right-4 p-2 rounded-xl transition-colors ${
-              isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'
-            }`}
-          >
-            <X size={20} />
-          </motion.button>
-
-          {/* Header */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xl shadow-lg`}>
-              {student.avatar}
-            </div>
-            <div>
-              <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                {student.name}
-              </h2>
-              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                {student.course}
-              </p>
-              <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                student.status === 'active'
-                  ? 'bg-emerald-500/15 text-emerald-500'
-                  : 'bg-primary-500/15 text-primary-500'
-              }`}>
-                {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
-              </span>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex items-center gap-2 mb-5">
-            <button onClick={() => { onCall?.(student) }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-colors">
-              <Phone size={14} /> Call
-            </button>
-            <button onClick={() => { onWhatsApp?.(student) }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 transition-colors">
-              <MessageCircle size={14} /> WhatsApp
-            </button>
-            <button onClick={() => { onMessage?.(student) }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
-              <Mail size={14} /> Email
-            </button>
-            <button onClick={() => { onDelete?.(student.id); onClose() }}
-              className={`ml-auto p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors`}>
-              <Trash2 size={16} />
-            </button>
-          </div>
-
-          {/* Contact Info */}
-          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              Contact Information
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="flex items-center gap-2">
-                <Mail size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
-                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.email}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
-                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.phone}</span>
-              </div>
-              <div className="flex items-center gap-2 min-w-0">
-                <BookOpen size={14} className={`shrink-0 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-                <select value={student.batch_id || ''} onChange={(e) => onBatchChange(student, e.target.value ? Number(e.target.value) : null)}
-                  className={`flex-1 min-w-0 truncate text-sm bg-transparent outline-none cursor-pointer rounded-lg -ml-1 px-1 py-0.5 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                  <option value="">Unassigned</option>
-                  {(batches || []).filter((b) => b.course === student.course).map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar size={14} className={isDark ? 'text-dark-500' : 'text-dark-400'} />
-                <span className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                  Enrolled: {new Date(student.enrollDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Attendance */}
-          <div className={`rounded-xl p-4 mb-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className={`text-sm font-semibold flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                <ClipboardCheck size={14} />Attendance
-              </h3>
-              {attendancePct != null && (
-                <span className={`text-sm font-bold ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>{attendancePct}%</span>
-              )}
-            </div>
-            {studentAttendance.length === 0 ? (
-              <p className={`text-xs text-center py-3 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No attendance recorded yet.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                {studentAttendance.slice(0, 30).map((a) => (
-                  <span
-                    key={a.id}
-                    title={`${new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — ${a.status}${a.marked_at ? ` at ${new Date(a.marked_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}`}
-                    className={`px-2 py-1 rounded-md text-[11px] font-medium ${a.status === 'present' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}
-                  >
-                    {new Date(a.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* From Lead Inquiry — requirements/notes recorded before enrollment */}
-          {originLead && (originLead.notes || originLeadNotes.length > 0) && (
-            <div className={`rounded-xl p-4 mb-5 border-l-2 ${isDark ? 'bg-dark-800/40 border-primary-500/50' : 'bg-primary-50/50 border-primary-300'}`}>
-              <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                <FileText size={14} />From Lead Inquiry
-              </h3>
-              {originLead.notes && (
-                <div className={`rounded-lg p-3 text-sm mb-2 ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
-                  <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{originLead.notes}</p>
-                  <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>Special requirement · noted as a lead</p>
-                </div>
-              )}
-              {originLeadNotes.map((note) => (
-                <div key={note.id} className={`rounded-lg p-3 text-sm mb-2 last:mb-0 ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
-                  <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
-                  <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
-                    {note.author_name} &middot; {new Date(note.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Notes & Performance */}
-          <div className={`rounded-xl p-4 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              <FileText size={14} />Notes &amp; Performance
-            </h3>
-            <div className="flex gap-2 mb-4">
-              <textarea
-                rows={2}
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="How to teach this student, progress observations, requirements..."
-                className={`flex-1 px-3 py-2 rounded-lg border text-sm outline-none resize-none transition-all ${
-                  isDark ? 'bg-dark-900 border-dark-700 text-dark-100 placeholder-dark-500' : 'bg-white border-dark-200 text-dark-900 placeholder-dark-400'
-                }`}
-              />
-              <button onClick={handleSubmitNote}
-                className="self-end px-4 py-2 rounded-lg text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors">
-                Add
-              </button>
-            </div>
-            {studentNotesList.length === 0 ? (
-              <p className={`text-xs text-center py-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No notes yet.</p>
-            ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {studentNotesList.map((note) => (
-                  <div key={note.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
-                    <p className={isDark ? 'text-dark-300' : 'text-dark-600'}>{note.text}</p>
-                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
-                      {note.author_name} &middot; {new Date(note.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Email History — every send goes through the real Gmail
-              integration now, not a mailto: link, so it's actually logged. */}
-          <div className={`rounded-xl p-4 mt-5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
-            <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-              <Mail size={14} />Email History
-            </h3>
-            {studentEmails.length === 0 ? (
-              <p className={`text-xs text-center py-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No emails sent yet.</p>
-            ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {studentEmails.map((msg) => (
-                  <div key={msg.id} className={`rounded-lg p-3 text-sm ${isDark ? 'bg-dark-900' : 'bg-white'}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={`font-medium truncate ${isDark ? 'text-dark-200' : 'text-dark-800'}`}>{msg.subject}</p>
-                      <span className={`shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded ${msg.status === 'sent' ? (isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-rose-500/15 text-rose-400' : 'bg-rose-50 text-rose-600')}`}>
-                        {msg.status === 'sent' ? 'Sent' : 'Failed'}
-                      </span>
-                    </div>
-                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
-                      {msg.sender_name} &middot; {new Date(msg.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-        </motion.div>
-      </motion.div>,
-    document.body
-  )
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 }
 
 function Students() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { students, addStudent, deleteStudent, updateStudent, batches, studentNotes, addStudentNote, leads, leadNotes, attendance, emailMessages } = useData()
+  const { profile } = useAuth()
+  const {
+    students, addStudent, batches, teamMembers, packages, attendance,
+    studentProgressModules, academySettings, checkDuplicateStudent, invoices,
+  } = useData()
   const location = useLocation()
   const navigate = useNavigate()
+
+  const canExportFees = canStudent(profile, 'export_fees', null, batches)
+  const canAdd = canStudent(profile, 'edit', null, batches)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('All')
   const [batchFilter, setBatchFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
+  const [trainerFilter, setTrainerFilter] = useState('All')
+  const [attendanceFilter, setAttendanceFilter] = useState('All') // All | below_threshold | no_data
+  const [progressFilter, setProgressFilter] = useState('All') // All | behind | on_track | no_data
+  const [joinedFrom, setJoinedFrom] = useState('')
+  const [joinedTo, setJoinedTo] = useState('')
   const [viewMode, setViewMode] = useState('grid')
-  const [selectedStudent, setSelectedStudent] = useState(null)
-  const [emailModalStudent, setEmailModalStudent] = useState(null)
 
-  // Auto-open a specific student's profile when navigated here with that
-  // intent (e.g. clicking a student from a batch's roster)
+  // Deep-link support (e.g. a batch/lead page sending the user here with an
+  // intended course filter). Opening a specific student's profile is now a
+  // real route (/students/:id) rather than a modal state flag.
   useEffect(() => {
-    if (location.state?.openStudentId != null) {
-      const found = students.find((s) => s.id === location.state.openStudentId)
-      if (found) setSelectedStudent(found)
-      navigate(location.pathname, { replace: true, state: {} })
-    } else if (location.state?.filterCourse) {
+    if (location.state?.filterCourse) {
       setCourseFilter(location.state.filterCourse)
       navigate(location.pathname, { replace: true, state: {} })
     } else if (location.state?.resetView) {
-      // Clicking "Students" in the sidebar while already viewing a profile
-      // is the same URL, so React Router alone won't close it — the
-      // sidebar sends a resetView signal for exactly this case.
-      setSelectedStudent(null)
       navigate(location.pathname, { replace: true, state: {} })
     }
-  }, [location.state, location.pathname, navigate, students])
+  }, [location.state, location.pathname, navigate])
+
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const [notification, setNotification] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
+  const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', course: '', batch: '', dob: '', location: '', feeTotal: '', notes: '' })
+  const [duplicateMatch, setDuplicateMatch] = useState(null)
+  const [addSubmitting, setAddSubmitting] = useState(false)
 
   const showToast = (message, type = 'success') => setNotification({ message, type })
 
-  const getAttendancePct = (studentId) => {
-    const records = attendance.filter((a) => a.student_id === studentId)
-    if (!records.length) return null
-    return Math.round((records.filter((a) => a.status === 'present').length / records.length) * 100)
-  }
+  const attendanceThreshold = getAttendanceThreshold(academySettings)
 
-  const courseOptions = useMemo(() => ['All', ...new Set(students.map((s) => s.course).filter(Boolean))], [students])
-  // Sourced from the real batches table, not students.batch — that field is
-  // just a display-text cache and drifts (e.g. stale seed names like
-  // "Batch 2026-A" that no longer correspond to any actual batch row).
+  const batchById = useMemo(() => new Map(batches.map((b) => [b.id, b])), [batches])
+  const trainerById = useMemo(() => new Map(teamMembers.map((m) => [m.id, m])), [teamMembers])
+
+  const derived = useMemo(() => {
+    const map = new Map()
+    for (const s of students) {
+      const batch = batchById.get(s.batch_id)
+      const trainer = batch ? trainerById.get(batch.instructor_id) : null
+      const attendancePct = computeAttendancePct(s.id, attendance)
+      const progressPct = computeOverallProgress(s.id, studentProgressModules)
+      const needsAttention = computeNeedsAttention(s, { batch, attendance, studentProgressModules, invoices, academySettings })
+      map.set(s.id, { batch, trainer, attendancePct, progressPct, needsAttention, nextClass: batch ? nextClassLabel(batch) : null })
+    }
+    return map
+  }, [students, batchById, trainerById, attendance, studentProgressModules, invoices, academySettings])
+
+  // Course options come from real Package data (the actual source of
+  // truth for what courses the academy offers), plus any legacy course
+  // strings already on students that don't match a current package name
+  // (renamed/retired packages) so those students remain filterable.
+  const courseOptions = useMemo(() => {
+    const fromPackages = packages.map((p) => p.name)
+    const fromStudents = students.map((s) => s.course).filter(Boolean)
+    return ['All', ...new Set([...fromPackages, ...fromStudents])]
+  }, [packages, students])
+
   const batchOptions = useMemo(() => ['All', 'Unassigned', ...batches.map((b) => b.name)], [batches])
+  const trainerOptions = useMemo(() => ['All', ...new Set(teamMembers.filter((m) => batches.some((b) => b.instructor_id === m.id)).map((m) => m.name))], [teamMembers, batches])
 
-  const handleAddStudent = (e) => {
+  const handleAddStudent = async (e) => {
     e.preventDefault()
+    if (!duplicateMatch) {
+      const match = checkDuplicateStudent({ phone: addForm.phone, email: addForm.email })
+      if (match) { setDuplicateMatch(match); return }
+    }
+    setAddSubmitting(true)
     const nameParts = addForm.name.trim().split(' ')
     const avatar = nameParts.length >= 2 ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : addForm.name.trim().slice(0, 2).toUpperCase()
     const batch = batches.find((b) => String(b.id) === addForm.batch)
-    addStudent({
+    const { error } = await addStudent({
       name: addForm.name, email: addForm.email, phone: addForm.phone,
       course: addForm.course, batch_id: batch?.id || null, batch: batch?.name || 'Unassigned',
       enroll_date: new Date().toISOString().slice(0, 10), status: 'active',
       fee_paid: 0, fee_total: Number(addForm.feeTotal) || 0, avatar,
+      date_of_birth: addForm.dob || null, location: addForm.location || null,
     })
+    setAddSubmitting(false)
+    if (error) { showToast(error, 'error'); return }
     setShowAddModal(false)
-    setAddForm({ name: '', email: '', phone: '', course: '', batch: '', feeTotal: '' })
+    setDuplicateMatch(null)
+    setAddForm({ name: '', email: '', phone: '', course: '', batch: '', dob: '', location: '', feeTotal: '', notes: '' })
     showToast(`${addForm.name} added as a student`)
   }
 
-  const handleDeleteStudent = (id) => {
-    const student = students.find(s => s.id === id)
-    deleteStudent(id)
-    setSelectedStudent(null)
-    showToast(student ? `${student.name} removed` : 'Student removed')
-  }
-
-  const handleBatchChange = (student, batchId) => {
-    const batch = batches.find((b) => b.id === batchId)
-    const batchName = batch?.name || 'Unassigned'
-    updateStudent(student.id, { batch_id: batchId, batch: batchName })
-    setSelectedStudent((prev) => (prev && prev.id === student.id ? { ...prev, batch_id: batchId, batch: batchName } : prev))
-    showToast(`${student.name} moved to ${batchName}`)
-  }
-
-  const handleMessageStudent = (student) => {
-    setEmailModalStudent(student)
-  }
-
-  const handleCallStudent = (student) => {
-    window.open(`tel:${student.phone}`)
-  }
-
   const handleWhatsApp = (student) => {
-    window.open(`https://wa.me/${student.phone.replace(/\s+/g, '').replace('+', '')}`)
+    if (!student.phone) { showToast('No phone number on file', 'error'); return }
+    navigate('/conversations', { state: { openPhone: student.phone.replace(/\D/g, ''), leadId: student.lead_id || undefined, leadName: student.name } })
   }
+  const handleCallStudent = (student) => window.open(`tel:${student.phone}`)
 
-  // Filtered students
+  const activeMoreFilterCount = [trainerFilter !== 'All', attendanceFilter !== 'All', progressFilter !== 'All', !!joinedFrom, !!joinedTo].filter(Boolean).length
+
   const filteredStudents = useMemo(() => {
-    let result = students.filter(s => {
+    let result = students.filter((s) => {
       const q = searchQuery.toLowerCase()
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.email.toLowerCase().includes(q) ||
-        s.course.toLowerCase().includes(q) ||
-        s.batch.toLowerCase().includes(q)
-      )
+      return !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.course.toLowerCase().includes(q) || (s.batch || '').toLowerCase().includes(q)
     })
     if (courseFilter !== 'All') result = result.filter((s) => s.course === courseFilter)
-    if (batchFilter !== 'All') result = result.filter((s) => s.batch === batchFilter)
+    if (batchFilter === 'Unassigned') result = result.filter((s) => !s.batch_id)
+    else if (batchFilter !== 'All') result = result.filter((s) => s.batch === batchFilter)
+    if (statusFilter !== 'All') result = result.filter((s) => s.status === statusFilter)
+
+    if (trainerFilter !== 'All') result = result.filter((s) => derived.get(s.id)?.trainer?.name === trainerFilter)
+    if (attendanceFilter === 'below_threshold') result = result.filter((s) => { const pct = derived.get(s.id)?.attendancePct; return pct != null && pct < attendanceThreshold })
+    else if (attendanceFilter === 'no_data') result = result.filter((s) => derived.get(s.id)?.attendancePct == null)
+    if (progressFilter === 'behind') result = result.filter((s) => derived.get(s.id)?.needsAttention.includes('progress'))
+    else if (progressFilter === 'no_data') result = result.filter((s) => derived.get(s.id)?.progressPct == null)
+    else if (progressFilter === 'on_track') result = result.filter((s) => { const d = derived.get(s.id); return d?.progressPct != null && !d.needsAttention.includes('progress') })
+    if (joinedFrom) result = result.filter((s) => s.enrollDate && s.enrollDate >= joinedFrom)
+    if (joinedTo) result = result.filter((s) => s.enrollDate && s.enrollDate <= joinedTo)
 
     if (sortConfig.key) {
       result = [...result].sort((a, b) => {
-        let aVal = a[sortConfig.key]
-        let bVal = b[sortConfig.key]
-        if (typeof aVal === 'string') aVal = aVal.toLowerCase()
-        if (typeof bVal === 'string') bVal = bVal.toLowerCase()
+        let aVal, bVal
+        if (sortConfig.key === 'attendancePct' || sortConfig.key === 'progressPct') {
+          aVal = derived.get(a.id)?.[sortConfig.key] ?? -1
+          bVal = derived.get(b.id)?.[sortConfig.key] ?? -1
+        } else if (sortConfig.key === 'trainer') {
+          aVal = (derived.get(a.id)?.trainer?.name || '').toLowerCase()
+          bVal = (derived.get(b.id)?.trainer?.name || '').toLowerCase()
+        } else {
+          aVal = a[sortConfig.key]; bVal = b[sortConfig.key]
+          if (typeof aVal === 'string') aVal = aVal.toLowerCase()
+          if (typeof bVal === 'string') bVal = bVal.toLowerCase()
+        }
         if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
         if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
         return 0
       })
     }
-
     return result
-  }, [students, searchQuery, courseFilter, batchFilter, sortConfig])
+  }, [students, searchQuery, courseFilter, batchFilter, statusFilter, trainerFilter, attendanceFilter, progressFilter, joinedFrom, joinedTo, sortConfig, derived, attendanceThreshold])
 
-  // Stats
   const stats = useMemo(() => {
     const total = students.length
-    const active = students.filter(s => s.status === 'active').length
-    const completed = students.filter(s => s.status === 'completed').length
-    const feesCollected = students.reduce((sum, s) => sum + (s.feePaid || 0), 0)
-    return { total, active, completed, feesCollected }
-  }, [students])
+    const active = students.filter((s) => s.status === 'active').length
+    const completed = students.filter((s) => s.status === 'completed').length
+    const needsAttention = students.filter((s) => (derived.get(s.id)?.needsAttention.length || 0) > 0).length
+    return { total, active, completed, needsAttention }
+  }, [students, derived])
 
   const handleSort = (key) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
-    }))
+    setSortConfig((prev) => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }))
   }
 
   const SortIcon = ({ column }) => {
-    if (sortConfig.key !== column) {
-      return <ArrowUpDown size={14} className="opacity-40" />
-    }
-    return sortConfig.direction === 'asc'
-      ? <ChevronUp size={14} className="text-primary-500" />
-      : <ChevronDown size={14} className="text-primary-500" />
+    if (sortConfig.key !== column) return <ArrowUpDown size={14} className="opacity-40" />
+    return sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-primary-500" /> : <ChevronDown size={14} className="text-primary-500" />
   }
 
-  const cardClass = isDark
-    ? 'bg-dark-900 border border-dark-700/60'
-    : 'bg-white border border-dark-200/60 shadow-sm'
+  const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
 
   const statCards = [
     { label: 'Total Students', value: stats.total, icon: Users, color: 'text-primary-500', bg: isDark ? 'bg-primary-500/10' : 'bg-primary-50' },
     { label: 'Active Students', value: stats.active, icon: UserCheck, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
     { label: 'Completed', value: stats.completed, icon: GraduationCap, color: 'text-violet-500', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
-    { label: 'Fees Collected', value: stats.feesCollected.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }), icon: BarChart3, color: 'text-sky-500', bg: isDark ? 'bg-sky-500/10' : 'bg-sky-50' },
+    { label: 'Needs Attention', value: stats.needsAttention, icon: AlertTriangle, color: 'text-rose-500', bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50' },
   ]
+
+  const exportCsv = () => {
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const headers = ['Student', 'Phone', 'Email', 'Course', 'Batch', 'Trainer', 'Status', 'Enrollment Date', 'Attendance %', 'Progress %']
+    if (canExportFees) headers.push('Fee Paid', 'Fee Total', 'Remaining Balance')
+    const rows = filteredStudents.map((s) => {
+      const d = derived.get(s.id)
+      const row = [
+        esc(s.name), `"=""${s.phone || ''}"""`, esc(s.email), esc(s.course), esc(s.batch || 'Unassigned'),
+        esc(d?.trainer?.name || '—'), esc(studentStatusLabel(s.status)), esc(s.enrollDate || '—'),
+        d?.attendancePct != null ? d.attendancePct : '—', d?.progressPct != null ? d.progressPct : '—',
+      ]
+      if (canExportFees) row.push(s.feePaid || 0, s.feeTotal || 0, Math.max((s.feeTotal || 0) - (s.feePaid || 0), 0))
+      return row.join(',')
+    })
+    const csv = headers.join(',') + '\n' + rows.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'students-export.csv'; a.click(); URL.revokeObjectURL(url)
+    showToast('Students exported successfully')
+  }
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
-      >
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
-            Students
-          </h1>
-          <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-            Manage enrolled students and track their progress
-          </p>
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Students</h1>
+          <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Central profile for every enrolled student — course, batch, attendance, progress, and communication.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              // Unescaped, unquoted CSV corrupted rows the moment a name/batch
-              // had a comma in it, and Excel auto-reformatted plain digit-string
-              // phone numbers (dropping leading zeros / going scientific) since
-              // nothing told it to treat them as text. Remaining Balance wasn't
-              // exported at all despite being the one number staff actually
-              // need for a fees follow-up call.
-              const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
-              const rows = students.map((s) => [
-                esc(s.name), esc(s.email), `"=""${s.phone || ''}"""`, esc(s.course), esc(s.batch || 'Unassigned'),
-                esc(s.enrollDate || '—'), esc(s.status), s.feePaid || 0, s.feeTotal || 0,
-                Math.max((s.feeTotal || 0) - (s.feePaid || 0), 0),
-              ].join(','))
-              const csv = 'Name,Email,Phone,Course,Batch,Enroll Date,Status,Fee Paid,Fee Total,Remaining Balance\n' + rows.join('\n')
-              const blob = new Blob([csv], { type: 'text/csv' })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a'); a.href = url; a.download = 'students-export.csv'; a.click(); URL.revokeObjectURL(url)
-              showToast('Students exported successfully')
-            }}
-            className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-            isDark
-              ? 'border-dark-700 text-dark-300 hover:bg-dark-800'
-              : 'border-dark-200 text-dark-600 hover:bg-dark-50'
-          }`}>
-            <Download size={16} className="inline mr-2 -mt-0.5" />
-            Export
+          <button onClick={exportCsv} className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>
+            <Download size={16} className="inline mr-2 -mt-0.5" />Export
           </button>
-          <button onClick={() => setShowAddModal(true)} className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
-            <Plus size={16} className="inline mr-2 -mt-0.5" />
-            Add Student
-          </button>
+          {canAdd && (
+            <button onClick={() => setShowAddModal(true)} className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 transition-all">
+              <Plus size={16} className="inline mr-2 -mt-0.5" />Add Student
+            </button>
+          )}
         </div>
       </motion.div>
 
-      {/* Search & Filter Bar */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.05 }}
-        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap"
-      >
+      {/* Stats Row */}
+      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat) => (
+          <motion.div key={stat.label} variants={itemVariants} className={`rounded-2xl p-5 ${cardClass}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{stat.label}</p>
+                <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>{stat.value}</p>
+              </div>
+              <div className={`p-3 rounded-xl ${stat.bg}`}><stat.icon size={22} className={stat.color} /></div>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* Search & Primary Filters */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.05 }}
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={18} className={`absolute left-4 top-1/2 -translate-y-1/2 ${isDark ? 'text-dark-500' : 'text-dark-400'}`} />
-          <input
-            type="text"
-            placeholder="Search students by name, email, course, or batch..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 ${
-              isDark
-                ? 'bg-dark-900 border-dark-700/60 text-white placeholder:text-dark-500'
-                : 'bg-white border-dark-200/60 text-dark-900 placeholder:text-dark-400'
-            }`}
-          />
+          <input type="text" placeholder="Search by name, email, course, or batch..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40 ${isDark ? 'bg-dark-900 border-dark-700/60 text-white placeholder:text-dark-500' : 'bg-white border-dark-200/60 text-dark-900 placeholder:text-dark-400'}`} />
         </div>
         <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}
           className={`px-3 py-3 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`}>
@@ -561,205 +284,160 @@ function Students() {
           className={`px-3 py-3 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`}>
           {batchOptions.map((b) => <option key={b} value={b}>{b === 'All' ? 'All Batches' : b}</option>)}
         </select>
-        {(courseFilter !== 'All' || batchFilter !== 'All' || searchQuery) && (
-          <button type="button" onClick={() => { setCourseFilter('All'); setBatchFilter('All'); setSearchQuery('') }}
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          className={`px-3 py-3 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-primary-500/40 cursor-pointer ${isDark ? 'bg-dark-900 border-dark-700/60 text-dark-200' : 'bg-white border-dark-200/60 text-dark-700'}`}>
+          <option value="All">All Statuses</option>
+          {ALL_STUDENT_STATUS_KEYS.map((k) => <option key={k} value={k}>{studentStatusLabel(k)}</option>)}
+        </select>
+        <button type="button" onClick={() => setShowMoreFilters((v) => !v)}
+          className={`inline-flex items-center gap-1.5 px-3.5 py-3 rounded-xl text-sm font-medium border transition-colors ${showMoreFilters || activeMoreFilterCount > 0 ? 'border-primary-500 text-primary-500 bg-primary-500/5' : isDark ? 'border-dark-700/60 text-dark-300 hover:bg-dark-800' : 'border-dark-200/60 text-dark-600 hover:bg-dark-50'}`}>
+          <SlidersHorizontal size={15} />More Filters{activeMoreFilterCount > 0 && <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[11px] bg-primary-500 text-white">{activeMoreFilterCount}</span>}
+        </button>
+        {(courseFilter !== 'All' || batchFilter !== 'All' || statusFilter !== 'All' || searchQuery || activeMoreFilterCount > 0) && (
+          <button type="button" onClick={() => { setCourseFilter('All'); setBatchFilter('All'); setStatusFilter('All'); setSearchQuery(''); setTrainerFilter('All'); setAttendanceFilter('All'); setProgressFilter('All'); setJoinedFrom(''); setJoinedTo('') }}
             className={`inline-flex items-center gap-1.5 px-3 py-3 rounded-xl text-xs font-medium transition-colors ${isDark ? 'text-dark-400 hover:text-white hover:bg-dark-800' : 'text-dark-500 hover:text-dark-900 hover:bg-dark-100'}`}>
             <X size={14} />Clear
           </button>
         )}
       </motion.div>
 
-      {/* Stats Row */}
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
-      >
-        {statCards.map((stat) => (
-          <motion.div
-            key={stat.label}
-            variants={itemVariants}
-            className={`rounded-2xl p-5 ${cardClass}`}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                  {stat.label}
-                </p>
-                <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                  {stat.value}
-                </p>
-              </div>
-              <div className={`p-3 rounded-xl ${stat.bg}`}>
-                <stat.icon size={22} className={stat.color} />
-              </div>
+      {/* More Filters panel */}
+      <AnimatePresence>
+        {showMoreFilters && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            className={`rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 overflow-hidden ${cardClass}`}>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Trainer</label>
+              <select value={trainerFilter} onChange={(e) => setTrainerFilter(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-700'}`}>
+                {trainerOptions.map((t) => <option key={t} value={t}>{t === 'All' ? 'Any Trainer' : t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Attendance</label>
+              <select value={attendanceFilter} onChange={(e) => setAttendanceFilter(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-700'}`}>
+                <option value="All">Any Attendance</option>
+                <option value="below_threshold">Below {attendanceThreshold}%</option>
+                <option value="no_data">No attendance recorded</option>
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Progress</label>
+              <select value={progressFilter} onChange={(e) => setProgressFilter(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-700'}`}>
+                <option value="All">Any Progress</option>
+                <option value="behind">Behind expected pace</option>
+                <option value="on_track">On track</option>
+                <option value="no_data">No progress data</option>
+              </select>
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Joined From</label>
+              <input type="date" value={joinedFrom} onChange={(e) => setJoinedFrom(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-700'}`} />
+            </div>
+            <div>
+              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Joined To</label>
+              <input type="date" value={joinedTo} onChange={(e) => setJoinedTo(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-700'}`} />
             </div>
           </motion.div>
-        ))}
-      </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* View Toggle */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="flex items-center justify-between"
-      >
-        <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-          Showing {filteredStudents.length} of {students.length} students
-        </p>
-        <div className={`flex rounded-xl border overflow-hidden ${
-          isDark ? 'border-dark-700/60' : 'border-dark-200/60'
-        }`}>
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'grid'
-                ? 'bg-primary-600 text-white'
-                : isDark
-                ? 'bg-dark-900 text-dark-400 hover:text-dark-200'
-                : 'bg-white text-dark-500 hover:text-dark-700'
-            }`}
-          >
-            <LayoutGrid size={16} />
-            Grid
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex items-center justify-between">
+        <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Showing {filteredStudents.length} of {students.length} students</p>
+        <div className={`flex rounded-xl border overflow-hidden ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+          <button onClick={() => setViewMode('grid')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : isDark ? 'bg-dark-900 text-dark-400 hover:text-dark-200' : 'bg-white text-dark-500 hover:text-dark-700'}`}>
+            <LayoutGrid size={16} />Grid
           </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'table'
-                ? 'bg-primary-600 text-white'
-                : isDark
-                ? 'bg-dark-900 text-dark-400 hover:text-dark-200'
-                : 'bg-white text-dark-500 hover:text-dark-700'
-            }`}
-          >
-            <List size={16} />
-            Table
+          <button onClick={() => setViewMode('table')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'table' ? 'bg-primary-600 text-white' : isDark ? 'bg-dark-900 text-dark-400 hover:text-dark-200' : 'bg-white text-dark-500 hover:text-dark-700'}`}>
+            <List size={16} />Table
           </button>
         </div>
       </motion.div>
 
       {/* Grid View */}
       {viewMode === 'grid' && (
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"
-        >
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredStudents.map((student) => {
-            const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
-            const attendancePct = getAttendancePct(student.id)
+            const d = derived.get(student.id) || {}
+            const statusMeta = STUDENT_STATUSES[student.status] || STUDENT_STATUSES.active
+            const badgeCls = (STATUS_BADGE_CLASSES[statusMeta.color] || STATUS_BADGE_CLASSES.emerald)(isDark)
+            const balance = (student.feeTotal || 0) - (student.feePaid || 0)
             return (
-              <motion.div
-                key={student.id}
-                variants={itemVariants}
-                whileHover={{ scale: 1.02, y: -2 }}
-                transition={{ duration: 0.2 }}
-                className={`rounded-2xl p-6 ${cardClass} hover:shadow-lg transition-shadow cursor-default`}
-              >
-                {/* Student Header */}
+              <motion.div key={student.id} variants={itemVariants} whileHover={{ scale: 1.02, y: -2 }} transition={{ duration: 0.2 }}
+                onClick={() => navigate(`/students/${student.id}`)}
+                className={`rounded-2xl p-6 ${cardClass} hover:shadow-lg transition-shadow cursor-pointer`}>
+                {/* Header */}
                 <div className="flex items-start gap-4 mb-4">
                   <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0`}>
                     {student.avatar}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className={`font-semibold truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
-                      {student.name}
-                    </h3>
-                    <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                      {student.email}
+                    <h3 className={`font-semibold truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>{student.name}</h3>
+                    <p className={`text-xs truncate ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{student.course}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${badgeCls}`}>{studentStatusLabel(student.status)}</span>
+                    {d.needsAttention?.length > 0 && (
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+                        <AlertTriangle size={11} />Needs attention
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Batch / Trainer */}
+                <div className={`flex items-center justify-between text-xs mb-3 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                  <span className="truncate">{student.batch || 'Unassigned'}</span>
+                  <span className="truncate">{d.trainer?.name || 'No trainer'}</span>
+                </div>
+
+                {/* Attendance / Progress */}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className={`rounded-lg p-2.5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                    <div className={`flex items-center gap-1.5 text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}><ClipboardCheck size={12} />Attendance</div>
+                    <p className={`text-sm font-bold ${d.attendancePct == null ? (isDark ? 'text-dark-500' : 'text-dark-400') : d.attendancePct < attendanceThreshold ? 'text-rose-500' : 'text-emerald-500'}`}>
+                      {d.attendancePct != null ? `${d.attendancePct}%` : '—'}
                     </p>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
-                    student.status === 'active'
-                      ? 'bg-emerald-500/15 text-emerald-500'
-                      : 'bg-primary-500/15 text-primary-500'
-                  }`}>
-                    {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
-                  </span>
-                </div>
-
-                {/* Course & Batch */}
-                <div className="flex items-center gap-2 mb-4">
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                    isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'
-                  }`}>
-                    {student.course}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mb-4">
-                  <p className={`text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                    {student.batch}
-                  </p>
-                  {attendancePct != null && (
-                    <span className={`text-xs font-medium ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {attendancePct}% attendance
-                    </span>
-                  )}
-                </div>
-
-                {/* Fee Progress */}
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className={`text-xs font-medium ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                      Fee Progress
-                    </span>
-                    <span className={`text-xs font-semibold ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                      {student.feePaid.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                      {' / '}
-                      {student.feeTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                    </span>
+                  <div className={`rounded-lg p-2.5 ${isDark ? 'bg-dark-800/60' : 'bg-dark-50'}`}>
+                    <div className={`flex items-center gap-1.5 text-[11px] font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}><TrendingUp size={12} />Progress</div>
+                    <p className={`text-sm font-bold ${d.progressPct == null ? (isDark ? 'text-dark-500' : 'text-dark-400') : d.needsAttention?.includes('progress') ? 'text-amber-500' : 'text-emerald-500'}`}>
+                      {d.progressPct != null ? `${d.progressPct}%` : '—'}
+                    </p>
                   </div>
-                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                    <motion.div
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${feePercent}%` }}
-                      transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
-                    />
-                  </div>
-                  <p className={`text-xs mt-1 text-right ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                    {feePercent}%
-                  </p>
                 </div>
 
-                {/* Action Buttons */}
-                <div className={`flex items-center gap-2 pt-4 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
-                  <button
-                    onClick={() => setSelectedStudent(student)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                      isDark
-                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
-                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
-                    }`}
-                  >
-                    <Eye size={14} />
-                    View
+                {/* Next class */}
+                <div className={`flex items-center gap-1.5 text-xs mb-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                  <Calendar size={12} />
+                  {d.nextClass ? `Next class: ${d.nextClass}` : 'No upcoming class scheduled'}
+                </div>
+
+                {/* Fee — small secondary indicator only, and only when there's an outstanding balance */}
+                {balance > 0 && (
+                  <div className={`flex items-center gap-1.5 text-[11px] mb-4 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                    <IndianRupee size={11} />Balance due: {balance.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className={`flex items-center gap-2 pt-4 border-t ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`} onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => navigate(`/students/${student.id}`)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'}`}>
+                    <Eye size={14} />View Profile
                   </button>
-                  <button
-                    onClick={() => handleWhatsApp(student)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                      isDark
-                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
-                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
-                    }`}
-                  >
-                    <MessageCircle size={14} />
-                    WhatsApp
+                  <button onClick={() => handleWhatsApp(student)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'}`}>
+                    <MessageCircle size={14} />WhatsApp
                   </button>
-                  <button
-                    onClick={() => navigate('/billing', { state: { openInvoiceForStudent: student.name } })}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                      isDark
-                        ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white'
-                        : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'
-                    }`}
-                  >
-                    <Receipt size={14} />
-                    Fees
+                  <button onClick={() => handleCallStudent(student)}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-dark-800 text-dark-300 hover:bg-dark-700 hover:text-white' : 'bg-dark-50 text-dark-600 hover:bg-dark-100 hover:text-dark-900'}`}>
+                    <Phone size={14} />
                   </button>
                 </div>
               </motion.div>
@@ -770,177 +448,76 @@ function Students() {
 
       {/* Table View */}
       {viewMode === 'table' && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className={`rounded-2xl overflow-hidden ${cardClass}`}
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={`rounded-2xl overflow-hidden ${cardClass}`}>
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed min-w-[1150px]">
+            <table className="w-full table-fixed min-w-[1250px]">
               <colgroup>
-                <col className="w-[225px]" />
-                <col className="w-[150px]" />
-                <col className="w-[200px]" />
-                <col className="w-[120px]" />
-                <col className="w-[185px]" />
-                <col className="w-[120px]" />
-                <col className="w-[190px]" />
+                <col className="w-[220px]" /><col className="w-[160px]" /><col className="w-[150px]" /><col className="w-[140px]" />
+                <col className="w-[110px]" /><col className="w-[110px]" /><col className="w-[110px]" /><col className="w-[110px]" /><col className="w-[150px]" />
               </colgroup>
               <thead>
                 <tr className={isDark ? 'bg-dark-800/60' : 'bg-dark-50'}>
                   {[
-                    { key: 'name', label: 'Name' },
-                    { key: 'phone', label: 'Contact' },
+                    { key: 'name', label: 'Student' },
                     { key: 'course', label: 'Course' },
                     { key: 'batch', label: 'Batch' },
-                    { key: 'feePaid', label: 'Fee Status' },
+                    { key: 'trainer', label: 'Trainer' },
                     { key: 'status', label: 'Status' },
+                    { key: 'attendancePct', label: 'Attendance' },
+                    { key: 'progressPct', label: 'Progress' },
+                    { key: 'enrollDate', label: 'Joined' },
                     { key: null, label: 'Actions' },
                   ].map((col) => (
-                    <th
-                      key={col.label}
-                      onClick={() => col.key && handleSort(col.key)}
-                      className={`px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${
-                        isDark ? 'text-dark-400' : 'text-dark-500'
-                      } ${col.key ? 'cursor-pointer hover:text-primary-500 select-none' : ''}`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {col.label}
-                        {col.key && <SortIcon column={col.key} />}
-                      </div>
+                    <th key={col.label} onClick={() => col.key && handleSort(col.key)}
+                      className={`px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-dark-400' : 'text-dark-500'} ${col.key ? 'cursor-pointer hover:text-primary-500 select-none' : ''}`}>
+                      <div className="flex items-center gap-1.5">{col.label}{col.key && <SortIcon column={col.key} />}</div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDark ? 'divide-dark-700/40' : 'divide-dark-200/60'}`}>
                 {filteredStudents.map((student, index) => {
-                  const feePercent = student.feeTotal > 0 ? Math.round((student.feePaid / student.feeTotal) * 100) : 0
-                  const attendancePct = getAttendancePct(student.id)
+                  const d = derived.get(student.id) || {}
+                  const statusMeta = STUDENT_STATUSES[student.status] || STUDENT_STATUSES.active
+                  const badgeCls = (STATUS_BADGE_CLASSES[statusMeta.color] || STATUS_BADGE_CLASSES.emerald)(isDark)
                   return (
-                    <motion.tr
-                      key={student.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3, delay: index * 0.04 }}
-                      className={`transition-colors ${
-                        isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'
-                      }`}
-                    >
-                      {/* Name with Avatar */}
+                    <motion.tr key={student.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: index * 0.03 }}
+                      onClick={() => navigate(`/students/${student.id}`)}
+                      className={`cursor-pointer transition-colors ${isDark ? 'hover:bg-dark-800/40' : 'hover:bg-dark-50/60'}`}>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xs flex-shrink-0`}>
-                            {student.avatar}
-                          </div>
+                          <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${getAvatarGradient(student.name)} flex items-center justify-center text-white font-bold text-xs flex-shrink-0`}>{student.avatar}</div>
                           <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                            <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-dark-900'}`}>
                               {student.name}
+                              {d.needsAttention?.length > 0 && <AlertTriangle size={12} className="text-rose-500 flex-shrink-0" />}
                             </p>
-                            <p className={`text-xs truncate ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
-                              {student.email}
-                            </p>
+                            <p className={`text-xs truncate ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{student.email}</p>
                           </div>
                         </div>
                       </td>
-
-                      {/* Contact */}
-                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                        {student.phone}
-                      </td>
-
-                      {/* Course */}
                       <td className="px-5 py-4">
-                        <span className={`inline-block max-w-full truncate align-middle px-2 py-1 rounded-md text-xs font-medium ${
-                          isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'
-                        }`}>
-                          {student.course}
+                        <span className={`inline-block max-w-full truncate align-middle px-2 py-1 rounded-md text-xs font-medium ${isDark ? 'bg-primary-500/10 text-primary-400' : 'bg-primary-50 text-primary-600'}`}>{student.course}</span>
+                      </td>
+                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.batch || 'Unassigned'}</td>
+                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{d.trainer?.name || '—'}</td>
+                      <td className="px-5 py-4"><span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${badgeCls}`}>{studentStatusLabel(student.status)}</span></td>
+                      <td className="px-5 py-4">
+                        <span className={`text-sm font-semibold ${d.attendancePct == null ? (isDark ? 'text-dark-500' : 'text-dark-400') : d.attendancePct < attendanceThreshold ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {d.attendancePct != null ? `${d.attendancePct}%` : '—'}
                         </span>
                       </td>
-
-                      {/* Batch */}
-                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                        {student.batch}
-                        {attendancePct != null && (
-                          <span className={`block text-xs mt-0.5 font-medium ${attendancePct >= 75 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {attendancePct}% attendance
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Fee Status */}
                       <td className="px-5 py-4">
-                        <div className="w-full max-w-[140px]">
-                          <div className={`h-1.5 rounded-full overflow-hidden mb-1 ${isDark ? 'bg-dark-700' : 'bg-dark-200'}`}>
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400"
-                              style={{ width: `${feePercent}%` }}
-                            />
-                          </div>
-                          <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                            {feePercent}% paid
-                          </p>
-                        </div>
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-5 py-4">
-                        <span className={`whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium ${
-                          student.status === 'active'
-                            ? 'bg-emerald-500/15 text-emerald-500'
-                            : 'bg-primary-500/15 text-primary-500'
-                        }`}>
-                          {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                        <span className={`text-sm font-semibold ${d.progressPct == null ? (isDark ? 'text-dark-500' : 'text-dark-400') : d.needsAttention?.includes('progress') ? 'text-amber-500' : 'text-emerald-500'}`}>
+                          {d.progressPct != null ? `${d.progressPct}%` : '—'}
                         </span>
                       </td>
-
-                      {/* Actions */}
-                      <td className="px-3 py-4">
+                      <td className={`px-5 py-4 text-sm truncate ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{student.enrollDate ? new Date(student.enrollDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                      <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1 whitespace-nowrap">
-                          <button
-                            onClick={() => setSelectedStudent(student)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              isDark
-                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
-                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
-                            }`}
-                            title="View Profile"
-                          >
-                            <Eye size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleWhatsApp(student)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              isDark
-                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
-                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
-                            }`}
-                            title="WhatsApp"
-                          >
-                            <MessageCircle size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleCallStudent(student)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              isDark
-                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
-                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
-                            }`}
-                            title="Call Student"
-                          >
-                            <Phone size={16} />
-                          </button>
-                          <button
-                            onClick={() => navigate('/billing', { state: { openInvoiceForStudent: student.name } })}
-                            className={`p-2 rounded-lg transition-colors ${
-                              isDark
-                                ? 'text-dark-400 hover:bg-dark-700 hover:text-white'
-                                : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'
-                            }`}
-                            title="View Fees"
-                          >
-                            <Receipt size={16} />
-                          </button>
+                          <button onClick={() => navigate(`/students/${student.id}`)} className={`p-2 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`} title="View Profile"><Eye size={16} /></button>
+                          <button onClick={() => handleWhatsApp(student)} className={`p-2 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`} title="WhatsApp"><MessageCircle size={16} /></button>
+                          <button onClick={() => handleCallStudent(student)} className={`p-2 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`} title="Call Student"><Phone size={16} /></button>
                         </div>
                       </td>
                     </motion.tr>
@@ -949,13 +526,10 @@ function Students() {
               </tbody>
             </table>
           </div>
-
           {filteredStudents.length === 0 && (
             <div className="py-12 text-center">
               <Users size={40} className={`mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-                No students found matching your search.
-              </p>
+              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No students found matching your search.</p>
             </div>
           )}
         </motion.div>
@@ -963,71 +537,19 @@ function Students() {
 
       {/* Empty state for grid */}
       {viewMode === 'grid' && filteredStudents.length === 0 && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className={`rounded-2xl p-12 text-center ${cardClass}`}
-        >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`rounded-2xl p-12 text-center ${cardClass}`}>
           <Users size={40} className={`mx-auto mb-3 ${isDark ? 'text-dark-600' : 'text-dark-300'}`} />
-          <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
-            No students found matching your search.
-          </p>
+          <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No students found matching your search.</p>
         </motion.div>
       )}
-
-      {/* Student Profile Modal */}
-      <AnimatePresence>
-        {selectedStudent && (
-          <StudentProfileModal
-            student={selectedStudent}
-            onClose={() => setSelectedStudent(null)}
-            theme={theme}
-            onMessage={handleMessageStudent}
-            onCall={handleCallStudent}
-            onWhatsApp={handleWhatsApp}
-            onDelete={handleDeleteStudent}
-            onBatchChange={handleBatchChange}
-            batches={batches}
-            notes={studentNotes}
-            onAddNote={addStudentNote}
-            leads={leads}
-            leadNotes={leadNotes}
-            attendance={attendance}
-            emailMessages={emailMessages}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Send Email Modal */}
-      <AnimatePresence>
-        {emailModalStudent && (
-          <SendEmailModal
-            to={emailModalStudent.email}
-            subject={`BIX Academy - ${emailModalStudent.course}`}
-            body={`Hi ${emailModalStudent.name},\n\n`}
-            studentId={emailModalStudent.id}
-            isDark={isDark}
-            onClose={() => setEmailModalStudent(null)}
-            onSent={() => showToast(`Email sent to ${emailModalStudent.name}`)}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Toast Notification */}
       <div className="fixed top-6 right-6 z-[100]">
         <AnimatePresence>
           {notification && (
-            <motion.div
-              initial={{ opacity: 0, x: 80, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 80, scale: 0.9 }}
+            <motion.div initial={{ opacity: 0, x: 80, scale: 0.9 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 80, scale: 0.9 }}
               onAnimationComplete={() => setTimeout(() => setNotification(null), 3000)}
-              className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${
-                notification.type === 'success'
-                  ? isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  : isDark ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
-              }`}
-            >
+              className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border ${notification.type === 'success' ? isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700' : isDark ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
               {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
               <span className="text-sm font-medium">{notification.message}</span>
               <button onClick={() => setNotification(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
@@ -1041,68 +563,100 @@ function Students() {
         {showAddModal && (
           <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowAddModal(false)}
-          >
-            <motion.div
-              variants={modalCardVariants} initial="hidden" animate="visible" exit="exit"
-              onClick={(e) => e.stopPropagation()}
-              className={`w-full max-w-lg rounded-2xl overflow-hidden ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}
-            >
+            onClick={() => { setShowAddModal(false); setDuplicateMatch(null) }}>
+            <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit" onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl overflow-x-hidden ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
               <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
                 <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Add New Student</h2>
-                <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setShowAddModal(false)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></motion.button>
+                <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => { setShowAddModal(false); setDuplicateMatch(null) }} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></motion.button>
               </div>
-              <form onSubmit={handleAddStudent} className="p-6 space-y-4">
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Full Name</label>
-                  <input type="text" required value={addForm.name} onChange={(e) => setAddForm(p => ({ ...p, name: e.target.value }))} placeholder="Enter full name"
-                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+              <div className={`px-6 pt-4 text-xs ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                This is a manual, historical-record entry. New students normally join through the Leads → Enrollment flow, which keeps the lead's history connected automatically.
+              </div>
+              {duplicateMatch ? (
+                <div className="p-6 space-y-4">
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+                    <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Student may already exist</p>
+                    <p className={`text-sm ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                      A student named <strong>{duplicateMatch.name}</strong> already has this phone number or email on file ({duplicateMatch.course}, {studentStatusLabel(duplicateMatch.status)}).
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => { setShowAddModal(false); setDuplicateMatch(null); navigate(`/students/${duplicateMatch.id}`) }}
+                      className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Open Existing Student</button>
+                    <button onClick={handleAddStudent} disabled={addSubmitting}
+                      className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-50">
+                      {addSubmitting ? 'Creating…' : 'Continue Creating Anyway'}
+                    </button>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+              ) : (
+                <form onSubmit={handleAddStudent} className="p-6 space-y-4">
                   <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
-                    <input type="email" required value={addForm.email} onChange={(e) => setAddForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Full Name</label>
+                    <input type="text" required value={addForm.name} onChange={(e) => setAddForm((p) => ({ ...p, name: e.target.value }))} placeholder="Enter full name"
                       className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
                   </div>
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
-                    <input type="tel" inputMode="numeric" maxLength={10} required value={addForm.phone} onChange={(e) => setAddForm(p => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="98765 43210"
-                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
+                      <input type="email" required value={addForm.email} onChange={(e) => setAddForm((p) => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Phone</label>
+                      <input type="tel" inputMode="numeric" maxLength={10} required value={addForm.phone} onChange={(e) => setAddForm((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="98765 43210"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
+                      <select required value={addForm.course} onChange={(e) => setAddForm((p) => ({ ...p, course: e.target.value, batch: '' }))}
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
+                        <option value="">Select course</option>
+                        {packages.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Total Fee (₹)</label>
+                      <input type="number" required value={addForm.feeTotal} onChange={(e) => setAddForm((p) => ({ ...p, feeTotal: e.target.value }))} placeholder="75000"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                    </div>
+                  </div>
                   <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Course</label>
-                    <select required value={addForm.course} onChange={(e) => setAddForm(p => ({ ...p, course: e.target.value }))}
+                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Batch</label>
+                    <select value={addForm.batch} onChange={(e) => setAddForm((p) => ({ ...p, batch: e.target.value }))}
                       className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
-                      <option value="">Select course</option>
-                      {['Full Stack Development','Data Science & AI','UI/UX Design','Digital Marketing','Cloud Computing','Cybersecurity','Mobile App Development','DevOps Engineering','Python Programming'].map(c => <option key={c} value={c}>{c}</option>)}
+                      <option value="">Unassigned (assign later)</option>
+                      {batches.filter((b) => b.course === addForm.course).map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
                     </select>
+                    {addForm.course && batches.filter((b) => b.course === addForm.course).length === 0 && (
+                      <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {addForm.course} — create one from the Batches page.</p>
+                    )}
                   </div>
-                  <div>
-                    <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Total Fee (₹)</label>
-                    <input type="number" required value={addForm.feeTotal} onChange={(e) => setAddForm(p => ({ ...p, feeTotal: e.target.value }))} placeholder="75000"
-                      className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Date of Birth <span className="opacity-60">(optional)</span></label>
+                      <input type="date" value={addForm.dob} onChange={(e) => setAddForm((p) => ({ ...p, dob: e.target.value }))}
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Location <span className="opacity-60">(optional)</span></label>
+                      <input type="text" value={addForm.location} onChange={(e) => setAddForm((p) => ({ ...p, location: e.target.value }))} placeholder="City"
+                        className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`} />
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Batch</label>
-                  <select value={addForm.batch} onChange={(e) => setAddForm(p => ({ ...p, batch: e.target.value }))}
-                    className={`w-full px-3 py-2.5 rounded-xl text-sm border ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`}>
-                    <option value="">Unassigned (assign later)</option>
-                    {batches.filter((b) => b.course === addForm.course).map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
-                  </select>
-                  {addForm.course && batches.filter((b) => b.course === addForm.course).length === 0 && (
-                    <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No batches created yet for {addForm.course} — create one from the Batches page.</p>
-                  )}
-                </div>
-                <div className="flex justify-end gap-3 pt-2">
-                  <button type="button" onClick={() => setShowAddModal(false)}
-                    className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
-                  <button type="submit"
-                    className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all">Add Student</button>
-                </div>
-              </form>
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button type="button" onClick={() => { setShowAddModal(false); setDuplicateMatch(null) }}
+                      className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                    <button type="submit" disabled={addSubmitting}
+                      className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 transition-all disabled:opacity-50">
+                      {addSubmitting ? 'Checking…' : 'Add Student'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </motion.div>
         )}

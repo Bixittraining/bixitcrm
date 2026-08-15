@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
+import { useData } from '../context/DataContext'
 import { supabase } from '../lib/supabase'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
@@ -130,6 +131,7 @@ const mockApiKeys = [
 export default function Settings() {
   const { theme, toggleTheme, accentColor, setAccentColor } = useTheme()
   const { session, profile, initials, isAdmin, canManageTeam, updateProfile, uploadAvatar, addTeamMember, updateTeamMemberProfile, deleteTeamMember } = useAuth()
+  const { refetchAcademySettings } = useData()
   const [activeTab, setActiveTab] = useState('profile')
 
   // 'admin' tabs (Integrations/API) are admin-only; 'manager' tabs
@@ -247,7 +249,7 @@ export default function Settings() {
   }
 
   // Academy tab — real, persisted business info (academy_settings table)
-  const [academyForm, setAcademyForm] = useState({ name: '', contactEmail: '', phone: '', website: '', gstNumber: '', address: '' })
+  const [academyForm, setAcademyForm] = useState({ name: '', contactEmail: '', phone: '', website: '', gstNumber: '', address: '', attendanceThresholdPercent: 75 })
   const [academyLoading, setAcademyLoading] = useState(true)
   const [academySaving, setAcademySaving] = useState(false)
   const [academySaved, setAcademySaved] = useState(false)
@@ -264,6 +266,7 @@ export default function Settings() {
         website: data.website || '',
         gstNumber: data.gst_number || '',
         address: data.address || '',
+        attendanceThresholdPercent: data.attendance_threshold_percent ?? 75,
       })
     }
     setAcademyLoading(false)
@@ -286,6 +289,7 @@ export default function Settings() {
       website: academyForm.website,
       gst_number: academyForm.gstNumber,
       address: academyForm.address,
+      attendance_threshold_percent: Number(academyForm.attendanceThresholdPercent) || 75,
       updated_at: new Date().toISOString(),
     }).eq('id', true)
     setAcademySaving(false)
@@ -293,6 +297,7 @@ export default function Settings() {
       setAcademyError(error.message)
       return
     }
+    refetchAcademySettings()
     setAcademySaved(true)
     setTimeout(() => setAcademySaved(false), 2500)
   }
@@ -966,6 +971,11 @@ export default function Settings() {
                     <div>
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>GST Number</label>
                       <input type="text" value={academyForm.gstNumber} onChange={handleAcademyChange('gstNumber')} disabled={!canManageTeam} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Attendance Alert Threshold (%)</label>
+                      <input type="number" min="1" max="100" value={academyForm.attendanceThresholdPercent} onChange={handleAcademyChange('attendanceThresholdPercent')} disabled={!canManageTeam} className={`w-full px-4 py-2.5 rounded-xl text-sm border ${inputBg} focus:outline-none focus:ring-2 focus:ring-primary-500/50 disabled:opacity-60`} />
+                      <p className={`text-xs mt-1 ${textSecondary}`}>Students below this attendance % are flagged "Needs Attention".</p>
                     </div>
                     <div className="md:col-span-2">
                       <label className={`block text-sm font-medium mb-1.5 ${labelText}`}>Address</label>

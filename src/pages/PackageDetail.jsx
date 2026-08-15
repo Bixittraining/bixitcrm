@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check, Pencil, Trash2, AlertTriangle, X } from 'lucide-react'
+import { ArrowLeft, Package, Clock, BookOpen, Users, UserCheck, Check, Pencil, Trash2, AlertTriangle, X, ChevronUp, ChevronDown, Plus, Archive, RotateCcw, GraduationCap } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -9,16 +9,66 @@ import { categoryGradients, categoryBadgeColors, categoryBadgeColorsLight, forma
 import PackageFormModal from '../components/packages/PackageFormModal'
 import { modalOverlayVariants, modalCardVariants } from '../lib/modalVariants'
 
+function ModuleFormModal({ module, isDark, onClose, onSave }) {
+  const [form, setForm] = useState({
+    name: module?.name || '', description: module?.description || '',
+    estimatedDuration: module?.estimated_duration || '', learningObjectives: module?.learning_objectives || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const inputCls = `w-full px-3 py-2.5 rounded-xl text-sm border outline-none ${isDark ? 'bg-dark-800 border-dark-700 text-dark-200' : 'bg-white border-dark-200 text-dark-800'}`
+  const labelCls = `block text-sm font-medium mb-1.5 ${isDark ? 'text-dark-300' : 'text-dark-700'}`
+  return (
+    <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit" onClick={(e) => e.stopPropagation()}
+        className={`w-full max-w-md rounded-2xl overflow-hidden ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-dark-700/60' : 'border-dark-200/60'}`}>
+          <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{module ? 'Edit Module' : 'Add Module'}</h2>
+          <button onClick={onClose} className={`p-2 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={async (e) => { e.preventDefault(); setSaving(true); await onSave(form); setSaving(false) }} className="p-6 space-y-4">
+          <div>
+            <label className={labelCls}>Module Name</label>
+            <input type="text" required autoFocus value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. React" className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Description <span className="opacity-60">(optional)</span></label>
+            <textarea rows={2} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="What this module covers" className={`${inputCls} resize-none`} />
+          </div>
+          <div>
+            <label className={labelCls}>Estimated Duration <span className="opacity-60">(optional)</span></label>
+            <input type="text" value={form.estimatedDuration} onChange={(e) => setForm((p) => ({ ...p, estimatedDuration: e.target.value }))} placeholder="e.g. 2 weeks" className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Learning Objectives <span className="opacity-60">(optional)</span></label>
+            <textarea rows={2} value={form.learningObjectives} onChange={(e) => setForm((p) => ({ ...p, learningObjectives: e.target.value }))} placeholder="What a student should be able to do after this module" className={`${inputCls} resize-none`} />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className={`px-5 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+            <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-50">{saving ? 'Saving…' : 'Save Module'}</button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function PackageDetail() {
   const { packageId } = useParams()
   const navigate = useNavigate()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const { packages, students, updatePackage, deletePackage } = useData()
+  const {
+    packages, students, updatePackage, deletePackage,
+    courseModules, addCourseModule, updateCourseModule, reorderCourseModules, archiveCourseModule, restoreCourseModule, deleteCourseModule,
+  } = useData()
   const { isAdmin } = useAuth()
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [moduleModal, setModuleModal] = useState(null) // null | 'new' | moduleObj
+  const [moduleDeleteTarget, setModuleDeleteTarget] = useState(null)
+  const [moduleActionError, setModuleActionError] = useState(null)
 
   const cardClass = isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-sm'
   const pkg = packages.find((p) => String(p.id) === packageId)
@@ -48,6 +98,28 @@ export default function PackageDetail() {
   const capacity = pkg.capacity || 0
   const remainingSlots = Math.max(capacity - enrolledCount, 0)
   const isFull = capacity > 0 && remainingSlots === 0
+
+  const pkgModules = courseModules.filter((m) => m.package_id === pkg.id).sort((a, b) => a.position - b.position)
+  const activeModules = pkgModules.filter((m) => m.is_active)
+
+  const handleMove = async (module, direction) => {
+    const idx = pkgModules.findIndex((m) => m.id === module.id)
+    const swapWith = pkgModules[idx + direction]
+    if (!swapWith) return
+    const reordered = [...pkgModules]
+    ;[reordered[idx], reordered[idx + direction]] = [reordered[idx + direction], reordered[idx]]
+    await reorderCourseModules(pkg.id, reordered.map((m) => m.id))
+  }
+
+  const handleDeleteModule = async (module) => {
+    const result = await deleteCourseModule(module.id)
+    if (result?.error === 'in_use') {
+      setModuleActionError('This module already has student progress recorded, so it can’t be deleted — archive it instead to keep that history.')
+      setModuleDeleteTarget(null)
+      return
+    }
+    setModuleDeleteTarget(null)
+  }
 
   return (
     <div className="space-y-6">
@@ -95,9 +167,68 @@ export default function PackageDetail() {
             <p className={`text-sm leading-relaxed ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>{pkg.description}</p>
           </div>
 
+          {/* Course Modules — the master list every enrolled student's
+              Progress tab is built from. Managed here, once per course,
+              never re-typed per student. */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`text-sm font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                <GraduationCap className="w-4 h-4" />Course Modules
+              </h3>
+              {isAdmin && (
+                <button onClick={() => setModuleModal('new')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                  <Plus className="w-3.5 h-3.5" />Add Module
+                </button>
+              )}
+            </div>
+            {pkgModules.length === 0 ? (
+              <p className={`text-sm py-4 text-center rounded-xl ${isDark ? 'text-dark-500 bg-dark-800/40' : 'text-dark-400 bg-dark-50'}`}>
+                No modules defined yet for this course. {isAdmin ? 'Add the first one above — every enrolled student will inherit it automatically.' : ''}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {pkgModules.map((m, idx) => (
+                  <div key={m.id} className={`flex items-center gap-3 p-3 rounded-xl border ${m.is_active ? (isDark ? 'bg-dark-800/50 border-dark-700/40' : 'bg-dark-50 border-dark-200/40') : (isDark ? 'bg-dark-800/20 border-dark-700/20 opacity-60' : 'bg-dark-50/50 border-dark-200/20 opacity-60')}`}>
+                    <span className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${isDark ? 'bg-dark-700 text-dark-300' : 'bg-dark-200 text-dark-600'}`}>{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                        {m.name}{!m.is_active && <span className="ml-2 text-[11px] font-normal opacity-70">(Archived)</span>}
+                      </p>
+                      {(m.description || m.estimated_duration) && (
+                        <p className={`text-xs truncate ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                          {m.estimated_duration ? `${m.estimated_duration}${m.description ? ' · ' : ''}` : ''}{m.description}
+                        </p>
+                      )}
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button disabled={idx === 0} onClick={() => handleMove(m, -1)} title="Move up"
+                          className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}><ChevronUp className="w-3.5 h-3.5" /></button>
+                        <button disabled={idx === pkgModules.length - 1} onClick={() => handleMove(m, 1)} title="Move down"
+                          className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}><ChevronDown className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setModuleModal(m)} title="Edit"
+                          className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}><Pencil className="w-3.5 h-3.5" /></button>
+                        {m.is_active ? (
+                          <button onClick={() => archiveCourseModule(m.id)} title="Archive"
+                            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}><Archive className="w-3.5 h-3.5" /></button>
+                        ) : (
+                          <button onClick={() => restoreCourseModule(m.id)} title="Restore"
+                            className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-dark-400 hover:bg-dark-700 hover:text-white' : 'text-dark-400 hover:bg-dark-100 hover:text-dark-700'}`}><RotateCcw className="w-3.5 h-3.5" /></button>
+                        )}
+                        <button onClick={() => setModuleDeleteTarget(m)} title="Delete"
+                          className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Modules', value: pkg.modules, icon: BookOpen },
+              { label: 'Modules', value: activeModules.length, icon: BookOpen },
               { label: 'Enrolled', value: enrolledCount, icon: Users },
               { label: 'Remaining Slots', value: capacity > 0 ? remainingSlots : '—', icon: UserCheck },
             ].map((stat) => (
@@ -205,6 +336,59 @@ export default function PackageDetail() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {moduleModal && (
+          <ModuleFormModal
+            module={moduleModal === 'new' ? null : moduleModal}
+            isDark={isDark}
+            onClose={() => setModuleModal(null)}
+            onSave={async (form) => {
+              if (moduleModal === 'new') await addCourseModule(pkg.id, form)
+              else await updateCourseModule(moduleModal.id, form)
+              setModuleModal(null)
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {moduleDeleteTarget && (
+          <motion.div variants={modalOverlayVariants} initial="hidden" animate="visible" exit="exit"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setModuleDeleteTarget(null)}>
+            <motion.div variants={modalCardVariants} initial="hidden" animate="visible" exit="exit" onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-sm rounded-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700/60' : 'bg-white border border-dark-200/60 shadow-xl'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-rose-500">
+                  <AlertTriangle className="w-5 h-5" />
+                  <h2 className="text-base font-bold">Delete module?</h2>
+                </div>
+                <button onClick={() => setModuleDeleteTarget(null)} className={`p-1 rounded-lg ${isDark ? 'hover:bg-dark-800 text-dark-400' : 'hover:bg-dark-100 text-dark-500'}`}><X size={18} /></button>
+              </div>
+              <p className={`text-sm mb-4 ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                <strong>{moduleDeleteTarget.name}</strong> will be permanently removed. If any student already has progress recorded against it, delete will be blocked — archive it instead to keep that history.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setModuleDeleteTarget(null)} className={`px-4 py-2.5 rounded-xl text-sm font-medium border ${isDark ? 'border-dark-700 text-dark-300 hover:bg-dark-800' : 'border-dark-200 text-dark-600 hover:bg-dark-50'}`}>Cancel</button>
+                <button onClick={() => handleDeleteModule(moduleDeleteTarget)} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 transition-colors">Delete</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {moduleActionError && (
+          <motion.div initial={{ opacity: 0, x: 80 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 80 }}
+            onAnimationComplete={() => setTimeout(() => setModuleActionError(null), 4000)}
+            className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border max-w-sm ${isDark ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm font-medium">{moduleActionError}</span>
+            <button onClick={() => setModuleActionError(null)} className="ml-1 opacity-60 hover:opacity-100 flex-shrink-0"><X className="w-4 h-4" /></button>
           </motion.div>
         )}
       </AnimatePresence>

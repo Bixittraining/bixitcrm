@@ -14,6 +14,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Leads = lazy(() => import('./pages/Leads'))
 const FollowUps = lazy(() => import('./pages/FollowUps'))
 const Students = lazy(() => import('./pages/Students'))
+const StudentDetail = lazy(() => import('./pages/StudentDetail'))
 const Batches = lazy(() => import('./pages/Batches'))
 const BatchDetail = lazy(() => import('./pages/BatchDetail'))
 const Attendance = lazy(() => import('./pages/Attendance'))
@@ -65,6 +66,7 @@ function AppRoutes() {
             <Route path="leads" element={<Leads />} />
             <Route path="follow-ups" element={<FollowUps />} />
             <Route path="students" element={<Students />} />
+            <Route path="students/:studentId" element={<StudentDetail />} />
             <Route path="batches" element={<Batches />} />
             <Route path="batches/:batchId" element={<BatchDetail />} />
             <Route path="attendance" element={<Attendance />} />

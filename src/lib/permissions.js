@@ -24,6 +24,7 @@ export const ROLE_PERMISSIONS = {
     reports: ['view', 'export'],
     classSchedule: ['view', 'create', 'edit', 'delete'],
     automation: ['view', 'create', 'edit', 'enable_disable', 'delete', 'view_logs', 'retry'],
+    students: ['view', 'view_all', 'edit', 'change_batch', 'change_status', 'documents', 'fees', 'export', 'export_fees', 'delete', 'notes', 'progress'],
   },
   manager: {
     studentAttendance: ['view', 'mark', 'edit', 'correct', 'export'],
@@ -38,6 +39,9 @@ export const ROLE_PERMISSIONS = {
     // spec's "Only authorized administrators... unless explicitly
     // authorized" for rule changes specifically.
     automation: ['view', 'view_logs', 'retry'],
+    // No 'delete' or 'export_fees' — matches admin-only removal/financial-
+    // export elsewhere in this app (e.g. team member deletion).
+    students: ['view', 'view_all', 'edit', 'change_batch', 'change_status', 'documents', 'fees', 'export', 'notes', 'progress'],
   },
   sales: {
     // Matches existing behavior: any authenticated staff can mark
@@ -51,6 +55,9 @@ export const ROLE_PERMISSIONS = {
     reports: ['view'],
     classSchedule: ['view'],
     automation: [],
+    // "View student, Contact student, View basic information" — no edit,
+    // batch/status changes, documents, fees, or export.
+    students: ['view'],
   },
 }
 
@@ -81,4 +88,31 @@ export function getProductivityScope(profile) {
 /** Trainer-ness is real-data-derived, same rule the productivity engine uses. */
 export function isTrainer(profile, batches) {
   return batches.some((b) => b.instructor_id === profile?.id)
+}
+
+/**
+ * Is `student` one this profile trains? Real-data-derived like isTrainer —
+ * true when the student's batch is instructed by this profile. A sales/
+ * manager/admin profile that also happens to instruct a batch (rare, but
+ * the schema allows it) gets the same trainer-scoped grants for that
+ * student on top of whatever their role already grants.
+ */
+export function isTrainerOfStudent(profile, student, batches) {
+  if (!student?.batch_id) return false
+  const batch = batches.find((b) => b.id === student.batch_id)
+  return !!batch && batch.instructor_id === profile?.id
+}
+
+/**
+ * The Students module's real permission check — combines the role-based
+ * grant with the Trainer carve-out (spec: "Trainer: View assigned
+ * students, Attendance, Progress, Notes" — not a `profiles.role`, so it
+ * can't live in ROLE_PERMISSIONS.students directly). A trainer gets
+ * 'view'/'notes'/'progress' for their own students even on a base role
+ * (sales) that wouldn't otherwise grant them.
+ */
+export function canStudent(profile, action, student, batches) {
+  if (can(profile, 'students', action)) return true
+  if (['view', 'notes', 'progress'].includes(action) && isTrainerOfStudent(profile, student, batches)) return true
+  return false
 }

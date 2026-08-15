@@ -12,6 +12,7 @@ export const ACTIVITY_TYPES = {
   WHATSAPP: { label: 'WhatsApp', icon: '💬', bucket: 'messages' },
   EMAIL: { label: 'Email', icon: '✉️', bucket: 'messages' },
   FOLLOWUP_CREATED: { label: 'Follow-up Scheduled', icon: '📅', bucket: 'followups' },
+  FOLLOWUP_RESCHEDULED: { label: 'Follow-up Rescheduled', icon: '📅', bucket: 'followups' },
   FOLLOWUP_COMPLETED: { label: 'Follow-up Completed', icon: '✅', bucket: 'followups' },
   FOLLOWUP_CANCELLED: { label: 'Follow-up Cancelled', icon: '🚫', bucket: 'followups' },
   MEETING_SCHEDULED: { label: 'Meeting Scheduled', icon: '📅', bucket: 'meetings' },
