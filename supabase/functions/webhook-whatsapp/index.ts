@@ -13,8 +13,57 @@ import {
 // Meta Ads leadgen. Payload docs:
 // https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks
 
+const GRAPH_API_VERSION = 'v21.0'
+const SYLLABUS_KEYWORDS = ['syllabus', 'curriculum', 'course details', 'course content']
+
 function digitsOnly(value?: string | null) {
   return (value || '').replace(/\D/g, '')
+}
+
+// The one real "bot" reply this webhook sends today: a lead types
+// "syllabus"/"curriculum"/etc, and — if their course has real modules
+// defined (Packages > a course's Modules section, the same course_modules
+// used by the Student Progress feature) — gets them back immediately,
+// without waiting on a human. Silent no-op if there's no matching lead,
+// no course, or the course has no modules yet: this is an enhancement on
+// top of the human conversation, never a replacement for one.
+// deno-lint-ignore no-explicit-any
+async function maybeSendSyllabus(admin: any, integration: any, { phone, lead, text }: { phone: string; lead: { id: number; course?: string | null } | null; text: string }) {
+  const lower = text.toLowerCase()
+  if (!SYLLABUS_KEYWORDS.some((kw) => lower.includes(kw))) return
+  if (!lead?.course) return
+  if (!integration.page_id || !integration.page_access_token) return
+
+  const { data: pkg } = await admin.from('packages').select('id, name').ilike('name', lead.course).maybeSingle()
+  if (!pkg) return
+
+  const { data: modules } = await admin
+    .from('course_modules')
+    .select('name, position')
+    .eq('package_id', pkg.id)
+    .eq('is_active', true)
+    .order('position', { ascending: true })
+  if (!modules || modules.length === 0) return
+
+  // deno-lint-ignore no-explicit-any
+  const list = modules.map((m: any, i: number) => `${i + 1}. ${m.name}`).join('\n')
+  const body = `Here's the syllabus for *${pkg.name}*:\n\n${list}\n\nWant more details on any module? Just ask, or our counsellor will call you shortly!`
+
+  const graphRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${integration.page_id}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${integration.page_access_token}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body } }),
+  })
+  const graphBody = await graphRes.json()
+  if (!graphRes.ok || graphBody.error) {
+    await logAudit(admin, 'whatsapp', 'Syllabus auto-reply failed', `To ${phone}: ${graphBody.error?.message || 'Failed to send'}`, 'failed')
+    return
+  }
+
+  const wamid = graphBody.messages?.[0]?.id
+  await admin.from('whatsapp_messages').insert({ phone, lead_id: lead.id, direction: 'outbound', sender: 'bot', body, wamid })
+  await admin.from('whatsapp_conversations').update({ last_message: body, last_message_at: new Date().toISOString() }).eq('phone', phone)
+  await logAudit(admin, 'whatsapp', 'Syllabus auto-reply sent', `To ${phone} for course "${pkg.name}"`, 'success')
 }
 
 // New conversations default to 'bot' mode. There is no actual bot engine
@@ -109,9 +158,11 @@ Deno.serve(async (req) => {
 
         const { data: matchingLeads } = await admin
           .from('leads')
-          .select('id')
+          .select('id, course')
           .ilike('phone', `%${digitsOnly(message.from).slice(-10)}%`)
         const lead = matchingLeads?.[0]
+
+        const { data: existingConversation } = await admin.from('whatsapp_conversations').select('mode').eq('phone', message.from).maybeSingle()
 
         await upsertConversation(admin, { phone: message.from, leadId: lead?.id, contactName: senderName, lastMessage: text })
         await admin.from('whatsapp_messages').insert({
@@ -122,6 +173,13 @@ Deno.serve(async (req) => {
           body: text,
           wamid: message.id,
         })
+
+        // A human already taking this conversation over (mode: 'human')
+        // means the bot must not talk over them — only auto-reply while
+        // no team member has stepped in yet.
+        if (existingConversation?.mode !== 'human') {
+          await maybeSendSyllabus(admin, integration, { phone: message.from, lead: lead ?? null, text })
+        }
 
         await logAudit(
           admin,
