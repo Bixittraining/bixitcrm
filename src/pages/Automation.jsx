@@ -32,6 +32,10 @@ const TRIGGER_OPTIONS = [
   { key: 'FOLLOW_UP_DUE', label: 'Follow-up Due' },
   { key: 'FOLLOW_UP_OVERDUE', label: 'Follow-up Overdue' },
   { key: 'FOLLOW_UP_COMPLETED', label: 'Follow-up Completed' },
+  { key: 'FOLLOW_UP_RESCHEDULED', label: 'Follow-up Rescheduled' },
+  { key: 'FOLLOW_UP_CANCELLED', label: 'Follow-up Cancelled' },
+  { key: 'FOLLOW_UP_OUTCOME_RECORDED', label: 'Follow-up Outcome Recorded' },
+  { key: 'NEXT_FOLLOW_UP_CREATED', label: 'Next Follow-up Created' },
   { key: 'LEAD_NEGOTIATION', label: 'Lead in Negotiation' },
   { key: 'LEAD_ENROLLED', label: 'Lead Enrolled' },
   { key: 'LEAD_LOST', label: 'Lead Lost' },
@@ -80,8 +84,8 @@ const ACTION_TYPES = [
   { key: 'change_lead_status', label: 'Change Lead Status', icon: ArrowRight },
   { key: 'add_note', label: 'Add Note', icon: FileText },
   { key: 'create_internal_notification', label: 'Create Internal Notification', icon: AlertCircle },
-  { key: 'send_whatsapp', label: 'Send WhatsApp', icon: Zap, notConnected: true },
-  { key: 'send_email', label: 'Send Email', icon: Zap, notConnected: true },
+  { key: 'send_whatsapp', label: 'Send WhatsApp', icon: Zap },
+  { key: 'send_email', label: 'Send Email', icon: Zap },
 ]
 function actionMeta(key) { return ACTION_TYPES.find((a) => a.key === key) || ACTION_TYPES[0] }
 
@@ -186,7 +190,6 @@ function ConditionRow({ condition, onChange, onRemove, isDark, teamMembers }) {
 
 // ── ONE action row: [ Action type ] + its inline config + [ delay ] ────
 function ActionRow({ action, index, total, onChange, onRemove, onMove, isDark, teamMembers }) {
-  const meta = actionMeta(action.action_type)
   const cfg = action.config || {}
   const setCfg = (patch) => onChange({ ...action, config: { ...cfg, ...patch } })
 
@@ -206,9 +209,9 @@ function ActionRow({ action, index, total, onChange, onRemove, onMove, isDark, t
         </div>
       </div>
 
-      {meta.notConnected && (
-        <p className={`flex items-center gap-1.5 text-xs mb-3 px-2.5 py-1.5 rounded-lg ${isDark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
-          <Info className="w-3.5 h-3.5 shrink-0" />No provider connected yet — this action is saved and will run once {meta.key === 'send_whatsapp' ? 'WhatsApp' : 'Email'} is connected in a future phase.
+      {(action.action_type === 'send_whatsapp' || action.action_type === 'send_email') && (
+        <p className={`flex items-center gap-1.5 text-xs mb-3 px-2.5 py-1.5 rounded-lg ${isDark ? 'bg-sky-500/10 text-sky-400' : 'bg-sky-50 text-sky-600'}`}>
+          <Info className="w-3.5 h-3.5 shrink-0" />Sends via the {action.action_type === 'send_whatsapp' ? 'WhatsApp' : 'Email'} provider connected in Settings → Integrations. If it isn't connected, this action is skipped (not failed).
         </p>
       )}
 
@@ -246,6 +249,10 @@ function ActionRow({ action, index, total, onChange, onRemove, onMove, isDark, t
 
       {action.action_type === 'add_note' && (
         <textarea value={cfg.text || ''} onChange={(e) => setCfg({ text: e.target.value })} placeholder="Note text" rows={2} className={inputCls(isDark)} />
+      )}
+
+      {action.action_type === 'send_email' && (
+        <input type="text" value={cfg.subject || ''} onChange={(e) => setCfg({ subject: e.target.value })} placeholder="Subject" className={`${inputCls(isDark)} mb-2`} />
       )}
 
       {(action.action_type === 'create_internal_notification' || action.action_type === 'send_whatsapp' || action.action_type === 'send_email') && (

@@ -112,6 +112,34 @@ export async function insertLead(
 
   const { data, error } = await admin.from('leads').insert(lead).select().single()
   if (error) return { error: error.message }
+
+  // Webhook-sourced leads (Meta Ads, JustDial, Google Ads) skipped the
+  // LEAD_CREATED event entirely before this — only leads created through
+  // the UI (DataContext's emitLeadCreatedEvent) ever reached the
+  // automation engine, so a "welcome every new lead, any source" workflow
+  // silently never fired for the sources that generate the most leads.
+  // Mirrors src/lib/automation.js's emitAutomationEvent: never let a
+  // failure here block the lead from being created.
+  try {
+    const { data: event, error: eventErr } = await admin
+      .from('automation_events')
+      .insert({
+        event_type: 'LEAD_CREATED', entity_type: 'lead', entity_id: String(data.id),
+        source_table: 'leads', source_id: String(data.id),
+        payload: { source: data.source ?? null, course: data.course ?? null, assignedExecutive: data.assigned_to ?? null },
+      })
+      .select()
+      .single()
+    if (!eventErr && event) {
+      admin.functions.invoke('automation-engine', { body: { mode: 'trigger', eventId: event.id } })
+        .catch((err: Error) => console.error('automation-engine trigger invoke failed', err))
+    } else if (eventErr && eventErr.code !== '23505') {
+      console.error('automation_events insert error', eventErr)
+    }
+  } catch (err) {
+    console.error('LEAD_CREATED event emission failed', err)
+  }
+
   return { data }
 }
 

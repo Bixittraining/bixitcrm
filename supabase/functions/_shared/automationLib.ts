@@ -1,12 +1,21 @@
 // Shared by supabase/functions/automation-engine — condition evaluation,
 // action execution, and the business-hours check, kept out of index.ts so
 // the request-routing (trigger/retry/run_scheduled) stays readable on its
-// own. Nothing here calls WhatsApp or Email; send_whatsapp/send_email
-// always resolve to 'skipped' until a provider is connected in the next
-// phase (see runAction's default case below).
+// own. send_whatsapp/send_email call the same Meta Graph API / Gmail SMTP
+// providers as the manual-send endpoints (api/whatsapp/send.js,
+// api/email/send.js) using the service-role client — there's no logged-in
+// user here, so message rows are attributed to "Automation" instead of a
+// team member. If the 'whatsapp'/'email' row in `integrations` isn't
+// configured yet, the action resolves to 'skipped', not 'failed' — that's
+// an admin setup gap, not a broken workflow.
+
+import nodemailer from 'npm:nodemailer@6'
+import { getIntegrationConfig, logAudit } from './lib.ts'
 
 // deno-lint-ignore no-explicit-any
 type AdminClient = any
+
+const GRAPH_API_VERSION = 'v21.0'
 
 export const ACTION_TYPE_LABELS: Record<string, string> = {
   assign_lead: 'Lead assigned',
@@ -210,12 +219,80 @@ export async function runAction(admin: AdminClient, action: any, ctx: { lead: an
         await logActivity(admin, lead.id, lead.status, lead.status, message, 'AUTOMATION')
         return { status: 'success' }
       }
-      case 'send_whatsapp':
-      case 'send_email':
-        // No provider connected yet — see "WhatsApp/Email integration
-        // points" in the phase hand-off notes. This is the ONLY place a
-        // future channel plugs in; nothing else about the engine changes.
-        return { status: 'skipped', error: `${action.action_type === 'send_whatsapp' ? 'WhatsApp' : 'Email'} provider is not connected yet` }
+      case 'send_whatsapp': {
+        const phone = lead.phone
+        if (!phone) return { status: 'skipped', error: 'Lead has no phone number' }
+        const body = (action.config?.message || '').trim()
+        if (!body) return { status: 'skipped', error: 'No message configured' }
+
+        const { data: integration, error: cfgErr } = await getIntegrationConfig(admin, 'whatsapp')
+        if (cfgErr) return { status: 'skipped', error: `WhatsApp integration lookup failed: ${cfgErr}` }
+        if (!integration.page_id || !integration.page_access_token) {
+          return { status: 'skipped', error: 'WhatsApp integration is not configured yet' }
+        }
+
+        const graphRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${integration.page_id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${integration.page_access_token}` },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body } }),
+        })
+        const graphBody = await graphRes.json()
+        if (!graphRes.ok || graphBody.error) {
+          const message = graphBody.error?.message || 'Failed to send WhatsApp message'
+          await logAudit(admin, 'whatsapp', 'Automation message failed', `To ${phone} (workflow "${workflowName}"): ${message}`, 'failed')
+          return { status: 'failed', error: message }
+        }
+
+        const wamid = graphBody.messages?.[0]?.id
+        const { data: conversation } = await admin.from('whatsapp_conversations').select('lead_id').eq('phone', phone).maybeSingle()
+        await admin.from('whatsapp_messages').insert({
+          phone, lead_id: conversation?.lead_id ?? lead.id, direction: 'outbound', sender: 'bot', body, wamid,
+        })
+        await admin.from('whatsapp_conversations').upsert({
+          phone, lead_id: conversation?.lead_id ?? lead.id, mode: 'bot',
+          last_message: body, last_message_at: new Date().toISOString(), unread_count: 0, updated_at: new Date().toISOString(),
+        })
+        await logAudit(admin, 'whatsapp', 'Automation message sent', `To ${phone} via workflow "${workflowName}"`, 'success')
+        return { status: 'success', result: { wamid } }
+      }
+      case 'send_email': {
+        const to = lead.email
+        if (!to) return { status: 'skipped', error: 'Lead has no email address' }
+        const subject = (action.config?.subject || '').trim()
+        const body = (action.config?.message || '').trim()
+        if (!subject || !body) return { status: 'skipped', error: 'No subject/message configured' }
+
+        const { data: integration, error: cfgErr } = await getIntegrationConfig(admin, 'email')
+        if (cfgErr) return { status: 'skipped', error: `Email integration lookup failed: ${cfgErr}` }
+        if (!integration.page_id || !integration.page_access_token) {
+          return { status: 'skipped', error: 'Email integration is not configured yet' }
+        }
+
+        const fromEmail = integration.page_id
+        const transporter = nodemailer.createTransport({
+          host: 'smtp.gmail.com', port: 465, secure: true,
+          auth: { user: integration.page_id, pass: integration.page_access_token },
+        })
+
+        try {
+          await transporter.sendMail({ from: `"${workflowName}" <${fromEmail}>`, to, subject, text: body })
+        } catch (err) {
+          const message = (err as Error).message
+          await admin.from('email_messages').insert({
+            lead_id: lead.id, to_email: to, from_email: fromEmail, subject, body,
+            sender_name: `Automation: ${workflowName}`, status: 'failed', error: message,
+          })
+          await logAudit(admin, 'email', 'Automation email failed', `To ${to} (workflow "${workflowName}"): ${message}`, 'failed')
+          return { status: 'failed', error: message }
+        }
+
+        await admin.from('email_messages').insert({
+          lead_id: lead.id, to_email: to, from_email: fromEmail, subject, body,
+          sender_name: `Automation: ${workflowName}`, status: 'sent',
+        })
+        await logAudit(admin, 'email', 'Automation email sent', `To ${to} via workflow "${workflowName}"`, 'success')
+        return { status: 'success' }
+      }
       default:
         return { status: 'failed', error: `Unknown action type "${action.action_type}"` }
     }

@@ -144,5 +144,31 @@ export async function insertLead(admin, { name, email, phone, course, source, no
 
   const { data, error } = await admin.from('leads').insert(lead).select().single()
   if (error) return { error: error.message }
+
+  // Google Ads / JustDial leads land here (this route), Meta Ads / WhatsApp
+  // land in the Supabase Edge Function twin of this file — both skipped the
+  // LEAD_CREATED event entirely before this, so only UI-created leads ever
+  // reached the automation engine. Mirrors src/lib/automation.js's
+  // emitAutomationEvent: never let a failure here block lead creation.
+  try {
+    const { data: event, error: eventErr } = await admin
+      .from('automation_events')
+      .insert({
+        event_type: 'LEAD_CREATED', entity_type: 'lead', entity_id: String(data.id),
+        source_table: 'leads', source_id: String(data.id),
+        payload: { source: data.source ?? null, course: data.course ?? null, assignedExecutive: data.assigned_to ?? null },
+      })
+      .select()
+      .single()
+    if (!eventErr && event) {
+      admin.functions.invoke('automation-engine', { body: { mode: 'trigger', eventId: event.id } })
+        .catch((err) => console.error('automation-engine trigger invoke failed', err))
+    } else if (eventErr && eventErr.code !== '23505') {
+      console.error('automation_events insert error', eventErr)
+    }
+  } catch (err) {
+    console.error('LEAD_CREATED event emission failed', err)
+  }
+
   return { data }
 }
