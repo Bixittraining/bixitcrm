@@ -259,6 +259,13 @@ function ActionRow({ action, index, total, onChange, onRemove, onMove, isDark, t
         <textarea value={cfg.message || ''} onChange={(e) => setCfg({ message: e.target.value })} placeholder="Message" rows={2} className={inputCls(isDark)} />
       )}
 
+      {action.action_type === 'send_email' && (
+        <label className={`mt-2 flex items-center gap-2 text-xs ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+          <input type="checkbox" checked={!!cfg.includeSyllabus} onChange={(e) => setCfg({ includeSyllabus: e.target.checked })} className="rounded" />
+          Include the lead's course syllabus (pulled from Packages → Modules)
+        </label>
+      )}
+
       <div className="mt-3">
         <label className={labelCls(isDark)}>Run</label>
         <select value={action.delay_minutes || 0} onChange={(e) => onChange({ ...action, delay_minutes: Number(e.target.value) })} className={inputCls(isDark)}>

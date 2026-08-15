@@ -10,7 +10,7 @@
 // an admin setup gap, not a broken workflow.
 
 import nodemailer from 'npm:nodemailer@6'
-import { getIntegrationConfig, logAudit } from './lib.ts'
+import { getCourseSyllabus, getIntegrationConfig, logAudit } from './lib.ts'
 
 // deno-lint-ignore no-explicit-any
 type AdminClient = any
@@ -259,8 +259,21 @@ export async function runAction(admin: AdminClient, action: any, ctx: { lead: an
         const to = lead.email
         if (!to) return { status: 'skipped', error: 'Lead has no email address' }
         const subject = (action.config?.subject || '').trim()
-        const body = (action.config?.message || '').trim()
+        let body = (action.config?.message || '').trim()
         if (!subject || !body) return { status: 'skipped', error: 'No subject/message configured' }
+
+        // Course-aware, on purpose: config.message is one static string an
+        // admin wrote once, but "which course" is per-lead — this appends
+        // the real syllabus (course_modules, admin-maintained under
+        // Packages) instead of asking the admin to hand-write a syllabus
+        // into every workflow's static text.
+        if (action.config?.includeSyllabus) {
+          const syllabus = await getCourseSyllabus(admin, lead.course)
+          if (syllabus) {
+            const list = syllabus.moduleNames.map((name: string, i: number) => `${i + 1}. ${name}`).join('\n')
+            body += `\n\nHere's the syllabus for ${syllabus.packageName}:\n${list}`
+          }
+        }
 
         const { data: integration, error: cfgErr } = await getIntegrationConfig(admin, 'email')
         if (cfgErr) return { status: 'skipped', error: `Email integration lookup failed: ${cfgErr}` }

@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import {
   getAdminClient,
+  getCourseSyllabus,
   getIntegrationConfig,
   json,
   logAudit,
@@ -31,23 +32,14 @@ function digitsOnly(value?: string | null) {
 async function maybeSendSyllabus(admin: any, integration: any, { phone, lead, text }: { phone: string; lead: { id: number; course?: string | null } | null; text: string }) {
   const lower = text.toLowerCase()
   if (!SYLLABUS_KEYWORDS.some((kw) => lower.includes(kw))) return
-  if (!lead?.course) return
+  if (!lead) return
   if (!integration.page_id || !integration.page_access_token) return
 
-  const { data: pkg } = await admin.from('packages').select('id, name').ilike('name', lead.course).maybeSingle()
-  if (!pkg) return
+  const syllabus = await getCourseSyllabus(admin, lead.course)
+  if (!syllabus) return
 
-  const { data: modules } = await admin
-    .from('course_modules')
-    .select('name, position')
-    .eq('package_id', pkg.id)
-    .eq('is_active', true)
-    .order('position', { ascending: true })
-  if (!modules || modules.length === 0) return
-
-  // deno-lint-ignore no-explicit-any
-  const list = modules.map((m: any, i: number) => `${i + 1}. ${m.name}`).join('\n')
-  const body = `Here's the syllabus for *${pkg.name}*:\n\n${list}\n\nWant more details on any module? Just ask, or our counsellor will call you shortly!`
+  const list = syllabus.moduleNames.map((name, i) => `${i + 1}. ${name}`).join('\n')
+  const body = `Here's the syllabus for *${syllabus.packageName}*:\n\n${list}\n\nWant more details on any module? Just ask, or our counsellor will call you shortly!`
 
   const graphRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${integration.page_id}/messages`, {
     method: 'POST',
@@ -63,7 +55,7 @@ async function maybeSendSyllabus(admin: any, integration: any, { phone, lead, te
   const wamid = graphBody.messages?.[0]?.id
   await admin.from('whatsapp_messages').insert({ phone, lead_id: lead.id, direction: 'outbound', sender: 'bot', body, wamid })
   await admin.from('whatsapp_conversations').update({ last_message: body, last_message_at: new Date().toISOString() }).eq('phone', phone)
-  await logAudit(admin, 'whatsapp', 'Syllabus auto-reply sent', `To ${phone} for course "${pkg.name}"`, 'success')
+  await logAudit(admin, 'whatsapp', 'Syllabus auto-reply sent', `To ${phone} for course "${syllabus.packageName}"`, 'success')
 }
 
 // New conversations default to 'bot' mode. There is no actual bot engine

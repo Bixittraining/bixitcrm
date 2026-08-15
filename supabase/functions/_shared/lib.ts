@@ -67,6 +67,29 @@ export async function markIntegrationStatus(
   if (error) console.error('markIntegrationStatus error', error)
 }
 
+// Shared by automationLib.ts's send_email action and webhook-whatsapp's
+// syllabus auto-reply — one lookup so both channels describe the same
+// course the same way, from the one place admins actually maintain it
+// (Packages > a course's Modules section).
+export async function getCourseSyllabus(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  course?: string | null
+): Promise<{ packageName: string; moduleNames: string[] } | null> {
+  if (!course) return null
+  const { data: pkg } = await admin.from('packages').select('id, name').ilike('name', course).maybeSingle()
+  if (!pkg) return null
+  const { data: modules } = await admin
+    .from('course_modules')
+    .select('name, position')
+    .eq('package_id', pkg.id)
+    .eq('is_active', true)
+    .order('position', { ascending: true })
+  if (!modules || modules.length === 0) return null
+  // deno-lint-ignore no-explicit-any
+  return { packageName: pkg.name, moduleNames: modules.map((m: any) => m.name) }
+}
+
 // Inserts a lead, skipping if an entry with the same email already exists
 // so retried webhook deliveries (Meta/Google both retry on failure) don't
 // create duplicate leads.
